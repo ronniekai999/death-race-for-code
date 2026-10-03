@@ -93,6 +93,10 @@ final class ScreenBuffer {
     private(set) var scrollback = RingBuffer<Row>()
     private(set) var scrollbackBytes = 0
     var scrollbackLimitBytes: Int
+    /// Lines ever added to scrollback, so a viewport scrolled into history can stay on the
+    /// same lines while output arrives. Reflow re-adds every line; it also bumps the
+    /// terminal's generation, which tells readers to start over.
+    private(set) var scrollbackLinesAdded: UInt64 = 0
 
     var cursor = Cursor()
     var savedCursor: SavedCursor?
@@ -171,8 +175,6 @@ final class ScreenBuffer {
             }
             active.insert(makeRow(fill: fill), at: scrollBottom)
         }
-        // Every row in the region moved.
-        for y in scrollTop...scrollBottom { touch(y) }
     }
 
     /// Scrolls the region down: lines leave at the bottom, blank lines enter at the top.
@@ -184,7 +186,6 @@ final class ScreenBuffer {
             recycle(active.remove(at: scrollBottom))
             active.insert(makeRow(fill: fill), at: scrollTop)
         }
-        for y in scrollTop...scrollBottom { touch(y) }
     }
 
     /// IL: inserts blank lines at `y`, pushing the rest of the region down.
@@ -196,7 +197,6 @@ final class ScreenBuffer {
             recycle(active.remove(at: scrollBottom))
             active.insert(makeRow(fill: fill), at: y)
         }
-        for row in y...scrollBottom { touch(row) }
     }
 
     /// DL: deletes lines at `y`, pulling the rest of the region up.
@@ -208,7 +208,6 @@ final class ScreenBuffer {
             recycle(active.remove(at: y))
             active.insert(makeRow(fill: fill), at: scrollBottom)
         }
-        for row in y...scrollBottom { touch(row) }
     }
 
     func pushToScrollback(_ row: Row) {
@@ -217,6 +216,7 @@ final class ScreenBuffer {
             return
         }
         scrollback.append(row)
+        scrollbackLinesAdded &+= 1
         scrollbackBytes += row.estimatedBytes
         while scrollbackBytes > scrollbackLimitBytes, !scrollback.isEmpty {
             let oldest = scrollback.removeFirst()

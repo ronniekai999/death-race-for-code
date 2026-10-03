@@ -160,6 +160,9 @@ public final class Terminal {
 
     public var scrollbackCount: Int { screen.scrollback.count }
 
+    /// Lines ever added to this screen's scrollback; see `ScreenBuffer.scrollbackLinesAdded`.
+    public var scrollbackLinesAdded: UInt64 { screen.scrollbackLinesAdded }
+
     /// A scrollback row, 0 being the oldest kept.
     public func scrollbackRow(_ index: Int) -> Row { screen.scrollback[index] }
 

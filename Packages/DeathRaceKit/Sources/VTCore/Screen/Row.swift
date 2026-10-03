@@ -10,7 +10,8 @@
 public final class Row {
     /// Stable while the row lives, across scrolling; renderers and deltas key on it.
     public internal(set) var id: UInt64
-    /// Bumped on every change; the session sends rows whose version moved.
+    /// Bumped on every change to the row's content; the session sends rows whose version
+    /// moved. Scrolling moves rows without changing them, so it leaves versions alone.
     public internal(set) var version: UInt64 = 0
     public internal(set) var cells: ContiguousArray<Cell>
     public internal(set) var styles: ContiguousArray<Style>

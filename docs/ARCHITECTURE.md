@@ -39,7 +39,8 @@ UI half needs macOS.
 | --- | --- | --- |
 | `CPTY` | macOS, Linux | `openpty` → `fork` → `setsid` → `TIOCSCTTY` → `dup2` → `execve`, in C |
 | `PTYKit` | macOS, Linux | `PseudoTerminal` (non-blocking master, resize, echo state, reaping), `ShellLaunch`, `SmokeTest` |
-| `VTCore` | macOS, Linux | the engine: parser, screens and scrollback, printing, SGR, modes, reports, OSC/DCS |
+| `VTCore` | macOS, Linux | the engine: parser, screens and scrollback, reflow, SGR, modes, reports, OSC/DCS; key, mouse, focus and paste encoding |
+| `ScreenProtocol` | macOS, Linux | `ScreenDelta`, `DeltaBuilder` (session side), `MirrorGrid` (app side), `DeltaCodec` (bytes for XPC) |
 | `vthost` | macOS, Linux | headless host CLI: `smoke` now; `run`, `replay`, `dump`, `bench`, esctest later |
 | `LegendsUI` | macOS | design system: tokens, `Wordmark999`, `NeonBorder`, `Starfield`, `Tagline` |
 | `DeathRaceApp` | macOS | the SwiftUI app; Phase 0 shows a first-lap window and checks the login shell |
@@ -82,11 +83,19 @@ moves to a render thread signalled from main.
 
 ### ScreenProtocol: built now for the daemon later
 
-A `ScreenDelta` carries generation, version, size, top viewport row id, cursor, modes, changed
-rows (each with its own styles and graphemes) and events. It is current state, not a log: a
-newer delta replaces an unsent one, at most one is in flight per client, and a generation
-mismatch triggers a full snapshot. Phases 1–6 pass deltas in-process; `legendsd` will send the
-same encoded bytes over XPC.
+A `ScreenDelta` carries generation, version, size, the viewport's row ids, cursor, modes,
+changed rows (each with its own styles and graphemes) and events. It is current state, not a
+log: a newer delta replaces an unsent one, at most one is in flight per client, and a
+generation mismatch triggers a full snapshot. Phases 1–6 pass deltas in-process; `legendsd`
+will send the same encoded bytes over XPC.
+
+The session owns each client's viewport. Rows travel by id, so scrolling sends only the new
+line, and a viewport scrolled back into history stays on the same lines while output arrives
+below. Scrolling never changes a row's version; only content changes do. A randomized test
+feeds random output in random chunks (with resizes, screen switches and scrollback trimming),
+sends every delta through the codec, and checks that the app's mirror equals a fresh snapshot
+after each one. The decoder is defensive: counts are checked against the bytes that remain
+before anything is allocated, and invalid scalars, colors and tags are rejected.
 
 ### VTCore design
 

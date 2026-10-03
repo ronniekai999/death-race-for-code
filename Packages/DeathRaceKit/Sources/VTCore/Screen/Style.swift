@@ -4,8 +4,9 @@
 public struct TerminalColor: Hashable, Sendable {
     public let raw: UInt32
 
+    /// From the packed form, as `raw` holds it; for decoding.
     @inlinable
-    init(raw: UInt32) { self.raw = raw }
+    public init(raw: UInt32) { self.raw = raw }
 
     public static let `default` = TerminalColor(raw: 0)
 

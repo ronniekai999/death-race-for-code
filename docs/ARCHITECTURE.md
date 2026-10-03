@@ -133,6 +133,11 @@ blocks signals across the fork, resets dispositions in the child, makes the slav
 controlling terminal, closes inherited descriptors (`close_range` on Linux) and execs. Shells
 get `TERM=xterm-256color`: a custom TERM breaks every SSH host that lacks its terminfo.
 
+Teardown closes the master before waiting for the child, and never waits without a limit. On
+macOS the last close of a terminal's slave side waits for unread output to drain while the
+master is open, so a shell whose final prompt nobody read cannot finish exiting: waiting for
+it first deadlocks. Linux does not drain on close, so only macOS CI catches this.
+
 ### Rendering
 
 `TerminalSurfaceView` (NSView + CAMetalLayer + NSTextInputClient) draws from `MirrorGrid`: a

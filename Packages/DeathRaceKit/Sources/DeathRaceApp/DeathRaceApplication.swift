@@ -9,7 +9,7 @@ import SwiftUI
 /// look, and a login shell running on our own pseudo-terminal. The terminal surface replaces
 /// it in Phase 2.
 public struct DeathRaceApplication: App {
-    public static let version = "0.1.0"
+    public nonisolated static let version = "0.1.0"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 

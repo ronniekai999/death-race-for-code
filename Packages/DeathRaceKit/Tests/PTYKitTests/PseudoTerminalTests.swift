@@ -29,7 +29,7 @@ struct PseudoTerminalTests {
     @Test("a resize reaches the program on the terminal")
     func resizeReachesChild() throws {
         let terminal = try PseudoTerminal.spawn(shell(), size: TerminalSize(rows: 24, columns: 80))
-        defer { terminal.signal(SIGHUP); _ = terminal.reap(wait: true) }
+        defer { terminal.hangUp() }
 
         try terminal.resize(TerminalSize(rows: 40, columns: 120))
         #expect(terminal.reportedSize?.rows == 40)
@@ -45,7 +45,7 @@ struct PseudoTerminalTests {
     @Test("turning echo off is visible from the master side")
     func echoDetection() throws {
         let terminal = try PseudoTerminal.spawn(shell(), size: TerminalSize(rows: 24, columns: 80))
-        defer { terminal.signal(SIGHUP); _ = terminal.reap(wait: true) }
+        defer { terminal.hangUp() }
 
         #expect(!terminal.isEchoDisabled)
         terminal.writeAll("stty -echo; echo ready-$((1+1))\n")
@@ -61,14 +61,38 @@ struct PseudoTerminalTests {
         let terminal = try PseudoTerminal.spawn(shell(["-c", "exit 3"]), size: TerminalSize(rows: 24, columns: 80))
         var transcript: [UInt8] = []
         _ = SmokeTest.readUntil(terminal, contains: Array("never".utf8), into: &transcript, timeoutMilliseconds: 5_000)
-        #expect(terminal.reap(wait: true) == .exited(code: 3))
+        #expect(terminal.waitForExit(timeoutMilliseconds: 5_000) == .exited(code: 3))
     }
 
     @Test("a missing executable exits with 127")
     func missingExecutable() throws {
         let launch = ShellLaunch(executable: "/nonexistent/shell", arguments: ["nope"], environment: [:])
         let terminal = try PseudoTerminal.spawn(launch, size: TerminalSize(rows: 24, columns: 80))
-        #expect(terminal.reap(wait: true) == .exited(code: 127))
+        #expect(terminal.waitForExit(timeoutMilliseconds: 5_000) == .exited(code: 127))
+    }
+
+    @Test("hanging up ends a shell that printed output nobody read")
+    func hangUpWithUnreadOutput() throws {
+        // The shell prints a prompt and more that is never read. On macOS its exit then
+        // waits for the master to drain that output, so the master must close first.
+        let terminal = try PseudoTerminal.spawn(shell(), size: TerminalSize(rows: 24, columns: 80))
+        terminal.writeAll("i=0; while [ $i -lt 200 ]; do echo line $i; i=$((i+1)); done\n")
+        var pause = timespec(tv_sec: 0, tv_nsec: 200_000_000)
+        nanosleep(&pause, nil)
+        let status = terminal.hangUp(graceMilliseconds: 3_000)
+        #expect(status != nil)
+        #expect(terminal.reap() == status)
+    }
+
+    @Test("a child that ignores the hangup is killed")
+    func hangUpEscalates() throws {
+        let launch = ShellLaunch(
+            executable: "/bin/sh", arguments: ["sh", "-c", "trap '' HUP; while :; do sleep 1; done"],
+            environment: ["PATH": "/usr/bin:/bin"])
+        let terminal = try PseudoTerminal.spawn(launch, size: TerminalSize(rows: 24, columns: 80))
+        var pause = timespec(tv_sec: 0, tv_nsec: 200_000_000)
+        nanosleep(&pause, nil)
+        #expect(terminal.hangUp(graceMilliseconds: 500) == .signaled(signal: SIGKILL))
     }
 }
 

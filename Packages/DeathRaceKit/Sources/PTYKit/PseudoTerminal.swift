@@ -181,19 +181,59 @@ public final class PseudoTerminal {
         cpty_echo_disabled(masterFD) == 1
     }
 
-    /// Sends `signal` to the child's process group, which is how a terminal hangs up.
+    /// Sends `signal` to the child's process group. Never after the child is reaped: its
+    /// process group id may belong to someone else by then.
     public func signal(_ signal: Int32) {
+        guard reaped == nil else { return }
         _ = kill(-pid, signal)
     }
 
-    /// Collects the child's exit status. Non-blocking by default; returns nil while it runs.
-    public func reap(wait: Bool = false) -> ExitStatus? {
+    /// Collects the child's exit status if it has exited; never blocks.
+    public func reap() -> ExitStatus? {
         if let reaped { return reaped }
         var status: Int32 = 0
-        let result = waitpid(pid, &status, wait ? 0 : WNOHANG)
+        let result = waitpid(pid, &status, WNOHANG)
         guard result == pid else { return nil }
         reaped = ExitStatus(waitStatus: status)
         return reaped
+    }
+
+    /// Waits up to `timeoutMilliseconds` for the child to exit; nil if it is still running.
+    ///
+    /// A child with output nobody has read may be unable to finish exiting on macOS (see
+    /// `hangUp`), so this never waits without a limit.
+    public func waitForExit(timeoutMilliseconds: Int) -> ExitStatus? {
+        let deadline = Self.monotonicMilliseconds() + timeoutMilliseconds
+        while true {
+            if let status = reap() { return status }
+            if Self.monotonicMilliseconds() >= deadline { return nil }
+            var pause = timespec(tv_sec: 0, tv_nsec: 2_000_000)
+            nanosleep(&pause, nil)
+        }
+    }
+
+    /// Ends the session the way closing a window does: the master closes, so the child sees
+    /// the line drop, its process group gets SIGHUP, and the exit status is collected. A
+    /// child still running after `graceMilliseconds` is killed.
+    ///
+    /// The master must close before waiting. On macOS the last close of a terminal's slave
+    /// side waits for unread output to drain while the master is open (`ttywait`), so a
+    /// shell that printed a prompt nobody read cannot finish exiting until the master
+    /// either reads it or goes away. Waiting first deadlocks; Linux does not drain on close,
+    /// which hides the bug there.
+    @discardableResult
+    public func hangUp(graceMilliseconds: Int = 2_000) -> ExitStatus? {
+        close()
+        signal(SIGHUP)
+        if let status = waitForExit(timeoutMilliseconds: graceMilliseconds) { return status }
+        signal(SIGKILL)
+        return waitForExit(timeoutMilliseconds: graceMilliseconds)
+    }
+
+    static func monotonicMilliseconds() -> Int {
+        var now = timespec()
+        clock_gettime(CLOCK_MONOTONIC, &now)
+        return Int(now.tv_sec) * 1_000 + Int(now.tv_nsec) / 1_000_000
     }
 
     public func close() {

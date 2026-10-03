@@ -45,13 +45,21 @@ jobs:
           path: Packages/DeathRaceKit/.build
           key: spm-macos-26-${{ hashFiles('Packages/DeathRaceKit/Package.swift') }}-${{ github.sha }}
           restore-keys: spm-macos-26-${{ hashFiles('Packages/DeathRaceKit/Package.swift') }}-
+      # Step limits keep a hang from spending the whole job's macOS minutes.
       - name: Build
+        timeout-minutes: 15
         run: swift build --package-path Packages/DeathRaceKit --build-tests
+      - name: Smoke test the pseudo-terminal outside the test runner
+        timeout-minutes: 2
+        run: swift run --package-path Packages/DeathRaceKit --skip-build vthost smoke --verbose
       - name: Test
+        timeout-minutes: 10
         run: swift test --package-path Packages/DeathRaceKit --skip-build
       - name: Bundle
+        timeout-minutes: 10
         run: CONFIG=debug scripts/bundle.sh
       - name: Smoke test the bundled app
+        timeout-minutes: 2
         run: '"build/Death Race for Code.app/Contents/MacOS/DeathRace" --smoke-test'
       - name: Verify the signature
         run: codesign --verify --strict --verbose=2 "build/Death Race for Code.app"

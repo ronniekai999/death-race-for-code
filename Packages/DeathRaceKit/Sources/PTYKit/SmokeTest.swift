@@ -19,10 +19,7 @@ public enum SmokeTest {
     @discardableResult
     public static func run(_ launch: ShellLaunch, timeoutMilliseconds: Int = 5_000) throws -> String {
         let terminal = try PseudoTerminal.spawn(launch, size: TerminalSize(rows: 24, columns: 80))
-        defer {
-            terminal.signal(SIGHUP)
-            _ = terminal.reap(wait: true)
-        }
+        defer { terminal.hangUp() }
 
         guard terminal.writeAll("echo $((900+99))\n") else {
             throw Failure(reason: "could not type into the terminal", transcript: "")
@@ -34,7 +31,6 @@ public enum SmokeTest {
         guard found else {
             throw Failure(reason: "the shell did not print 999 within \(timeoutMilliseconds) ms", transcript: text)
         }
-        terminal.writeAll("exit\n")
         return text
     }
 
@@ -45,11 +41,11 @@ public enum SmokeTest {
         into transcript: inout [UInt8],
         timeoutMilliseconds: Int
     ) -> Bool {
-        let deadline = monotonicMilliseconds() + timeoutMilliseconds
+        let deadline = PseudoTerminal.monotonicMilliseconds() + timeoutMilliseconds
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)
         while true {
             if transcript.contains(subsequence: needle) { return true }
-            let remaining = deadline - monotonicMilliseconds()
+            let remaining = deadline - PseudoTerminal.monotonicMilliseconds()
             if remaining <= 0 { return false }
             guard terminal.poll(timeoutMilliseconds: Int32(min(remaining, 250))) else { continue }
             // Drain everything that is ready before checking again.
@@ -62,12 +58,6 @@ public enum SmokeTest {
                 }
             }
         }
-    }
-
-    static func monotonicMilliseconds() -> Int {
-        var now = timespec()
-        clock_gettime(CLOCK_MONOTONIC, &now)
-        return Int(now.tv_sec) * 1_000 + Int(now.tv_nsec) / 1_000_000
     }
 }
 

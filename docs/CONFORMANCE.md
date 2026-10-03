@@ -4,7 +4,7 @@ How we know `VTCore` behaves like a terminal. Every check runs on Linux in CI.
 
 | Check | What it proves | Status |
 | --- | --- | --- |
-| Unit tests | each sequence and edge case we implement | UTF-8 decoder done |
+| Unit tests | each sequence and edge case we implement | UTF-8 decoder, parser, terminal core |
 | esctest | xterm-compatible behavior, through `vthost` answering its queries | Phase 1 |
 | vttest | the classic VT100/VT220 screens, driven through `vthost` against goldens | Phase 1 |
 | libFuzzer | no crashes or hangs on arbitrary input; deltas replay to the same screen | Phase 1 |

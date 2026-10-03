@@ -122,13 +122,16 @@ final class ScreenBuffer {
 
     // MARK: - Rows
 
-    func makeRow(fill: Style) -> Row {
+    /// A blank row, `columns` wide (the screen's width unless given), reusing a retired one
+    /// when there is one.
+    func makeRow(fill: Style, columns width: Int? = nil) -> Row {
+        let width = width ?? columns
         let row: Row
         if let spare = spareRows.popLast() {
-            spare.reset(id: clock.rowID(), columns: columns, fill: fill)
+            spare.reset(id: clock.rowID(), columns: width, fill: fill)
             row = spare
         } else {
-            row = Row(id: clock.rowID(), columns: columns, fill: fill)
+            row = Row(id: clock.rowID(), columns: width, fill: fill)
         }
         row.version = clock.tick()
         return row
@@ -144,7 +147,7 @@ final class ScreenBuffer {
         active[y].version = clock.tick()
     }
 
-    private func recycle(_ row: Row) {
+    func recycle(_ row: Row) {
         if spareRows.count < 64 { spareRows.append(row) }
     }
 
@@ -228,7 +231,7 @@ final class ScreenBuffer {
     }
 
     /// Replaces scrollback wholesale; used by reflow.
-    func replaceScrollback(with rows: [Row]) {
+    func replaceScrollback<C: Collection<Row>>(with rows: C) {
         scrollback.removeAll()
         scrollbackBytes = 0
         for row in rows { pushToScrollback(row) }
@@ -372,14 +375,15 @@ final class ScreenBuffer {
         cursor.pendingWrap = false
     }
 
-    /// Installs reflowed content (see Reflow.swift).
-    func install(active newActive: [Row], columns newColumns: Int, rows newRows: Int) {
+    /// Installs resized content (see Reflow.swift): the new active rows and scrollback.
+    func install(active newActive: [Row], scrollback newScrollback: ArraySlice<Row>, columns newColumns: Int) {
+        if newColumns != columns { tabStops = ScreenBuffer.defaultTabStops(columns: newColumns) }
         columns = newColumns
-        rows = newRows
+        rows = newActive.count
         active = newActive
         for row in active { touch(row) }
+        replaceScrollback(with: newScrollback)
         scrollTop = 0
-        scrollBottom = newRows - 1
-        tabStops = ScreenBuffer.defaultTabStops(columns: newColumns)
+        scrollBottom = rows - 1
     }
 }

@@ -120,6 +120,23 @@ public final class Terminal {
         return events
     }
 
+    // MARK: - Resize
+
+    /// Resizes both screens. The primary reflows: soft-wrapped lines are wrapped again at the
+    /// new width, scrollback included. The alternate screen is cropped or padded, because the
+    /// programs that use it redraw when the size changes.
+    public func resize(columns: Int, rows: Int) {
+        let columns = max(columns, 1)
+        let rows = max(rows, 1)
+        guard columns != primary.columns || rows != primary.rows else { return }
+        primary.reflow(columns: columns, rows: rows)
+        alternate.resizeWithoutReflow(columns: columns, rows: rows, fill: .default)
+        configuration.columns = columns
+        configuration.rows = rows
+        lastGraphic = nil
+        bumpGeneration()
+    }
+
     // MARK: - Inspection
 
     public struct CursorState: Equatable, Sendable {

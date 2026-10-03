@@ -140,12 +140,19 @@ public final class Row {
             + graphemes.count * 48
     }
 
-    /// The index one past the last non-empty cell.
+    /// The index one past the last cell that holds a character or a colored background.
     var contentLength: Int {
         var end = cells.count
-        while end > 0 && cells[end - 1].isEmpty && cells[end - 1].styleID == 0 { end -= 1 }
+        while end > 0 {
+            let cell = cells[end - 1]
+            guard cell.isEmpty && cell.styleID == 0 && cell.width != .spacerTail else { break }
+            end -= 1
+        }
         return end
     }
+
+    /// Nothing on the row: no characters, no colored cells, no prompt marks.
+    var isBlank: Bool { contentLength == 0 && promptMarks.isEmpty }
 }
 
 /// Where the shell said a prompt, a command, or its output begins (OSC 133).

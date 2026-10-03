@@ -1,0 +1,38 @@
+name: linux
+
+# The portable half (CPTY, PTYKit, VTCore, vthost) on the swift.org toolchain that matches
+# the Swift in Xcode 26.6. Cheap enough to run on every pull request.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: build, test, lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: swift:6.3.3-noble@sha256:cd45c27b3abc42310c33cfaf3008b18156cbdc9187834c9617e8f43a26d2675c
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build
+        run: swift build --package-path Packages/DeathRaceKit --build-tests
+      - name: Test
+        run: swift test --package-path Packages/DeathRaceKit --skip-build
+      - name: Lint
+        run: >-
+          swift format lint --recursive --strict
+          Packages/DeathRaceKit/Sources Packages/DeathRaceKit/Tests
+          Packages/DeathRaceKit/Tools Packages/DeathRaceKit/Package.swift
+      - name: vthost smoke test
+        run: swift run --package-path Packages/DeathRaceKit vthost smoke

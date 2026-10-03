@@ -1,0 +1,18 @@
+# SwiftPM
+.build/
+.swiftpm/
+Package.resolved.orig
+
+# Build output
+build/
+*.app
+*.dSYM/
+
+# Fuzzing artifacts
+crash-*
+leak-*
+timeout-*
+oom-*
+
+# macOS
+.DS_Store

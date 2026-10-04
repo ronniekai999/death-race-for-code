@@ -327,10 +327,22 @@ We never implement SSH crypto. `SSHKit` runs macOS's `/usr/bin/ssh`.
   - Control sockets get fixed names under `~/.deathrace/cm/`. ssh's `%C` hashes this Mac's host
     name, which changes between networks, and socket paths cap at 104 bytes.
   - CI checks the file with real `ssh -G`.
-- **Every prompt goes to the app.** An askpass helper asks the app's broker over a Unix socket.
-  - The broker answers a saved password only for the hop ssh named in its own words, after
-    Touch ID.
-  - Anything else becomes a question on the window.
+- **Every prompt goes to the app.** Every ssh the app starts gets `deathrace-askpass` as its
+  `SSH_ASKPASS` (forced: masters have no terminal), which asks the app's broker
+  (`AskpassBroker`) over a Unix socket in a 0700 folder.
+  - Before answering, the broker checks the token the app gave that ssh, that the asking
+    process is yours and descends from that ssh (at most four levels: jump hops, the helper),
+    and that nothing else is in flight for it.
+  - It answers a saved password only for the hop ssh named in its own words, after Touch ID
+    (`DeviceOwnerPresence`), and only once: asked again, the saved one was wrong.
+  - Saved secrets are generic passwords in your login keychain (`KeychainSecretStore`),
+    written only after the login they were typed for succeeds.
+  - Anything else becomes a question on the window. Cancelling, or declining Touch ID, ends
+    the attempt: the master's process group gets SIGTERM, since ssh would otherwise retry.
+- **Tested against a real server.** Linux CI starts a throwaway sshd on two loopback
+  addresses (`scripts/ci-sshd.sh`) and drives masters, prompts, ProxyJump hops and L/R/D
+  tunnels through it end to end. macOS CI runs the helper against the broker and Apple's ssh
+  against the generated config.
 - **Secure Enclave keys** come from macOS 26's `sc_auth` and `/usr/lib/ssh-keychain.dylib`.
 
 The SFTP browser (Phase 6) speaks SFTP v3 itself over `ssh -s <host> sftp`, on the same

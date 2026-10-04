@@ -210,6 +210,10 @@ struct OSReleaseTests {
         #expect(OSRelease(parsing: "NAME=\"Debian GNU/Linux\"\nVERSION_ID=\"13\"\n").display == "Debian 13")
     }
 
+    @Test func windowsLineEnds() {
+        #expect(OSRelease(parsing: "NAME=\"Ubuntu\"\r\nVERSION_ID=\"24.04\"\r\n").display == "Ubuntu 24.04")
+    }
+
     @Test func quotingAndWhatsMissing() {
         #expect(OSRelease(parsing: #"NAME="Say \"hi\"""#).display == #"Say "hi""#)
         #expect(OSRelease(parsing: "NAME='Arch Linux'\n").display == "Arch Linux")
@@ -226,6 +230,17 @@ struct MasterLogTests {
         log.append(text)
         log.finish()
         return log.failure
+    }
+
+    @Test func sshEndsItsLinesWithCRLF() {
+        // As ssh writes them: \r\n, which is one Character in Swift.
+        var log = MasterLog()
+        log.append("Warning: Permanently added '[127.0.0.1]:2222' (ED25519) to the list of known hosts.\r\n")
+        log.append("unix_listener: cannot bind to path /x/cm/52540b61318510d6.LVaZ: No such file or directory\r")
+        log.append("\n")
+        #expect(
+            log.lines == ["unix_listener: cannot bind to path /x/cm/52540b61318510d6.LVaZ: No such file or directory"])
+        #expect(failure("ssh: connect to host 10.0.4.21 port 22: Connection refused\r\n") == .refused)
     }
 
     @Test func theCommonFailures() {

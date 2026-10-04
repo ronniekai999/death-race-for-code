@@ -12,7 +12,7 @@ public struct OSRelease: Equatable, Sendable {
 
     /// The file's `KEY=value` lines; values may be quoted, with backslash escapes.
     public init(parsing text: String) {
-        for line in text.split(separator: "\n") {
+        for line in text.split(whereSeparator: \.isNewline) {
             guard let equals = line.firstIndex(of: "="), !line.hasPrefix("#") else { continue }
             let key = line[..<equals].trimmingWhitespace
             let value = Self.unquote(String(line[line.index(after: equals)...]).trimmingWhitespace)

@@ -77,7 +77,8 @@ public enum SSHConfigDiscovery {
         // The names the current block's details belong to: a `Host` line's concrete names,
         // or none inside `Match` and wildcard-only blocks.
         var current: [String] = []
-        for (number, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+        // A file saved with \r\n line ends reads the same: ssh strips the \r too.
+        for (number, line) in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).enumerated() {
             let words = tokenize(line)
             guard let keyword = words.first?.lowercased() else { continue }
             let arguments = Array(words.dropFirst())

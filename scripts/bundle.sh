@@ -19,6 +19,8 @@ APP="$ROOT/build/Death Race for Code.app"
 
 SPIKE="${SPIKE:-0}"
 swift build --package-path "$PKG" -c "$CONFIG" --product DeathRace
+# ssh's SSH_ASKPASS: it hands ssh's questions to the app (SSHKit's AskpassBroker).
+swift build --package-path "$PKG" -c "$CONFIG" --product deathrace-askpass
 if [ "$SPIKE" = "1" ]; then
   swift build --package-path "$PKG" -c "$CONFIG" --product legendsd-spike
 fi
@@ -27,6 +29,7 @@ BIN="$(swift build --package-path "$PKG" -c "$CONFIG" --show-bin-path)"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/DeathRace" "$APP/Contents/MacOS/DeathRace"
+cp "$BIN/deathrace-askpass" "$APP/Contents/MacOS/deathrace-askpass"
 cp "$ROOT/App/Info.plist" "$APP/Contents/Info.plist"
 
 # SwiftPM resource bundles: Bundle.module finds them in Contents/Resources.
@@ -64,6 +67,9 @@ if [ -z "$IDENTITY" ]; then
 fi
 
 # Nested code first: the app's signature seals what is inside it.
+codesign --force --options runtime --timestamp=none \
+  --identifier local.deathraceforcode.deathrace-askpass \
+  --sign "$IDENTITY" "$APP/Contents/MacOS/deathrace-askpass"
 if [ -f "$APP/Contents/MacOS/legendsd-spike" ]; then
   codesign --force --options runtime --timestamp=none \
     --identifier local.deathraceforcode.legendsd-spike \

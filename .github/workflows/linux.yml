@@ -1,8 +1,9 @@
 name: linux
 
 # The portable half (CPTY, PTYKit, VTCore, ScreenProtocol, SessionKit, ConfigKit, SurfaceCore,
-# Vault, SSHKit, AppCore, vthost) on the swift.org toolchain that matches the Swift in Xcode
-# 26.6. Cheap enough to run on every pull request.
+# Vault, SSHKit, AppCore, vthost, deathrace-askpass) on the swift.org toolchain that matches
+# the Swift in Xcode 26.6. Cheap enough to run on every pull request. SSHKit's masters,
+# tunnels and askpass are tested end to end against a throwaway sshd in the container.
 
 on:
   pull_request:
@@ -21,7 +22,7 @@ jobs:
   test:
     name: build, test, lint
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     container:
       image: swift:6.3.3-noble@sha256:cd45c27b3abc42310c33cfaf3008b18156cbdc9187834c9617e8f43a26d2675c
     steps:
@@ -35,10 +36,19 @@ jobs:
           if [ -n "$missing" ]; then apt-get update -qq && apt-get install -y -qq $missing; fi
       - name: Build
         run: swift build --package-path Packages/DeathRaceKit --build-tests
+      # sshd on loopback for SSHKit's end-to-end suite, started in this step only, so the
+      # Thread Sanitizer run below leaves that suite out. Sourced from a file rather than
+      # eval'd: a failed start stops the step instead of skipping the suite.
       - name: Test
         env:
           DEATHRACE_REQUIRE_SSH: "1"
-        run: swift test --package-path Packages/DeathRaceKit --skip-build
+        run: |
+          scripts/ci-sshd.sh > /tmp/sshd-env
+          . /tmp/sshd-env
+          swift test --package-path Packages/DeathRaceKit --skip-build
+      - name: What sshd saw
+        if: failure()
+        run: cat /tmp/sshd-wrld.log || true
       - name: Lint
         run: make lint
       - name: vthost smoke test

@@ -81,11 +81,18 @@ public struct MasterLog: Equatable, Sendable {
     /// Takes what the master wrote, in whatever pieces it arrived.
     public mutating func append(_ text: String) {
         partial += text
-        while let newline = partial.firstIndex(of: "\n") {
-            let line = String(partial[..<newline]).trimmingWhitespace
-            partial = String(partial[partial.index(after: newline)...])
+        // ssh ends its lines with \r\n, a single Character to Swift: look for the \n itself.
+        while let newline = partial.unicodeScalars.firstIndex(of: "\n") {
+            let line = String(partial.unicodeScalars[..<newline]).trimmingWhitespace
+            partial = String(partial.unicodeScalars[partial.unicodeScalars.index(after: newline)...])
             add(line)
         }
+    }
+
+    /// The master has connected: what it wrote while logging in says nothing about how it
+    /// ends later. The post-quantum warning stays.
+    public mutating func connected() {
+        lines = []
     }
 
     /// Ends a last line written without a newline.
@@ -102,6 +109,8 @@ public struct MasterLog: Equatable, Sendable {
         }
         // The rest of the post-quantum warning.
         if line.hasPrefix("** ") { return }
+        // accept-new noting a new host key: news, not a reason anything failed.
+        if line.hasPrefix("Warning: Permanently added ") { return }
         lines.append(line)
         if lines.count > Self.kept { lines.removeFirst(lines.count - Self.kept) }
     }

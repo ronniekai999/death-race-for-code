@@ -59,6 +59,17 @@ struct SSHConfigDiscoveryTests {
                     line: 8))
     }
 
+    @Test func aFileWithWindowsLineEndsReadsTheSame() {
+        let files = [
+            "/h/.ssh/config": "Host nas-999\r\n    HostName 192.168.1.5\r\n\r\nHost prod-api\r\n    User deploy\r\n"
+        ]
+        let aliases = SSHConfigDiscovery.aliases(inFileAt: "/h/.ssh/config", home: "/h", fileSystem: fileSystem(files))
+        #expect(aliases.map(\.name) == ["nas-999", "prod-api"])
+        #expect(aliases[0].hostName == "192.168.1.5")
+        #expect(aliases[1].user == "deploy")
+        #expect(aliases[1].line == 4)
+    }
+
     @Test func theFirstValueWins() {
         let files = [
             "/h/.ssh/config": """

@@ -132,6 +132,7 @@ extension Terminal {
         kittyFlagsPrimary = [0]
         kittyFlagsAlternate = [0]
         lastGraphic = nil
+        currentLink = nil
         savedPrivateModes.removeAll()
         inertModes.removeAll()
         allowsColumnSwitch = false

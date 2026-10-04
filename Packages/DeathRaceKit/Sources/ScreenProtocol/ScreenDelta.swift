@@ -1,7 +1,7 @@
 import VTCore
 
-/// One row as it travels to the app: self-contained, with its own style table and the extra
-/// scalars of multi-scalar characters.
+/// One row as it travels to the app: self-contained, with its own style and link tables and
+/// the extra scalars of multi-scalar characters.
 public struct RowSnapshot: Sendable, Equatable {
     public var id: UInt64
     public var version: UInt64
@@ -12,11 +12,13 @@ public struct RowSnapshot: Sendable, Equatable {
     public var isWrapped: Bool
     public var promptMarks: PromptMarks
     public var exitCode: Int32?
+    /// The OSC 8 links its cells belong to; a cell's `linkIndex` counts from 1.
+    public var links: ContiguousArray<Hyperlink>
 
     public init(
         id: UInt64, version: UInt64, cells: ContiguousArray<Cell>, styles: ContiguousArray<Style> = [.default],
         graphemes: [Int: [UInt32]] = [:], isWrapped: Bool = false, promptMarks: PromptMarks = [],
-        exitCode: Int32? = nil
+        exitCode: Int32? = nil, links: ContiguousArray<Hyperlink> = []
     ) {
         self.id = id
         self.version = version
@@ -26,12 +28,20 @@ public struct RowSnapshot: Sendable, Equatable {
         self.isWrapped = isWrapped
         self.promptMarks = promptMarks
         self.exitCode = exitCode
+        self.links = links
     }
 
     public init(_ row: Row) {
         self.init(
             id: row.id, version: row.version, cells: row.cells, styles: row.styles, graphemes: row.graphemes,
-            isWrapped: row.isWrapped, promptMarks: row.promptMarks, exitCode: row.exitCode)
+            isWrapped: row.isWrapped, promptMarks: row.promptMarks, exitCode: row.exitCode, links: row.links)
+    }
+
+    /// The link the cell at `column` belongs to.
+    public func link(at column: Int) -> Hyperlink? {
+        guard cells.indices.contains(column) else { return nil }
+        let index = Int(cells[column].linkIndex)
+        return index > 0 && index <= links.count ? links[index - 1] : nil
     }
 
     public func style(of cell: Cell) -> Style {

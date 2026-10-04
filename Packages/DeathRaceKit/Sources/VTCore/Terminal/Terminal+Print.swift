@@ -25,6 +25,8 @@ extension Terminal {
             let x = s.cursor.x
             let n = min(s.columns - x, count - index)
             let styleID = row.styleID(for: s.cursor.pen)
+            let link = currentLink.map { row.linkIndex(for: $0) } ?? 0
+            let flags = protectedBits | (link != 0 ? Cell.hyperlinkBit : 0)
             s.splitWideCharacter(in: row, at: x)
             s.splitWideCharacter(in: row, at: x + n)
             if !row.graphemes.isEmpty {
@@ -34,7 +36,7 @@ extension Terminal {
             }
             row.cells.withUnsafeMutableBufferPointer { cells in
                 for k in 0..<n {
-                    cells[x + k] = Cell(content: UInt32(base[index + k]) | protectedBits, styleID: styleID)
+                    cells[x + k] = Cell(content: UInt32(base[index + k]) | flags, styleID: styleID, reserved: link)
                 }
             }
             index += n
@@ -45,7 +47,8 @@ extension Terminal {
                 } else if index < count {
                     // Without autowrap the rest overwrites the last column; only the final
                     // character remains.
-                    row.cells[s.columns - 1] = Cell(content: UInt32(base[count - 1]) | protectedBits, styleID: styleID)
+                    row.cells[s.columns - 1] = Cell(
+                        content: UInt32(base[count - 1]) | flags, styleID: styleID, reserved: link)
                     index = count
                 }
             } else {
@@ -113,10 +116,12 @@ extension Terminal {
                 for column in x..<end where row.cells[column].hasGrapheme { row.graphemes[column] = nil }
             }
             let styleID = row.styleID(for: s.cursor.pen)
+            let link = currentLink.map { row.linkIndex(for: $0) } ?? 0
             let protected = s.cursor.protected
             let head = Cell(
-                scalar: scalar, width: cellWidth == 2 ? .wide : .narrow, styleID: styleID, protected: protected)
-            let tail = Cell(scalar: 0, width: .spacerTail, styleID: styleID, protected: protected)
+                scalar: scalar, width: cellWidth == 2 ? .wide : .narrow, styleID: styleID, protected: protected,
+                link: link)
+            let tail = Cell(scalar: 0, width: .spacerTail, styleID: styleID, protected: protected, link: link)
             row.cells.withUnsafeMutableBufferPointer { cells in
                 var column = x
                 while column < end {
@@ -189,12 +194,15 @@ extension Terminal {
         s.splitWideCharacter(in: row, at: x)
         s.splitWideCharacter(in: row, at: x + cellWidth)
         let styleID = row.styleID(for: s.cursor.pen)
+        let link = currentLink.map { row.linkIndex(for: $0) } ?? 0
         if row.cells[x].hasGrapheme { row.graphemes[x] = nil }
         row.cells[x] = Cell(
-            scalar: scalar, width: cellWidth == 2 ? .wide : .narrow, styleID: styleID, protected: s.cursor.protected)
+            scalar: scalar, width: cellWidth == 2 ? .wide : .narrow, styleID: styleID, protected: s.cursor.protected,
+            link: link)
         if cellWidth == 2 {
             if row.cells[x + 1].hasGrapheme { row.graphemes[x + 1] = nil }
-            row.cells[x + 1] = Cell(scalar: 0, width: .spacerTail, styleID: styleID, protected: s.cursor.protected)
+            row.cells[x + 1] = Cell(
+                scalar: 0, width: .spacerTail, styleID: styleID, protected: s.cursor.protected, link: link)
         }
         s.touch(row)
 
@@ -270,7 +278,8 @@ extension Terminal {
             s.splitWideCharacter(in: row, at: x + 2)
             if row.cells[x + 1].hasGrapheme { row.graphemes[x + 1] = nil }
             row.cells[x + 1] = Cell(
-                scalar: 0, width: .spacerTail, styleID: row.cells[x].styleID, protected: row.cells[x].isProtected)
+                scalar: 0, width: .spacerTail, styleID: row.cells[x].styleID, protected: row.cells[x].isProtected,
+                link: row.cells[x].linkIndex)
             if x + 2 >= s.columns {
                 s.cursor.x = s.columns - 1
                 s.cursor.pendingWrap = modes.autowrap

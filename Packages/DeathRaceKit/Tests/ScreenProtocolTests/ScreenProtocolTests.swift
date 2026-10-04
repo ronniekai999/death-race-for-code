@@ -309,7 +309,8 @@ private func text(_ row: RowSnapshot) -> String {
             "\u{1B}[2X", "\u{1B}[S", "\u{1B}[T", "\u{1B}[2;3r", "\u{1B}[r", "\u{1B}M", "\u{1B}D", "\u{1B}7", "\u{1B}8",
             "\u{1B}[?1049h", "\u{1B}[?1049l", "\u{1B}[?7l", "\u{1B}[?7h", "\u{1B}[4h", "\u{1B}[4l", "\u{1B}]133;A\u{7}",
             "\u{1B}]2;title\u{7}", "\u{1B}(0lqk\u{1B}(B", "\u{1B}#8", "\u{1B}[3J", "\u{1B}c", "x\u{1B}[3b",
-            "0123456789abcdefghij",
+            "0123456789abcdefghij", "\u{1B}]8;;https://wrld.example/999\u{1B}\\", "\u{1B}]8;id=f;file:///tmp/x\u{7}",
+            "\u{1B}]8;;\u{1B}\\",
         ]
         let piece = pieces[Int(rng.next() % UInt64(pieces.count))]
         return Array(piece.utf8)
@@ -327,8 +328,8 @@ private func text(_ row: RowSnapshot) -> String {
         let row = RowSnapshot(
             id: 42, version: 7,
             cells: [
-                Cell(scalar: 0x41, styleID: 1), Cell(scalar: 0x4E2D, width: .wide, styleID: 0),
-                Cell(scalar: 0, width: .spacerTail, styleID: 0), Cell(content: 0x65 | 1 << 21, styleID: 0),
+                Cell(scalar: 0x41, styleID: 1, link: 2), Cell(scalar: 0x4E2D, width: .wide, styleID: 0, link: 1),
+                Cell(scalar: 0, width: .spacerTail, styleID: 0, link: 1), Cell(content: 0x65 | 1 << 21, styleID: 0),
             ],
             styles: [
                 .default,
@@ -336,7 +337,8 @@ private func text(_ row: RowSnapshot) -> String {
                     foreground: .rgb(1, 2, 3), background: .indexed(200), underlineColor: .indexed(5),
                     attributes: [.bold, .italic], underline: .curly),
             ],
-            graphemes: [3: [0x301]], isWrapped: true, promptMarks: [.promptStart, .commandEnd], exitCode: -1)
+            graphemes: [3: [0x301]], isWrapped: true, promptMarks: [.promptStart, .commandEnd], exitCode: -1,
+            links: [Hyperlink(id: ":1", uri: "https://wrld.example/999"), Hyperlink(id: "f", uri: "file:///tmp/✦")])
         return ScreenDelta(
             generation: 3, version: 99, isSnapshot: false, columns: 4, rows: 1, viewportOffset: 2,
             scrollbackCount: 10, viewportTopLine: 0x1234_5678_9ABC, rowIDs: [42], changedRows: [row],
@@ -420,6 +422,37 @@ private func text(_ row: RowSnapshot) -> String {
         var delta = richDelta()
         delta.changedRows[0].cells[0] = Cell(content: 0xD800, styleID: 0)
         #expect(throws: DeltaCodec.DecodeError.self) { try DeltaCodec.decode(DeltaCodec.encode(delta)) }
+    }
+
+    /// Links as the engine never makes them, as a daemon's bug or a forger might send them.
+    @Test func forgedLinksAreRejected() {
+        func rejects(_ reason: String, _ change: (inout RowSnapshot) -> Void) {
+            var delta = richDelta()
+            change(&delta.changedRows[0])
+            #expect(throws: DeltaCodec.DecodeError.invalid(reason)) { try DeltaCodec.decode(DeltaCodec.encode(delta)) }
+        }
+        rejects("link index out of range") { $0.cells[0].reserved = 3 }
+        // The flag without an index, and an index without the flag.
+        rejects("link index out of range") { $0.cells[0] = Cell(content: 0x41 | 1 << 25, styleID: 0) }
+        rejects("link index out of range") { $0.cells[0] = Cell(content: 0x41, styleID: 0, reserved: 1) }
+        rejects("link") { $0.links[0].uri = "https://a/\u{1B}]52;c;bad" }
+        rejects("link") { $0.links[0].uri = "" }
+        rejects("link") { $0.links[0].id = String(repeating: "i", count: Hyperlink.maxIDLength + 1) }
+        rejects("link") { $0.links[1].uri = "https://a/" + String(repeating: "x", count: Hyperlink.maxURILength) }
+        rejects("too many links") { row in
+            row.links = ContiguousArray((0...Row.linkLimit).map { Hyperlink(id: "\($0)", uri: "https://a") })
+        }
+    }
+
+    @Test func theMirrorAnswersWhichLinkACellIsIn() throws {
+        var link = Link(columns: 10, rows: 2)
+        link.terminal.feed(Array("a\u{1B}]8;;https://wrld.example\u{7}bc\u{1B}]8;;\u{7}d".utf8))
+        try link.sync()
+        #expect(link.mirror.link(column: 0, row: 0) == nil)
+        #expect(link.mirror.link(column: 1, row: 0)?.uri == "https://wrld.example")
+        #expect(link.mirror.link(column: 2, row: 0) == link.mirror.link(column: 1, row: 0))
+        #expect(link.mirror.link(column: 3, row: 0) == nil)
+        #expect(link.mirror.link(column: 99, row: 9) == nil)
     }
 }
 

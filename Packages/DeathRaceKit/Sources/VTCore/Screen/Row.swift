@@ -24,6 +24,10 @@ public final class Row {
     public internal(set) var promptMarks: PromptMarks = []
     /// The exit code from a `commandEnd` mark, when the shell sent one.
     public internal(set) var exitCode: Int32?
+    /// The OSC 8 links the row's cells belong to; a cell's `linkIndex` counts from 1.
+    public internal(set) var links: ContiguousArray<Hyperlink> = []
+    /// The most links one row holds; past it, characters print without their link.
+    public static let linkLimit = 1024
 
     /// Lookup from style to index, built only once a row has many styles.
     private var styleIndex: [Style: UInt16]?
@@ -43,6 +47,44 @@ public final class Row {
     public func style(of cell: Cell) -> Style {
         let index = Int(cell.styleID)
         return index < styles.count ? styles[index] : .default
+    }
+
+    /// The link the cell at `column` belongs to.
+    public func link(at column: Int) -> Hyperlink? {
+        guard cells.indices.contains(column) else { return nil }
+        let index = Int(cells[column].linkIndex)
+        return index > 0 && index <= links.count ? links[index - 1] : nil
+    }
+
+    /// The row's index for `link`, counting from 1 and adding it if needed; 0 when the row
+    /// holds `linkLimit` links that are all in use.
+    func linkIndex(for link: Hyperlink) -> UInt16 {
+        // Characters of one link print one after another: the last link is the usual answer.
+        if let last = links.last, last == link { return UInt16(links.count) }
+        if let index = links.firstIndex(of: link) { return UInt16(index + 1) }
+        if links.count >= Self.linkLimit {
+            compactLinks()
+            guard links.count < Self.linkLimit else { return 0 }
+        }
+        links.append(link)
+        return UInt16(links.count)
+    }
+
+    /// Drops links no cell uses any more and renumbers the cells.
+    func compactLinks() {
+        var used = [Bool](repeating: false, count: links.count + 1)
+        for cell in cells where Int(cell.linkIndex) <= links.count { used[Int(cell.linkIndex)] = true }
+        var remap = [UInt16](repeating: 0, count: links.count + 1)
+        var kept: ContiguousArray<Hyperlink> = []
+        for index in links.indices where used[index + 1] {
+            kept.append(links[index])
+            remap[index + 1] = UInt16(kept.count)
+        }
+        for column in cells.indices where cells[column].linkIndex != 0 {
+            let index = Int(cells[column].linkIndex)
+            cells[column].linkIndex = index < remap.count ? remap[index] : 0
+        }
+        links = kept
     }
 
     /// The scalars of the character at `column`: its base scalar and any that combine with it.
@@ -122,6 +164,7 @@ public final class Row {
             cells.withUnsafeMutableBufferPointer { $0.update(repeating: blank) }
         }
         graphemes.removeAll()
+        links.removeAll(keepingCapacity: true)
         isWrapped = false
         promptMarks = []
         exitCode = nil
@@ -146,6 +189,7 @@ public final class Row {
     var estimatedBytes: Int {
         var bytes = 96 + cells.count * MemoryLayout<Cell>.stride + styles.count * MemoryLayout<Style>.stride
         for extra in graphemes.values { bytes += 48 + extra.count * MemoryLayout<UInt32>.stride }
+        for link in links { bytes += 48 + link.id.utf8.count + link.uri.utf8.count }
         return bytes
     }
 

@@ -77,6 +77,10 @@ public final class Terminal {
 
     /// The last printed character, for REP.
     var lastGraphic: UInt32?
+    /// The OSC 8 link characters print into, until the program closes it.
+    public internal(set) var currentLink: Hyperlink?
+    /// Links opened without an id, numbered so each is its own.
+    var anonymousLinks: UInt64 = 0
     /// DEC private modes saved by XTSAVE, for XTRESTORE.
     var savedPrivateModes: [UInt16: Bool] = [:]
     /// Mode 40 (xterm): the program may switch between 80 and 132 columns. The width never

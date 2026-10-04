@@ -9,8 +9,8 @@ import VTCore
 /// error, so a malformed message cannot make the app allocate or crash.
 public enum DeltaCodec {
     static let magic: [UInt8] = Array("DRSD".utf8)
-    /// 2 added `viewportTopLine`.
-    public static let formatVersion: UInt8 = 2
+    /// 2 added `viewportTopLine`; 3 added rows' link tables.
+    public static let formatVersion: UInt8 = 3
 
     public enum DecodeError: Error, Equatable {
         case truncated
@@ -93,6 +93,11 @@ public enum DeltaCodec {
             w.u32(UInt32(column))
             w.u32(UInt32(scalars.count))
             for scalar in scalars { w.u32(scalar) }
+        }
+        w.u32(UInt32(row.links.count))
+        for link in row.links {
+            w.string(link.id)
+            w.string(link.uri)
         }
     }
 
@@ -203,7 +208,7 @@ public enum DeltaCodec {
         var rowIDs: [UInt64] = []
         rowIDs.reserveCapacity(idCount)
         for _ in 0..<idCount { rowIDs.append(try r.u64()) }
-        let rowCount = try r.count(elementSize: 31)
+        let rowCount = try r.count(elementSize: 35)
         var changedRows: [RowSnapshot] = []
         changedRows.reserveCapacity(rowCount)
         for _ in 0..<rowCount { changedRows.append(try decodeRow(&r)) }
@@ -302,9 +307,26 @@ public enum DeltaCodec {
             }
             graphemes[column] = scalars
         }
+        // Links as the engine keeps them: within the row's limit and each link's, with no
+        // control characters, and every linked cell pointing at one of them.
+        let linkCount = try r.count(elementSize: 8)
+        guard linkCount <= Row.linkLimit else { throw .invalid("too many links") }
+        var links = ContiguousArray<Hyperlink>()
+        links.reserveCapacity(linkCount)
+        for _ in 0..<linkCount {
+            let id = try r.take(try r.count(elementSize: 1))
+            let uri = try r.take(try r.count(elementSize: 1))
+            guard Hyperlink.isAcceptable(id: id, uri: uri) else { throw .invalid("link") }
+            links.append(Hyperlink(id: String(decoding: id, as: UTF8.self), uri: String(decoding: uri, as: UTF8.self)))
+        }
+        for cell in cells {
+            let index = Int(cell.reserved)
+            let valid = cell.isLinked ? index >= 1 && index <= links.count : index == 0
+            guard valid else { throw .invalid("link index out of range") }
+        }
         return RowSnapshot(
             id: id, version: version, cells: cells, styles: styles, graphemes: graphemes, isWrapped: isWrapped,
-            promptMarks: marks, exitCode: exitCode)
+            promptMarks: marks, exitCode: exitCode, links: links)
     }
 
     private static func decodeModes(_ r: inout ByteReader) throws(DecodeError) -> TerminalModes {

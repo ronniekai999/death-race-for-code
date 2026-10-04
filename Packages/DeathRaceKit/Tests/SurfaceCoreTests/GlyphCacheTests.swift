@@ -22,9 +22,13 @@ private final class BlockRasterizer: GlyphRasterizing {
 }
 
 @Suite struct GlyphCacheTests {
+    /// For tests that place several glyphs in one frame and aren't about the budget: it's
+    /// wall-clock time, which a loaded machine could spend on the first glyph alone.
+    static let unhurried: Duration = .seconds(60)
+
     @Test func glyphsAreRasterizedOnceAndPlacedInTheirAtlas() {
         let rasterizer = BlockRasterizer()
-        let cache = GlyphCache(rasterizer: rasterizer, maskSize: 64, colorSize: 64)
+        let cache = GlyphCache(rasterizer: rasterizer, budget: Self.unhurried, maskSize: 64, colorSize: 64)
         cache.beginFrame()
         let a = cache.placement(for: GlyphKey(scalar: 0x41))
         let again = cache.placement(for: GlyphKey(scalar: 0x41))
@@ -55,7 +59,7 @@ private final class BlockRasterizer: GlyphRasterizing {
 
     @Test func theAtlasGrowsKeepingItsGlyphs() {
         let rasterizer = BlockRasterizer()
-        let cache = GlyphCache(rasterizer: rasterizer, maskSize: 16, maskMaxSize: 64)
+        let cache = GlyphCache(rasterizer: rasterizer, budget: Self.unhurried, maskSize: 16, maskMaxSize: 64)
         cache.beginFrame()
         let first = cache.placement(for: GlyphKey(scalar: 0x41))!
         _ = cache.takeDirty()
@@ -72,7 +76,7 @@ private final class BlockRasterizer: GlyphRasterizing {
 
     @Test func quietShelvesAreReusedAndTheirGlyphsForgotten() {
         let rasterizer = BlockRasterizer()
-        let cache = GlyphCache(rasterizer: rasterizer, maskSize: 16, maskMaxSize: 16)
+        let cache = GlyphCache(rasterizer: rasterizer, budget: Self.unhurried, maskSize: 16, maskMaxSize: 16)
         cache.beginFrame()
         let a = cache.placement(for: GlyphKey(scalar: 0x41))!
         _ = cache.placement(for: GlyphKey(scalar: 0x42))
@@ -92,7 +96,7 @@ private final class BlockRasterizer: GlyphRasterizing {
 
     @Test func shelvesInUseAreNotReused() {
         let rasterizer = BlockRasterizer()
-        let cache = GlyphCache(rasterizer: rasterizer, maskSize: 16, maskMaxSize: 16)
+        let cache = GlyphCache(rasterizer: rasterizer, budget: Self.unhurried, maskSize: 16, maskMaxSize: 16)
         cache.beginFrame()
         let a = cache.placement(for: GlyphKey(scalar: 0x41))!
         _ = cache.placement(for: GlyphKey(scalar: 0x42))

@@ -158,6 +158,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         showWRLD(nil)
     }
 
+    func showWRLD(at place: WRLDBoard.Place, selecting host: HostID?) {
+        showWRLD(place)
+        if let host { wrldWindow?.model.selected = host }
+    }
+
+    static let sidebarKey = "WRLDSidebarShown"
+
+    var sidebarPreferred: Bool {
+        get { defaults.bool(forKey: Self.sidebarKey) }
+        set { defaults.set(newValue, forKey: Self.sidebarKey) }
+    }
+
     /// The WRLD window at `place`, when given.
     func showWRLD(_ place: WRLDBoard.Place?) {
         guard let wrld else { return }

@@ -44,6 +44,10 @@ protocol WindowHost: AnyObject {
     func focus(pane: PaneID, from controller: PitLaneWindowController)
     /// WRLD, for panes on hosts; nil where there is none.
     var connections: (any HostConnecting)? { get }
+    /// The WRLD window at `place`, with `host` in its inspector when given.
+    func showWRLD(at place: WRLDBoard.Place, selecting host: HostID?)
+    /// Whether a new window opens with the WRLD sidebar: as the last one was left.
+    var sidebarPreferred: Bool { get set }
     /// Writes `theme = id` for every window.
     func chooseTheme(_ id: String) throws
     func showSettings(page: SettingsCatalog.Page?)
@@ -55,6 +59,11 @@ protocol WindowHost: AnyObject {
 extension WindowHost {
     /// No WRLD: previews and window tests that don't connect anywhere.
     var connections: (any HostConnecting)? { nil }
+    func showWRLD(at place: WRLDBoard.Place, selecting host: HostID?) {}
+    var sidebarPreferred: Bool {
+        get { false }
+        set {}
+    }
 }
 
 /// One window: tabs of split panes under the Pit Lane chrome. The tabs and panes live in a
@@ -141,16 +150,28 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         tunnelsObserver = NotificationCenter.default.addObserver(
             forName: .tunnelsChanged, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshStatus() }
+            MainActor.assumeIsolated {
+                self?.refreshStatus()
+                self?.refreshSidebar()
+            }
         }
+        wrldObserver = NotificationCenter.default.addObserver(forName: .wrldChanged, object: nil, queue: .main) {
+            [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshSidebar() }
+        }
+        root.titleBar.sidebarButton.isHidden = host.connections == nil
+        root.titleBar.sidebarButton.onClick = { [weak self] in self?.toggleSidebar(nil) }
+        if host.connections != nil && host.sidebarPreferred { setSidebar(shown: true) }
     }
 
     /// Recounts the status bar's tunnels when one opens or closes. Set once, on the main
     /// thread; read only by deinit, and removing an observer is safe from any thread.
     nonisolated(unsafe) private var tunnelsObserver: (any NSObjectProtocol)?
+    nonisolated(unsafe) private var wrldObserver: (any NSObjectProtocol)?
 
     deinit {
         if let tunnelsObserver { NotificationCenter.default.removeObserver(tunnelsObserver) }
+        if let wrldObserver { NotificationCenter.default.removeObserver(wrldObserver) }
     }
 
     @available(*, unavailable)
@@ -249,12 +270,15 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         show(tab.id)
     }
 
-    /// Sizes a new window for `window-size` cells in its first pane.
+    /// Sizes a new window for `window-size` cells in its first pane, beside the sidebar
+    /// when it shows.
     private func sizeWindow(toFit pane: PaneController) {
         guard let window else { return }
         let header = config.paneHeaders == .always
         let surface = pane.surface.size(columns: config.windowSize.columns, rows: config.windowSize.rows)
-        window.setContentSize(PitLaneRootView.windowSize(forSurface: surface, header: header))
+        var size = PitLaneRootView.windowSize(forSurface: surface, header: header)
+        size.width += root.leadingColumnWidth
+        window.setContentSize(size)
         window.contentMinSize = PitLaneRootView.windowSize(
             forSurface: pane.surface.size(columns: 20, rows: 4), header: header)
     }
@@ -860,6 +884,136 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         tab.armedPanes.compactMap { id in panes[id].map { $0.programName ?? $0.shellName } }
     }
 
+    // MARK: - The WRLD sidebar
+
+    /// The sidebar, while it shows in this window.
+    private var sidebar: WRLDSidebarView?
+    private var sidebarQuery = ""
+    private var expandedGroups: Set<GroupID> = []
+    /// Counted among what shows WRLD: the sidebar is out, in a window on screen.
+    private var sidebarCounted = false
+
+    /// ⌃⌘S, or the title bar's button: the WRLD sidebar in this window, or not; new windows
+    /// open as this one was left.
+    @objc func toggleSidebar(_ sender: Any?) {
+        guard host?.connections != nil else { return }
+        setSidebar(shown: sidebar == nil)
+        host?.sidebarPreferred = sidebar != nil
+    }
+
+    private func setSidebar(shown: Bool) {
+        if shown, sidebar == nil {
+            let view = WRLDSidebarView(chrome: chrome)
+            view.onRow = { [weak self] row, command in self?.sidebarRow(row, commandHeld: command) }
+            view.menuForRow = { [weak self] row in self?.sidebarMenu(row) }
+            view.onSearch = { [weak self] query in
+                self?.sidebarQuery = query
+                self?.refreshSidebar()
+            }
+            view.onAddHost = { NSApp.sendAction(#selector(AppDelegate.newHost(_:)), to: nil, from: nil) }
+            sidebar = view
+            root.sidebar = view
+            root.leadingColumnWidth = WRLDSidebarView.width
+            refreshSidebar()
+        } else if !shown, sidebar != nil {
+            sidebar = nil
+            root.sidebar = nil
+            root.leadingColumnWidth = 0
+        }
+        root.titleBar.sidebarButton.isOn = sidebar != nil
+        root.titleBar.needsLayout = true
+        updateSidebarViewer()
+    }
+
+    private func refreshSidebar() {
+        guard let sidebar, let connections = host?.connections else { return }
+        sidebar.model = connections.sidebar(query: sidebarQuery, expanded: expandedGroups)
+    }
+
+    private func updateSidebarViewer() {
+        let showing = sidebar != nil && window?.occlusionState.contains(.visible) == true
+        guard showing != sidebarCounted else { return }
+        sidebarCounted = showing
+        if showing {
+            host?.connections?.shown(by: self)
+        } else {
+            host?.connections?.hidden(by: self)
+        }
+    }
+
+    /// A click on a row: a host opens in a new tab (⌘: beside the active pane), a group
+    /// opens or closes, a snippet types in (⌘: runs), a tunnel turns on or off.
+    private func sidebarRow(_ row: SidebarModel.Row, commandHeld: Bool) {
+        switch row.kind {
+        case .host(let ref):
+            open(ref, beside: commandHeld)
+        case .group(let id, _):
+            if expandedGroups.contains(id) { expandedGroups.remove(id) } else { expandedGroups.insert(id) }
+            refreshSidebar()
+        case .snippet(let id):
+            useSnippet(id, run: commandHeld)
+        case .tunnel(let id):
+            let connections = host?.connections
+            Task { await connections?.toggleTunnel(id) }
+        }
+    }
+
+    private func sidebarMenu(_ row: SidebarModel.Row) -> NSMenu? {
+        let menu = NSMenu()
+        func add(_ title: String, _ action: @escaping @MainActor () -> Void) {
+            menu.addItem(ClosureMenuItem(title, action))
+        }
+        switch row.kind {
+        case .host(let ref):
+            add("Connect") { [weak self] in self?.open(ref, beside: false) }
+            add("Connect Beside") { [weak self] in self?.open(ref, beside: true) }
+            guard case .vault(let id) = ref, let connections = host?.connections, let saved = connections.host(id)
+            else { return menu }
+            menu.addItem(.separator())
+            add("Edit") { [weak self] in self?.host?.showWRLD(at: .allHosts, selecting: id) }
+            add(saved.isLegend ? "Unpin from Legends" : "Pin to Legends") {
+                connections.setLegend(id, !saved.isLegend)
+            }
+            if let address = connections.address(of: ref) {
+                add("Copy Address") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(address, forType: .string)
+                }
+            }
+            menu.addItem(.separator())
+            add("Remove from WRLD…") { [weak self] in self?.confirmRemoval(saved) }
+        case .group(_, let expanded):
+            add(expanded ? "Collapse" : "Expand") { [weak self] in self?.sidebarRow(row, commandHeld: false) }
+        case .snippet(let id):
+            add("Insert") { [weak self] in self?.useSnippet(id, run: false) }
+            add("Run") { [weak self] in self?.useSnippet(id, run: true) }
+            menu.addItem(.separator())
+            add("Edit in WRLD") { [weak self] in self?.host?.showWRLD(at: .wishingWell, selecting: nil) }
+        case .tunnel:
+            add(row.dot == .connected ? "Turn Off" : "Turn On") { [weak self] in
+                self?.sidebarRow(row, commandHeld: false)
+            }
+        }
+        return menu
+    }
+
+    /// "Remove prod-api from WRLD?", from the sidebar.
+    private func confirmRemoval(_ host: WRLDHost) {
+        guard let connections = self.host?.connections else { return }
+        let alert = NSAlert()
+        alert.messageText = "Remove \(host.name) from WRLD?"
+        alert.informativeText =
+            host.sshConfigAlias != nil
+            ? "It stays in ~/.ssh/config." : "Its tunnels go too, and hosts that jump through it connect directly."
+        alert.addButton(withTitle: "Remove")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+        Task {
+            guard await present(alert) == .alertFirstButtonReturn else { return }
+            await connections.remove(host.id)
+        }
+    }
+
     // MARK: - Wishing Well
 
     /// Where a snippet typed now goes: the active pane, and every armed pane with it.
@@ -978,6 +1132,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         window?.backgroundColor = chrome.colors.ground.nsColor
         root.titleBar.setChrome(chrome)
         root.statusBar.setChrome(chrome)
+        sidebar?.setChrome(chrome)
         root.layer?.backgroundColor = chrome.colors.ground.cgColor
         for area in areas.values {
             area.setChrome(chrome)
@@ -1121,6 +1276,10 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     }
 
     func windowWillClose(_ notification: Notification) {
+        if sidebarCounted {
+            sidebarCounted = false
+            host?.connections?.hidden(by: self)
+        }
         window?.delegate = nil
         for check in quietChecks.values { check.cancel() }
         quietChecks = [:]
@@ -1159,6 +1318,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
 
     func windowDidChangeOcclusionState(_ notification: Notification) {
         for pane in panes.values { pane.surface.visibilityChanged() }
+        updateSidebarViewer()
     }
 
     /// Everything the window shows starts here, once AppKit has placed the buttons.
@@ -1190,6 +1350,9 @@ extension PitLaneWindowController: NSMenuItemValidation {
         case #selector(toggleArmed(_:)):
             menuItem.state = model.activeTab?.isArmed == true ? .on : .off
             return model.activeTab?.isSplit == true
+        case #selector(toggleSidebar(_:)):
+            menuItem.state = sidebar != nil ? .on : .off
+            return host?.connections != nil
         case #selector(saveSelectionToWishingWell(_:)):
             return host?.connections != nil && pane(of: menuItem)?.surface.hasSelection == true
         default:

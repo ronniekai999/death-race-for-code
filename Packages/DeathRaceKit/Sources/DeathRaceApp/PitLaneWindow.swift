@@ -108,9 +108,18 @@ final class PitLaneRootView: NSView {
     let statusBar: StatusBarView
     /// Holds every tab's pane area; only the active tab's is shown.
     let tabArea = NSView()
-    /// The sidebar's width; zero until WRLD arrives.
+    /// The sidebar's width; zero while it's hidden.
     var leadingColumnWidth: CGFloat = 0 {
         didSet { if leadingColumnWidth != oldValue { needsLayout = true } }
+    }
+    /// The WRLD sidebar, from under the title row to the window's bottom, while it shows.
+    var sidebar: NSView? {
+        didSet {
+            guard sidebar !== oldValue else { return }
+            oldValue?.removeFromSuperview()
+            if let sidebar { addSubview(sidebar, positioned: .below, relativeTo: titleBar) }
+            needsLayout = true
+        }
     }
 
     init(chrome: Chrome) {
@@ -138,12 +147,15 @@ final class PitLaneRootView: NSView {
         let height = bounds.height
         let top = Chrome.titleRowHeight
         let bottom = Chrome.statusBarHeight
+        let column = leadingColumnWidth
         set(titleBar, NSRect(x: 0, y: 0, width: width, height: top))
-        set(statusBar, NSRect(x: 0, y: height - bottom, width: width, height: bottom))
+        if let sidebar { set(sidebar, NSRect(x: 0, y: top, width: column, height: max(height - top, 0))) }
+        // Beside the sidebar, as on the Main board.
+        set(statusBar, NSRect(x: column, y: height - bottom, width: max(width - column, 0), height: bottom))
         set(
             tabArea,
             NSRect(
-                x: leadingColumnWidth, y: top, width: max(width - leadingColumnWidth, 0),
+                x: column, y: top, width: max(width - column, 0),
                 height: max(height - top - bottom, 0)))
         for area in tabArea.subviews { set(area, tabArea.bounds) }
     }

@@ -47,6 +47,16 @@ protocol HostConnecting: AnyObject, Sendable {
     func onConnectCommand(for host: HostRef) -> String?
     /// A snippet was typed in: Wishing Well counts its uses.
     func used(_ snippet: SnippetID)
+    /// The sidebar's sections, searched for `query`, with the `expanded` groups open.
+    func sidebar(query: String, expanded: Set<GroupID>) -> SidebarModel
+    func host(_ id: HostID) -> WRLDHost?
+    func setLegend(_ host: HostID, _ isLegend: Bool)
+    /// Takes the host out of WRLD, closing its open tunnels first.
+    func remove(_ host: HostID) async
+    /// Something on screen shows WRLD (a sidebar, the WRLD window): the Legends are checked
+    /// while anything does, and not otherwise.
+    func shown(by viewer: AnyObject)
+    func hidden(by viewer: AnyObject)
 }
 
 extension Notification.Name {

@@ -10,7 +10,7 @@ public enum ActionID: String, CaseIterable, Sendable {
     // Edit
     case copy, paste, selectAll, saveSelectionToWishingWell, clearToStart, clearScrollback
     // View
-    case hearMeCalling, bigger, smaller, actualSize, zoomPane, equalizePanes
+    case hearMeCalling, toggleSidebar, bigger, smaller, actualSize, zoomPane, equalizePanes
     // Window
     case minimize, zoomWindow, showPreviousTab, showNextTab, moveTabToNewWindow
     case previousPane, nextPane, focusPaneLeft, focusPaneRight, focusPaneUp, focusPaneDown
@@ -161,6 +161,9 @@ public enum ActionCatalog {
         Action(
             .hearMeCalling, "Hear Me Calling…", "Hear Me Calling", .view,
             KeyShortcut(.character("p"), [.command, .shift]), keywords: ["command palette", "search"], inPalette: false),
+        Action(
+            .toggleSidebar, "WRLD Sidebar", "Show or hide the WRLD sidebar", .view,
+            KeyShortcut(.character("s"), [.command, .control]), keywords: ["hosts", "legends", "side bar"]),
         Action(
             .bigger, "Bigger", "Make text bigger", .view, KeyShortcut(.character("+")),
             alternates: [KeyShortcut(.character("="))], keywords: ["font size", "zoom in"]),

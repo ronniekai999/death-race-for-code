@@ -96,6 +96,20 @@ final class FakeConnections: HostConnecting {
 
     private(set) var uses: [SnippetID] = []
     func used(_ snippet: SnippetID) { uses.append(snippet) }
+
+    /// The hosts the sidebar shows.
+    var vault = Vault()
+    private(set) var viewers = 0
+
+    func sidebar(query: String, expanded: Set<GroupID>) -> SidebarModel {
+        SidebarModel(.init(vault: vault, expandedGroups: expanded, query: query))
+    }
+
+    func host(_ id: HostID) -> WRLDHost? { vault.host(id) }
+    func setLegend(_ host: HostID, _ isLegend: Bool) { vault.setLegend(host, isLegend) }
+    func remove(_ host: HostID) async { vault.removeHost(host) }
+    func shown(by viewer: AnyObject) { viewers += 1 }
+    func hidden(by viewer: AnyObject) { viewers -= 1 }
 }
 
 extension WindowTests {

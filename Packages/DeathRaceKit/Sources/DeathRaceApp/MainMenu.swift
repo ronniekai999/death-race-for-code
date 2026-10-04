@@ -67,7 +67,7 @@ enum MainMenu {
 
     private static func view() -> NSMenu {
         let menu = NSMenu(title: "View")
-        add([.hearMeCalling], to: menu)
+        add([.hearMeCalling, .toggleSidebar], to: menu)
         menu.addItem(.separator())
         add([.bigger, .smaller, .actualSize], to: menu)
         menu.addItem(.separator())
@@ -180,6 +180,7 @@ enum MainMenu {
         case .clearToStart: #selector(PitLaneWindowController.clearToStart(_:))
         case .clearScrollback: #selector(PitLaneWindowController.clearScrollback(_:))
         case .hearMeCalling: #selector(PitLaneWindowController.showHearMeCalling(_:))
+        case .toggleSidebar: #selector(PitLaneWindowController.toggleSidebar(_:))
         case .bigger: #selector(PitLaneWindowController.increaseFontSize(_:))
         case .smaller: #selector(PitLaneWindowController.decreaseFontSize(_:))
         case .actualSize: #selector(PitLaneWindowController.resetFontSize(_:))

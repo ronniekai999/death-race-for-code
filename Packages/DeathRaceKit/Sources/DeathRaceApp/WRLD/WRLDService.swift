@@ -291,6 +291,19 @@ final class WRLDService: HostConnecting {
         return true
     }
 
+    func sidebar(query: String, expanded: Set<GroupID>) -> SidebarModel {
+        SidebarModel(
+            .init(
+                vault: vault, state: state, connected: connectedKeys, openTunnels: openTunnelIDs,
+                expandedGroups: expanded, query: query))
+    }
+
+    func host(_ id: HostID) -> WRLDHost? { vault.host(id) }
+
+    func setLegend(_ host: HostID, _ isLegend: Bool) {
+        edit { $0.setLegend(host, isLegend) }
+    }
+
     /// Takes `host` out of WRLD, closing its open tunnels first.
     func remove(_ host: HostID) async {
         if let board, let tunnels = vault.host(host)?.tunnels {

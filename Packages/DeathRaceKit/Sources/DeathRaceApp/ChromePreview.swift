@@ -11,6 +11,7 @@
     import TerminalUI
     import UniformTypeIdentifiers
     import VTCore
+    import Vault
 
     /// A shell that is only a script: what it printed is fed in, and it says which program
     /// runs where, as a pane's pill and status bar ask.
@@ -137,6 +138,13 @@
         @MainActor
         private final class Host: WindowHost {
             let ids = IDSource()
+            /// The Main board's WRLD, so the sidebar shows as it does there.
+            let preview = PreviewWRLD()
+            var connections: (any HostConnecting)? { preview }
+            var sidebarPreferred: Bool {
+                get { true }
+                set {}
+            }
             var scripts = ChromePreview.scripts
             private(set) var sessions: [ScriptedSession] = []
             var makeSession: SessionMaker {
@@ -232,6 +240,90 @@
             for pane in controller.panes.values { pane.surface.focusChanged() }
             settle()
             return controller
+        }
+
+        // MARK: - WRLD for the pictures
+
+        /// The Main board's hosts, snippets and tunnel, for the sidebar. Nothing in it
+        /// connects.
+        @MainActor
+        final class PreviewWRLD: HostConnecting {
+            let vault: Vault
+            let state: WRLDState
+            let now: Date
+
+            init() {
+                let now = Date()
+                self.now = now
+                let homelab = Group(id: GroupID(rawValue: "g1"), name: "Homelab")
+                let work = Group(id: GroupID(rawValue: "g2"), name: "Work")
+                func host(_ id: String, _ name: String, _ address: String, group: GroupID? = nil, legend: Bool = false)
+                    -> WRLDHost
+                {
+                    WRLDHost(
+                        id: HostID(rawValue: id), name: name, source: .wrld(Connection(address: address)),
+                        groupID: group, isLegend: legend)
+                }
+                var prod = host("h1", "prod-api", "10.0.4.21", group: work.id, legend: true)
+                prod.tunnels = [
+                    Tunnel(
+                        id: TunnelID(rawValue: "t1"),
+                        spec: TunnelSpec(kind: .local, listenPort: 5432, target: .init(host: "db", port: 5432)))
+                ]
+                let hosts =
+                    [
+                        prod, host("h2", "nas-999", "nas.local", group: homelab.id, legend: true),
+                        host("h3", "jellyfin", "192.168.12.40", group: homelab.id),
+                        host("h4", "bastion", "bastion.lan", group: homelab.id),
+                        host("h5", "media", "192.168.12.41", group: homelab.id),
+                        host("h6", "pi-hole", "192.168.12.2"),
+                    ] + (1...6).map { host("w\($0)", "work-\($0)", "work\($0).example.com", group: work.id) }
+                vault = Vault(
+                    hosts: hosts, groups: [homelab, work],
+                    snippets: [
+                        Snippet(name: "deploy", text: "./deploy.sh {{env:prod|staging}}"),
+                        Snippet(name: "tail api logs", text: "journalctl -fu api"),
+                        Snippet(name: "restart caddy", text: "sudo systemctl restart caddy"),
+                    ])
+                var state = WRLDState()
+                for (id, latency) in [("h1", 18), ("h2", 4)] {
+                    state.update(.vault(HostID(rawValue: id))) { facts in
+                        facts.latency = latency
+                        facts.latencyCheckedAt = now
+                    }
+                }
+                state.update(.vault(HostID(rawValue: "h6"))) { $0.latencyCheckedAt = now }
+                self.state = state
+            }
+
+            func sidebar(query: String, expanded: Set<GroupID>) -> SidebarModel {
+                SidebarModel(
+                    .init(
+                        vault: vault, state: state, connected: ["h1"], openTunnels: [TunnelID(rawValue: "t1")],
+                        expandedGroups: expanded, query: query, now: now))
+            }
+
+            func name(of host: HostRef) -> String { "host" }
+            func address(of host: HostRef) -> String? { nil }
+            func connect(_ host: HostRef, for pane: PaneID) async -> ConnectResult { .failed(.cancelled) }
+            func plainLaunch(_ host: HostRef) async -> ShellLaunch? { nil }
+            func release(_ pane: PaneID) {}
+            func cancel(_ host: HostRef) {}
+            func paletteHosts() -> [PaletteItem] { [] }
+            var openConnections: [String] { [] }
+            var openTunnelCount: Int { 1 }
+            func paletteTunnels() -> [PaletteItem] { [] }
+            func toggleTunnel(_ id: TunnelID) async {}
+            func paletteSnippets() -> [PaletteItem] { [] }
+            func snippet(_ id: SnippetID) -> Snippet? { nil }
+            func save(_ snippet: Snippet) -> Bool { false }
+            func onConnectCommand(for host: HostRef) -> String? { nil }
+            func used(_ snippet: SnippetID) {}
+            func host(_ id: HostID) -> WRLDHost? { vault.host(id) }
+            func setLegend(_ host: HostID, _ isLegend: Bool) {}
+            func remove(_ host: HostID) async {}
+            func shown(by viewer: AnyObject) {}
+            func hidden(by viewer: AnyObject) {}
         }
 
         // MARK: - Pictures

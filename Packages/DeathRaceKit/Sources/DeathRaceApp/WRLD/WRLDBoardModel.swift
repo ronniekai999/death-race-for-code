@@ -82,7 +82,7 @@ final class WRLDBoardModel {
     func status(of host: WRLDHost) -> HostStatus {
         let ref = HostRef.vault(host.id)
         return HostStatus(
-            facts: state.facts(ref), isConnected: connected.contains(WRLDState.key(for: ref)), now: now)
+            facts: state.facts(ref), isConnected: connected.contains(host.connectionKey), now: now)
     }
 
     func chips(for host: WRLDHost) -> [HostChip] {

@@ -45,12 +45,18 @@ public enum WRLDBoard {
         ]
     }
 
-    /// Cards under a heading.
+    /// Cards under a heading. The id is the section's place, not its title, so a group named
+    /// "Legends" or "Other hosts" (or two groups with the same name) doesn't collide.
     public struct CardSection: Equatable, Sendable, Identifiable {
+        public var id: String
         public var title: String
         public var hosts: [WRLDHost]
 
-        public var id: String { title }
+        public init(id: String, title: String, hosts: [WRLDHost]) {
+            self.id = id
+            self.title = title
+            self.hosts = hosts
+        }
     }
 
     /// The cards `place` shows that match `query`: for all hosts, Legends first, then each
@@ -62,22 +68,27 @@ public enum WRLDBoard {
         switch place {
         case .allHosts:
             sections =
-                [CardSection(title: "Legends", hosts: shown.filter(\.isLegend))]
+                [CardSection(id: "legends", title: "Legends", hosts: shown.filter(\.isLegend))]
                 + vault.groups.map { group in
-                    CardSection(title: group.name, hosts: shown.filter { $0.groupID == group.id && !$0.isLegend })
+                    CardSection(
+                        id: "group:\(group.id.rawValue)", title: group.name,
+                        hosts: shown.filter { $0.groupID == group.id && !$0.isLegend })
                 }
                 + [
                     CardSection(
+                        id: "other",
                         title: vault.groups.isEmpty && !shown.contains(where: \.isLegend) ? "Hosts" : "Other hosts",
                         hosts: shown.filter { host in
                             !host.isLegend && (host.groupID.flatMap(vault.group) == nil)
                         })
                 ]
         case .legends:
-            sections = [CardSection(title: "Legends", hosts: shown.filter(\.isLegend))]
+            sections = [CardSection(id: "legends", title: "Legends", hosts: shown.filter(\.isLegend))]
         case .group(let id):
             sections = [
-                CardSection(title: vault.group(id)?.name ?? "Group", hosts: shown.filter { $0.groupID == id })
+                CardSection(
+                    id: "group:\(id.rawValue)", title: vault.group(id)?.name ?? "Group",
+                    hosts: shown.filter { $0.groupID == id })
             ]
         case .keys, .wishingWell, .comeAndGo, .knownHosts:
             sections = []

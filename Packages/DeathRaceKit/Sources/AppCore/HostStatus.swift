@@ -6,6 +6,9 @@ import Vault
 public enum RelativeTime {
     public static func phrase(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
         let seconds = now.timeIntervalSince(date)
+        // A date in the future (the clock moved back since it was recorded) isn't "just now":
+        // show it as a date rather than claim it just happened.
+        if seconds < 0 { return "on " + formatted(date, now: now, calendar: calendar) }
         if seconds < 60 { return "just now" }
         let minutes = Int(seconds / 60)
         if minutes < 60 { return "\(minutes) min ago" }
@@ -22,13 +25,18 @@ public enum RelativeTime {
             let weeks = days / 7
             return weeks == 1 ? "1 week ago" : "\(weeks) weeks ago"
         }
+        return "on " + formatted(date, now: now, calendar: calendar)
+    }
+
+    /// The day and month, with the year only when it isn't this one.
+    private static func formatted(_ date: Date, now: Date, calendar: Calendar) -> String {
         let formatter = DateFormatter()
         formatter.calendar = calendar
         formatter.locale = calendar.locale ?? Locale.current
         formatter.timeZone = calendar.timeZone
         let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
         formatter.setLocalizedDateFormatFromTemplate(sameYear ? "dMMM" : "dMMMyyyy")
-        return "on " + formatter.string(from: date)
+        return formatter.string(from: date)
     }
 }
 

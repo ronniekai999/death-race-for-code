@@ -106,8 +106,8 @@ struct WRLDInspector: View {
             Button("Add") {
                 let name = newGroup
                 model.edit { vault in
-                    let id = vault.addGroup(named: name)
-                    vault.move(host.id, to: id)
+                    // A blank name makes no group, and moves the host nowhere.
+                    if let id = vault.addGroup(named: name) { vault.move(host.id, to: id) }
                 }
                 newGroup = ""
             }

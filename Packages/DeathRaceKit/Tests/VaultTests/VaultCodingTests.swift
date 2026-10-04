@@ -83,6 +83,48 @@ struct VaultCodingTests {
         #expect(vault.hosts.count == 1)
     }
 
+    // A field a hand edit spelled in the wrong case would be ignored and then erased on the
+    // next save, losing what it held. It's refused instead, so the file is left alone.
+    @Test func aMisspelledFieldIsRefusedRatherThanErased() {
+        // "Hosts" for "hosts" would hide every host.
+        #expect(throws: DecodingError.self) {
+            try decode(#"{"version": 1, "Hosts": [{"id": "h1", "name": "pi", "address": "pi.local"}]}"#)
+        }
+        // "jumphost" for "jumpHost" would connect directly, skipping the bastion.
+        #expect(throws: DecodingError.self) {
+            try decode(
+                #"{"version": 1, "hosts": [{"id": "h1", "name": "pi", "address": "pi.local", "jumphost": "h2"}]}"#)
+        }
+    }
+
+    // Two records sharing an id make a remove delete both and an edit touch the wrong one.
+    @Test func duplicateIDsAreRefused() {
+        #expect(throws: DecodingError.self) {
+            try decode(
+                #"{"version": 1, "hosts": [{"id": "h1", "name": "a", "address": "a"}, {"id": "h1", "name": "b", "address": "b"}]}"#
+            )
+        }
+        // Across hosts, tunnel ids must be unique too. The tunnels here are well-formed, so
+        // the only thing wrong is the shared id.
+        let twoHostsOneTunnelEach = """
+            {"version": 1, "hosts": [
+              {"id": "h1", "name": "a", "address": "a", "tunnels": [{"id": "ID", "kind": "local", "listen": "5432", "target": "db:5432"}]},
+              {"id": "h2", "name": "b", "address": "b", "tunnels": [{"id": "ID", "kind": "local", "listen": "5433", "target": "db:5433"}]}
+            ]}
+            """
+        #expect(throws: DecodingError.self) {
+            try decode(twoHostsOneTunnelEach.replacingOccurrences(of: "ID", with: "t1"))
+        }
+        // Distinct ids decode cleanly, proving it was the duplicate that was refused.
+        let distinct = """
+            {"version": 1, "hosts": [
+              {"id": "h1", "name": "a", "address": "a", "tunnels": [{"id": "t1", "kind": "local", "listen": "5432", "target": "db:5432"}]},
+              {"id": "h2", "name": "b", "address": "b", "tunnels": [{"id": "t2", "kind": "local", "listen": "5433", "target": "db:5433"}]}
+            ]}
+            """
+        #expect(throws: Never.self) { try decode(distinct) }
+    }
+
     @Test func identitiesTakeTheirThreeShapes() throws {
         for (text, identity) in [
             (#""automatic""#, Connection.Identity.automatic),

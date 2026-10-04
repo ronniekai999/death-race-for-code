@@ -49,7 +49,10 @@ struct SidebarModelTests {
     }
 
     @Test func anOpenGroupShowsItsHostsUnderIt() {
-        let sidebar = model(expanded: [BoardVault.homelab.id], connected: ["h2"])
+        // nas-999 comes from ~/.ssh/config, so the pool files it under "alias:nas-999", not
+        // its vault id "h2"; the row must look it up by that key to show connected.
+        let sidebar = model(expanded: [BoardVault.homelab.id], connected: [BoardVault.nas.connectionKey])
+        #expect(BoardVault.nas.connectionKey == "alias:nas-999")
         let wrld = sidebar.sections[1].rows
         #expect(wrld.map(\.title) == ["Homelab", "nas-999", "pi-hole", "jellyfin", "bastion", "Work", "scratch"])
         #expect(wrld[1].isIndented)

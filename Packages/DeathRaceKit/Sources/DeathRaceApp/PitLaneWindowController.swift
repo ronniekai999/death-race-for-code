@@ -1051,11 +1051,20 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             })
     }
 
-    /// `command` as if typed into the active pane and every armed pane with it, with Return
-    /// after it to `run` it. Each program gets it as a paste, so a shell takes it whole, and
-    /// no paste question asks: it was chosen and seen.
+    /// `command` as if typed into the active pane and every armed pane with it.
+    ///
+    /// Run adds Return and goes straight through: you asked to execute it. Insert must not
+    /// run, but into a shell without bracketed paste a newline is Enter, so a multi-line
+    /// Insert would run its lines. So Insert goes through the pane's own paste path, which
+    /// asks first when that could happen and reaches the armed panes itself.
     func typeSnippet(_ command: String, run: Bool) {
-        let inputs = TypedInput.snippet(command, run: run)
+        guard run else {
+            if let active = model.activePane, let surface = panes[active]?.surface {
+                surface.paste(text: command)
+            }
+            return
+        }
+        let inputs = TypedInput.snippet(command, run: true)
         for target in snippetTargets {
             guard let surface = panes[target]?.surface else { continue }
             for input in inputs { surface.receive(input) }

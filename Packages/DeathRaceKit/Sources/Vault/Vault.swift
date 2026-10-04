@@ -123,6 +123,17 @@ public struct WRLDHost: Equatable, Sendable, Identifiable {
         return nil
     }
 
+    /// The key the master pool files an open connection under, matching
+    /// `GeneratedConfig.controlKey(for:)`: a WRLD host's own id, or "alias:<name>" for a host
+    /// that only names an entry in `~/.ssh/config`. The sidebar and the board ask whether
+    /// this host is connected by this key, not by its id, so imported hosts show connected.
+    public var connectionKey: String {
+        switch source {
+        case .wrld: id.rawValue
+        case .sshConfig(let alias): "alias:" + alias
+        }
+    }
+
     public var sshConfigAlias: String? {
         if case .sshConfig(let alias) = source { return alias }
         return nil
@@ -237,18 +248,66 @@ public enum HostRef: Hashable, Sendable {
 
 // MARK: - The file's shape
 
+/// A key of any name, for noticing fields a hand edit misspelled.
+struct AnyCodingKey: CodingKey {
+    var stringValue: String
+    var intValue: Int? { nil }
+    init(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue: Int) { nil }
+}
+
+/// Throws when a present key is a different-case spelling of a known one (`Hosts` for
+/// `hosts`, `jumphost` for `jumpHost`). Such a key would otherwise be ignored and then
+/// erased on the next save, losing what it held — a host's jump host, or every host. A
+/// genuinely unknown key (a newer Death Race's addition) is left alone, so old builds still
+/// read new files.
+func rejectMisspelledKeys<K>(_ decoder: any Decoder, _ known: K.Type) throws
+where K: CodingKey & CaseIterable {
+    let exact = Set(K.allCases.map(\.stringValue))
+    let lowercased = Set(K.allCases.map { $0.stringValue.lowercased() })
+    let present = try decoder.container(keyedBy: AnyCodingKey.self)
+    for key in present.allKeys
+    where !exact.contains(key.stringValue) && lowercased.contains(key.stringValue.lowercased()) {
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(
+                codingPath: present.codingPath,
+                debugDescription:
+                    "“\(key.stringValue)” looks like a misspelling of a field; fix its case or remove it."))
+    }
+}
+
+/// Throws when an id repeats, which would make a remove delete more than one and an edit
+/// touch the wrong one.
+func rejectDuplicateIDs(_ ids: [String], _ kind: String) throws {
+    var seen: Set<String> = []
+    for id in ids where !seen.insert(id).inserted {
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(
+                codingPath: [], debugDescription: "two \(kind)s share the id “\(id)”; ids must be unique."))
+    }
+}
+
 extension Vault: Codable {
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case version, hosts, groups, snippets, keys
     }
 
     public init(from decoder: any Decoder) throws {
+        try rejectMisspelledKeys(decoder, CodingKeys.self)
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
         hosts = try container.decodeIfPresent([WRLDHost].self, forKey: .hosts) ?? []
         groups = try container.decodeIfPresent([Group].self, forKey: .groups) ?? []
         snippets = try container.decodeIfPresent([Snippet].self, forKey: .snippets) ?? []
         keys = try container.decodeIfPresent([Key].self, forKey: .keys) ?? []
+        // A newer file may use ids in ways this build doesn't; only guard what it will edit.
+        if version <= Vault.formatVersion {
+            try rejectDuplicateIDs(hosts.map(\.id.rawValue), "host")
+            try rejectDuplicateIDs(groups.map(\.id.rawValue), "group")
+            try rejectDuplicateIDs(snippets.map(\.id.rawValue), "snippet")
+            try rejectDuplicateIDs(keys.map(\.id.rawValue), "key")
+            try rejectDuplicateIDs(hosts.flatMap { $0.tunnels.map(\.id.rawValue) }, "tunnel")
+        }
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -264,12 +323,13 @@ extension Vault: Codable {
 /// A host is flat in the file: an `address` (with `user`, `port`, `identity`, `jumpHost`)
 /// for one WRLD describes, or an `sshConfigAlias`.
 extension WRLDHost: Codable {
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case id, name, address, user, port, identity, jumpHost, forwardAgent, sshConfigAlias
         case group, tags, legend, tunnels, onConnect
     }
 
     public init(from decoder: any Decoder) throws {
+        try rejectMisspelledKeys(decoder, CodingKeys.self)
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(HostID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)

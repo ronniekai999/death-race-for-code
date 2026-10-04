@@ -80,6 +80,21 @@ struct WRLDBoardTests {
         #expect(WRLDBoard.cards(for: .allHosts, vault: plain).map(\.title) == ["Hosts"])
     }
 
+    // Section ids come from the place, not the title, so a group named like a built-in
+    // heading doesn't collide and make SwiftUI drop a section.
+    @Test func cardSectionIDsAreUniqueEvenWithACollidingGroupName() {
+        let legendHost = WRLDHost(
+            id: HostID(rawValue: "x1"), name: "a", source: .wrld(Connection(address: "a")), isLegend: true)
+        let tricky = Group(id: GroupID(rawValue: "gX"), name: "Legends")
+        let inGroup = WRLDHost(
+            id: HostID(rawValue: "x2"), name: "b", source: .wrld(Connection(address: "b")), groupID: tricky.id)
+        let board = Vault(hosts: [legendHost, inGroup], groups: [tricky])
+        let sections = WRLDBoard.cards(for: .allHosts, vault: board)
+        #expect(sections.map(\.title) == ["Legends", "Legends"])  // same title…
+        #expect(Set(sections.map(\.id)).count == sections.count)  // …different ids
+        #expect(sections.map(\.id) == ["legends", "group:gX"])
+    }
+
     @Test func searchingFindsByAddressUserTagAndGroup() {
         func names(_ query: String) -> [String] {
             WRLDBoard.cards(for: .allHosts, vault: vault, query: query).flatMap { $0.hosts.map(\.name) }
@@ -118,7 +133,8 @@ struct HostStatusTests {
             RelativeTime.phrase(now.addingTimeInterval(-seconds), now: now, calendar: calendar)
         }
         #expect(ago(20) == "just now")
-        #expect(ago(-300) == "just now")
+        // A date in the future (the clock moved back) isn't "just now": it shows as a date.
+        #expect(ago(-300) == "on Sep 21")
         #expect(ago(4 * 60) == "4 min ago")
         #expect(ago(3_600) == "1 hour ago")
         #expect(ago(3 * 3_600) == "3 hours ago")

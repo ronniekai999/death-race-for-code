@@ -79,10 +79,14 @@ struct VaultEditsTests {
         #expect(vault.hosts.compactMap(\.sshConfigAlias) == ["nas-999", "github"])
     }
 
-    @Test func groupsComeAndGoWithoutTakingTheirHosts() {
+    @Test func groupsComeAndGoWithoutTakingTheirHosts() throws {
         var vault = vault()
         #expect(vault.addGroup(named: " homelab ") == homelab.id)
-        let work = vault.addGroup(named: "Work")
+        // A blank name makes no group.
+        #expect(vault.addGroup(named: "  ") == nil)
+        #expect(vault.groups.map(\.name) == ["Homelab"])
+        let added = vault.addGroup(named: "Work")
+        let work = try #require(added)
         #expect(vault.groups.map(\.name) == ["Homelab", "Work"])
         vault.move(bastion.id, to: work)
         #expect(vault.host(bastion.id)?.groupID == work)

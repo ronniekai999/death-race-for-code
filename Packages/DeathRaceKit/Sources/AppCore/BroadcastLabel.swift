@@ -19,8 +19,19 @@ public enum BroadcastLabel {
             while count < shared.count, count < characters.count, shared[count] == characters[count] { count += 1 }
             shared.removeSubrange(count...)
         }
-        func parts(_ character: Character) -> Bool { character.isNumber || "-_. ".contains(character) }
-        while let last = shared.last, parts(last) { shared.removeLast() }
+        func isSeparator(_ character: Character) -> Bool { "-_. ".contains(character) }
+        func parts(_ character: Character) -> Bool { character.isNumber || isSeparator(character) }
+        // When the shared prefix stops in the middle of a number, that number is a counter
+        // the names differ by (prod-api-10, prod-api-11), so drop the whole digit run. But a
+        // digit the names share, with the difference after it (web2-a, web2-b), stays. Then
+        // trailing separators always go.
+        let splitInsideNumber =
+            shared.last?.isNumber == true
+            && names.contains { Array($0).dropFirst(shared.count).first?.isNumber == true }
+        if splitInsideNumber {
+            while let last = shared.last, last.isNumber { shared.removeLast() }
+        }
+        while let last = shared.last, isSeparator(last) { shared.removeLast() }
         guard shared.count > 1 else { return "" }
         // Every name must go on from the stem with a number or a separator, or end there.
         for name in names {

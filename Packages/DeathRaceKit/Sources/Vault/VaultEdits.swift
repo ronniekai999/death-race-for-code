@@ -60,8 +60,11 @@ extension Vault {
 
     /// A new group named `name`, or the one that's already called that (ignoring case).
     @discardableResult
-    public mutating func addGroup(named name: String) -> GroupID {
+    /// A group with this name, making it if there isn't one; nil for a blank name, so a
+    /// New Group alert left empty makes nothing (and moves no host into it).
+    public mutating func addGroup(named name: String) -> GroupID? {
         let trimmed = name.trimmingSpaces
+        guard !trimmed.isEmpty else { return nil }
         if let existing = groups.first(where: { $0.name.lowercased() == trimmed.lowercased() }) { return existing.id }
         let group = Group(name: trimmed)
         groups.append(group)

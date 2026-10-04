@@ -545,7 +545,10 @@ final class WRLDService: HostConnecting {
             case .sshConfig(let alias): vault.hosts.first { $0.source == .sshConfig(alias: alias) }
             }
         guard let id = saved?.onConnectSnippetID, let snippet = vault.snippet(id) else { return nil }
-        return SnippetFill(snippet.text).command
+        // A snippet with unfilled placeholders would run with gaps ("tmux new -A -s "); an
+        // on-connect snippet can't be filled in, so only a complete one is typed.
+        let fill = SnippetFill(snippet.text)
+        return fill.isComplete ? fill.command : nil
     }
 
     // MARK: - Adding hosts and keys

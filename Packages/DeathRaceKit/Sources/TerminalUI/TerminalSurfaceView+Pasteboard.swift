@@ -14,8 +14,10 @@ extension TerminalSurfaceView {
         paste(text: text)
     }
 
-    /// Sends `text` as a paste, asking first when it could run commands nobody saw.
-    func paste(text: String) {
+    /// Sends `text` as a paste, asking first when it could run commands nobody saw. Public so
+    /// a Wishing Well snippet Insert goes through the same question (a newline is Enter to a
+    /// shell without bracketed paste), and reaches the armed panes the same way.
+    public func paste(text: String) {
         guard let mirror = model?.mirror else { return }
         let panes = [mirror.modes] + (pasteAlsoGoesTo?() ?? [])
         guard pasteProtection, let warning = PasteWarning(text: text, panes: panes) else {

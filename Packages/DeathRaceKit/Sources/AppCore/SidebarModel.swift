@@ -101,7 +101,7 @@ public struct SidebarModel: Equatable, Sendable {
         func hostRow(_ host: WRLDHost, indented: Bool = false) -> Row {
             let ref = HostRef.vault(host.id)
             let status = HostStatus(
-                facts: inputs.state.facts(ref), isConnected: inputs.connected.contains(WRLDState.key(for: ref)),
+                facts: inputs.state.facts(ref), isConnected: inputs.connected.contains(host.connectionKey),
                 now: inputs.now, calendar: inputs.calendar)
             let said = [host.name, status.dot == .connected ? "connected" : status.meta].compactMap { $0 }
             return Row(

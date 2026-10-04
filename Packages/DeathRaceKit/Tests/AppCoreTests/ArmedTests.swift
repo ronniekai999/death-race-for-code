@@ -100,6 +100,12 @@ struct ArmedTests {
         #expect(BroadcastLabel.pill(names: ["db1", "db2"]) == "db × 2")
         #expect(BroadcastLabel.pill(names: ["web", "website"]) == "2 panes")
         #expect(BroadcastLabel.pill(names: ["a1", "a2"]) == "2 panes")
+        // A digit the names share, with the difference after it, stays in the stem.
+        #expect(BroadcastLabel.pill(names: ["web2-a", "web2-b"]) == "web2 × 2")
+        #expect(BroadcastLabel.pill(names: ["db01-east", "db01-west"]) == "db01 × 2")
+        #expect(BroadcastLabel.pill(names: ["x86-a", "x86-b"]) == "x86 × 2")
+        // But a split counter (10 vs 11) drops to the shared stem before it.
+        #expect(BroadcastLabel.pill(names: ["prod-api-10", "prod-api-11"]) == "prod-api × 2")
         #expect(
             BroadcastLabel.banner(names: ["prod-api-1", "prod-api-2", "prod-api-3"])
                 == "Typing goes to 3 panes: prod-api-1, prod-api-2 and prod-api-3.")

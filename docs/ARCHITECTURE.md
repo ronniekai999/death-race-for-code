@@ -61,7 +61,7 @@ We write the VT engine (`VTCore`). It is the longest part of the project, so it 
 external standards from day one: esctest (run through `vthost`, with a known-failures ratchet),
 libFuzzer, differential tests against SwiftTerm (a test-only dependency in a separate package,
 never in the app), and a corpus of recorded real-app sessions with golden final screens. The
-renderer reads screens through `ScreenSource`, so a stand-in engine could be swapped in if
+view reads screens through `SurfaceSession`, so a stand-in engine could be swapped in if
 `VTCore` ever blocks a milestone.
 
 ### One thread per session, no shared engine

@@ -12,7 +12,7 @@ MacBook Pro this app is built on; regressions in CI are tracked relative to the 
 | Keypress → frame on screen (app's share) | p95 ≤ one refresh + 3 ms | signposts from keyDown to `addPresentedHandler` |
 | Memory | ≤ 50 MB per idle tab | `footprint <pid>` |
 | Hitches | 0 at 120 Hz | Instruments › Animation Hitches |
-| Linux benchmark regression | ≤ 10% | `linux.yml` VTBench job |
+| Benchmark regression | ≤ 10% | `make bench` before and after engine changes (not run in CI) |
 
 ## Engine throughput, measured
 

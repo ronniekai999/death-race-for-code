@@ -1,11 +1,17 @@
 import ConfigKit
+import Foundation
+import Vault
 
-/// One thing Hear Me Calling finds: an action, a tab or pane, a theme, or a settings page.
+/// One thing Hear Me Calling finds: an action, a tab or pane, a host, a theme, or a settings
+/// page.
 public struct PaletteItem: Sendable, Equatable, Identifiable {
     /// What ⇥ cycles through.
     public enum Kind: String, CaseIterable, Sendable {
         case action = "Actions"
         case place = "Tabs and panes"
+        case host = "Hosts"
+        case snippet = "Snippets"
+        case tunnel = "Tunnels"
         case theme = "Themes"
         case settings = "Settings"
     }
@@ -14,6 +20,12 @@ public struct PaletteItem: Sendable, Equatable, Identifiable {
     public enum Target: Sendable, Equatable {
         case action(ActionID)
         case pane(TabID, PaneID)
+        /// ↵ opens it in a new tab, ⌘↵ beside the current pane.
+        case host(HostRef)
+        /// ↵ types it in, ⌘↵ runs it: after its fields, when it has any.
+        case snippet(SnippetID)
+        /// ↵ turns it on or off.
+        case tunnel(TunnelID)
         case theme(String)
         case settings(SettingsCatalog.Page)
     }
@@ -27,11 +39,17 @@ public struct PaletteItem: Sendable, Equatable, Identifiable {
     public var shortcut: String?
     /// Other words that find it.
     public var keywords: [String]
+    /// What ⌘↵ does with it, for the footer; nil when ⌘↵ does nothing.
+    public var alternate: String?
 
     public var id: String {
         switch target {
         case .action(let action): "action.\(action.rawValue)"
         case .pane(let tab, let pane): "pane.\(tab.rawValue).\(pane.rawValue)"
+        case .host(.vault(let host)): "host.\(host.rawValue)"
+        case .host(.sshConfig(let alias)): "host.alias.\(alias)"
+        case .snippet(let snippet): "snippet.\(snippet.rawValue)"
+        case .tunnel(let tunnel): "tunnel.\(tunnel.rawValue)"
         case .theme(let theme): "theme.\(theme)"
         case .settings(let page): "settings.\(page.rawValue)"
         }
@@ -39,7 +57,7 @@ public struct PaletteItem: Sendable, Equatable, Identifiable {
 
     public init(
         _ target: Target, kind: Kind, title: String, detail: String? = nil, shortcut: String? = nil,
-        keywords: [String] = []
+        keywords: [String] = [], alternate: String? = nil
     ) {
         self.target = target
         self.kind = kind
@@ -47,6 +65,7 @@ public struct PaletteItem: Sendable, Equatable, Identifiable {
         self.detail = detail
         self.shortcut = shortcut
         self.keywords = keywords
+        self.alternate = alternate
     }
 }
 
@@ -86,7 +105,7 @@ public enum PaletteSearch {
                 continue
             }
             let others = item.keywords + [item.detail].compactMap { $0 }
-            if others.contains(where: { wordsStart(query, in: $0) }) {
+            if others.contains(where: { wordsStart(query, in: $0) || starts(query, $0) }) {
                 scored.append((Result(item: item, ranges: []), -keywordPenalty, offset))
             }
         }
@@ -95,6 +114,13 @@ public enum PaletteSearch {
             let (ra, rb) = (rank(a.result.id), rank(b.result.id))
             return ra != rb ? ra < rb : a.offset < b.offset
         }.map { $0.result }
+    }
+
+    /// Whether `text` starts with all of `query`: "10.0.4" finds a host at 10.0.4.21, whose
+    /// words would split at the dots.
+    static func starts(_ query: String, _ text: String) -> Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespaces).lowercased()
+        return !trimmed.isEmpty && text.lowercased().hasPrefix(trimmed)
     }
 
     /// Whether every word of `query` starts a word of `text`: "dark" finds a dark theme and
@@ -115,6 +141,63 @@ public enum PaletteSearch {
             PaletteItem(
                 .action(action.id), kind: .action, title: action.paletteTitle, detail: action.group.rawValue,
                 shortcut: action.shortcut?.description, keywords: action.keywords)
+        }
+    }
+
+    /// WRLD's hosts, Legends first, then the names in `~/.ssh/config` WRLD doesn't hold.
+    /// Found by their address, user, group and tags too.
+    public static func hosts(vault: Vault, aliases: [String]) -> [PaletteItem] {
+        let held = Set(
+            vault.hosts.compactMap { host -> String? in
+                if case .sshConfig(let alias) = host.source { return alias }
+                return nil
+            })
+        let ordered = vault.hosts.filter(\.isLegend) + vault.hosts.filter { !$0.isLegend }
+        let saved = ordered.map { host in
+            let group = host.groupID.flatMap { id in vault.groups.first { $0.id == id }?.name }
+            var keywords = host.tags + [group].compactMap { $0 } + ["ssh", "connect"]
+            let detail: String
+            switch host.source {
+            case .wrld(let connection):
+                let place = (connection.user.map { $0 + "@" } ?? "") + connection.address
+                keywords += [connection.address, connection.user].compactMap { $0 }
+                detail = host.isLegend ? "Legend · " + place : place
+            case .sshConfig:
+                detail = host.isLegend ? "Legend · ~/.ssh/config" : "~/.ssh/config"
+            }
+            return PaletteItem(
+                .host(.vault(host.id)), kind: .host, title: host.name, detail: detail, keywords: keywords,
+                alternate: "Open Beside")
+        }
+        var seen = held
+        let found = aliases.filter { seen.insert($0).inserted }.map { alias in
+            PaletteItem(
+                .host(.sshConfig(alias: alias)), kind: .host, title: alias, detail: "~/.ssh/config",
+                keywords: ["ssh", "connect"], alternate: "Open Beside")
+        }
+        return saved + found
+    }
+
+    /// Wishing Well's snippets, found by their commands too.
+    public static func snippets(vault: Vault) -> [PaletteItem] {
+        vault.snippets.map { snippet in
+            PaletteItem(
+                .snippet(snippet.id), kind: .snippet, title: snippet.name, detail: WishingWell.preview(snippet.text),
+                keywords: [snippet.text, "snippet", "wishing well"], alternate: "Run")
+        }
+    }
+
+    /// Come & Go's tunnels, the open ones saying so, found by their ports and host.
+    public static func tunnels(vault: Vault, open: Set<TunnelID>) -> [PaletteItem] {
+        vault.hosts.flatMap { host in
+            host.tunnels.map { tunnel in
+                let spec = tunnel.spec
+                return PaletteItem(
+                    .tunnel(tunnel.id), kind: .tunnel, title: spec.summary(host: host.name),
+                    detail: open.contains(tunnel.id) ? "Open · ↵ turns it off" : "Off · ↵ turns it on",
+                    keywords: [host.name, String(spec.listenPort), "tunnel", "forward", "come & go"]
+                        + (spec.target.map { [$0.host, String($0.port)] } ?? []))
+            }
         }
     }
 

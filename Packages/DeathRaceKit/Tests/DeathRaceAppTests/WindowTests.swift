@@ -44,6 +44,8 @@ final class FakeSession: PaneSession, @unchecked Sendable {
 final class TestHost: WindowHost {
     let ids = IDSource()
     let makeSession: SessionMaker = { _, configuration, _ in FakeSession(configuration) }
+    /// WRLD, when a test connects panes to hosts.
+    var connections: (any HostConnecting)?
     private(set) var closed: [PitLaneWindowController] = []
     private(set) var opened: [PitLaneWindowController] = []
 
@@ -93,6 +95,14 @@ private let reportExitDuringWindowTest: Void = {
 final class WindowTests {
     private static var described = false
 
+    /// Hosts kept alive for the length of a test. The window controller references its host
+    /// weakly, as the app does: the host — the app delegate — outlives its windows, so a
+    /// strong link back would be a retain cycle. A host that lived only in a local would
+    /// deallocate as soon as a helper returned, taking WRLD and every pane's connection with
+    /// it ("WRLD isn't available."), so every window is made through `makeWindow`, which holds
+    /// its host here for as long as the test runs.
+    var retainedHosts: [TestHost] = []
+
     init() {
         _ = NSApplication.shared
         _ = reportExitDuringWindowTest
@@ -111,6 +121,7 @@ final class WindowTests {
     }
 
     func makeWindow(_ host: TestHost) -> PitLaneWindowController {
+        retainedHosts.append(host)
         let controller = PitLaneWindowController(config: Config(), host: host, directory: nil)
         controller.showWindow(nil)
         controller.window?.layoutIfNeeded()

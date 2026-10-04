@@ -21,6 +21,10 @@ public struct TabModel: Equatable, Sendable {
     public var zoomedPane: PaneID?
     /// Panes by when they were last active, most recent first.
     public private(set) var focusHistory: [PaneID]
+    /// Armed and Dangerous (⇧⌘I): typing in an armed pane goes to every armed pane.
+    public private(set) var isArmed = false
+    /// Panes a header's toggle left out while armed. A pane split off later is in.
+    public private(set) var unarmed: Set<PaneID> = []
 
     public init(id: TabID, pane: PaneID) {
         self.id = id
@@ -31,6 +35,38 @@ public struct TabModel: Equatable, Sendable {
 
     public var panes: [PaneID] { tree.panes }
     public var isSplit: Bool { panes.count > 1 }
+
+    /// The panes typing reaches while armed, in reading order; none when disarmed.
+    public var armedPanes: [PaneID] { isArmed ? panes.filter { !unarmed.contains($0) } : [] }
+
+    /// Where typing in `pane` goes besides itself: the other armed panes, if it's one.
+    public func broadcastTargets(from pane: PaneID) -> [PaneID] {
+        let armed = armedPanes
+        guard armed.contains(pane) else { return [] }
+        return armed.filter { $0 != pane }
+    }
+
+    mutating func arm() {
+        guard isSplit else { return }
+        isArmed = true
+        unarmed = []
+    }
+
+    mutating func disarm() {
+        isArmed = false
+        unarmed = []
+    }
+
+    mutating func setArmed(_ pane: PaneID, _ armed: Bool) {
+        guard isArmed, tree.contains(pane) else { return }
+        if armed { unarmed.remove(pane) } else { unarmed.insert(pane) }
+        disarmIfAlone()
+    }
+
+    /// One pane on its own has no one to type to.
+    private mutating func disarmIfAlone() {
+        if isArmed && armedPanes.count < 2 { disarm() }
+    }
 
     /// The panes on screen: all of them, or the zoomed one.
     public var visiblePanes: [PaneID] { zoomedPane.map { [$0] } ?? panes }
@@ -49,6 +85,8 @@ public struct TabModel: Equatable, Sendable {
         focusHistory.removeAll { $0 == pane }
         if zoomedPane == pane { zoomedPane = nil }
         if activePane == pane { activePane = focusHistory.first ?? rest.panes[0] }
+        unarmed.remove(pane)
+        disarmIfAlone()
         return true
     }
 }
@@ -204,6 +242,24 @@ public struct WindowModel: Equatable, Sendable {
             if tab.zoomedPane != nil { tab.zoomedPane = next }
             tab.activate(next)
         }
+    }
+
+    /// ⇧⌘I: arms every pane in the active tab, or disarms it. A tab of one pane stays as it is.
+    public mutating func toggleArmed() {
+        update(activeTabID) { tab in
+            if tab.isArmed { tab.disarm() } else { tab.arm() }
+        }
+    }
+
+    /// The banner's Stop: `tab` is disarmed, whichever tab is active.
+    public mutating func disarm(_ tab: TabID) {
+        update(tab) { $0.disarm() }
+    }
+
+    /// A pane header's toggle: `pane` in or out while its tab is armed.
+    public mutating func setArmed(_ pane: PaneID, _ armed: Bool) {
+        guard let index = tabs.firstIndex(where: { $0.tree.contains(pane) }) else { return }
+        tabs[index].setArmed(pane, armed)
     }
 
     /// ⌘⇧↩: the active pane fills the tab, or the tab shows all its panes again.

@@ -11,6 +11,8 @@ import VTCore
 final class TitleBarView: NSView {
     let strip = TabStripView()
     let paletteButton = PaletteButtonView()
+    /// Shows or hides the WRLD sidebar; there only when WRLD is.
+    let sidebarButton = SidebarButtonView()
     private let wordmark = WordmarkView()
     private var chrome: Chrome
     /// Where the pills start: after the traffic lights, or at the margin in full screen.
@@ -24,6 +26,8 @@ final class TitleBarView: NSView {
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         addSubview(strip)
+        addSubview(sidebarButton)
+        sidebarButton.isHidden = true
         addSubview(paletteButton)
         addSubview(wordmark)
         setChrome(chrome)
@@ -43,6 +47,7 @@ final class TitleBarView: NSView {
         layer?.backgroundColor = chrome.colors.groundDeep.cgColor
         strip.setChrome(chrome)
         paletteButton.chrome = chrome
+        sidebarButton.chrome = chrome
         wordmark.chrome = chrome
         needsDisplay = true
     }
@@ -65,8 +70,14 @@ final class TitleBarView: NSView {
         paletteButton.frame = NSRect(
             x: wordmark.frame.minX - gap - button.width, y: ((height - button.height) / 2).rounded(),
             width: button.width, height: button.height)
-        let stripWidth = max(paletteButton.frame.minX - gap - leadingInset, 0)
-        strip.frame = NSRect(x: leadingInset, y: 0, width: stripWidth, height: height)
+        var leading = leadingInset
+        if !sidebarButton.isHidden {
+            let size = SidebarButtonView.size
+            sidebarButton.frame = NSRect(x: leading, y: ((height - size) / 2).rounded(), width: size, height: size)
+            leading += size + 8
+        }
+        let stripWidth = max(paletteButton.frame.minX - gap - leading, 0)
+        strip.frame = NSRect(x: leading, y: 0, width: stripWidth, height: height)
     }
 
     /// The bottom hairline.
@@ -156,7 +167,7 @@ final class PaletteButtonView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
-        toolTip = "Search actions, tabs and themes"
+        toolTip = "Search actions, tabs, hosts, snippets, tunnels and themes"
     }
 
     @available(*, unavailable)
@@ -251,5 +262,86 @@ enum KeyCap {
         shape.stroke()
         label.draw(at: NSPoint(x: cap.minX + 5, y: cap.minY + ((cap.height - size.height) / 2).rounded()))
         return cap.width
+    }
+}
+
+/// The sidebar button after the traffic lights: shows or hides WRLD (⌃⌘S).
+@MainActor
+final class SidebarButtonView: NSView {
+    var chrome: Chrome? {
+        didSet { needsDisplay = true }
+    }
+    var isOn = false {
+        didSet {
+            guard isOn != oldValue else { return }
+            needsDisplay = true
+            setAccessibilityLabel(isOn ? "Hide WRLD" : "Show WRLD")
+        }
+    }
+    var onClick: (() -> Void)?
+    private var hovering = false {
+        didSet { if hovering != oldValue { needsDisplay = true } }
+    }
+
+    static let size: CGFloat = 28
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        toolTip = "Show or hide WRLD (⌃⌘S)"
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel("Show WRLD")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("SidebarButtonView is created in code")
+    }
+
+    override var isFlipped: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(
+            NSTrackingArea(
+                rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self,
+                userInfo: nil))
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovering = true }
+    override func mouseExited(with event: NSEvent) { hovering = false }
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {
+        if bounds.contains(convert(event.locationInWindow, from: nil)) { onClick?() }
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        onClick?()
+        return true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let colors = chrome?.colors else { return }
+        if hovering || isOn {
+            (isOn ? colors.surface : colors.surfaceHover).nsColor.setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 7, yRadius: 7).fill()
+        }
+        let color = isOn || hovering ? colors.ink : colors.inkMuted
+        guard
+            let image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: nil)?
+                .withSymbolConfiguration(
+                    NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+                        .applying(NSImage.SymbolConfiguration(paletteColors: [color.nsColor])))
+        else { return }
+        let size = image.size
+        image.draw(
+            in: NSRect(
+                x: ((bounds.width - size.width) / 2).rounded(), y: ((bounds.height - size.height) / 2).rounded(),
+                width: size.width, height: size.height))
     }
 }

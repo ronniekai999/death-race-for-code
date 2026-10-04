@@ -12,13 +12,20 @@ struct PaneHeader: Equatable {
     var branch: String?
     /// The N of ⌥⌘N, which focuses the pane.
     var number: Int?
+    /// Armed and Dangerous, while the tab is armed: whether typing reaches this pane.
+    var armed: Armed?
+
+    enum Armed: Equatable {
+        case receiving, leftOut
+    }
 
     /// "⌥⌘2".
     var keys: String? { number.map { "⌥⌘\($0)" } }
 }
 
 /// The row along a card's top while its tab is split: the program, where it is, its branch,
-/// and the keys that focus it. Drawn again only when what it says changes.
+/// and the keys that focus it; while the tab is armed, whether typing reaches the pane, which
+/// a click changes. Drawn again only when what it says changes.
 @MainActor
 final class PaneHeaderView: NSView {
     var content = PaneHeader() {
@@ -27,11 +34,18 @@ final class PaneHeaderView: NSView {
             needsDisplay = true
             let parts = [content.program, content.directory, content.branch].compactMap { $0 }
             setAccessibilityLabel(parts.filter { !$0.isEmpty }.joined(separator: ", "))
+            if content.armed != oldValue.armed || content.keys != oldValue.keys { updateToggle() }
         }
     }
     var chrome: Chrome? {
-        didSet { needsDisplay = true }
+        didSet {
+            needsDisplay = true
+            updateToggle()
+        }
     }
+    /// A click on "receiving input" or "left out".
+    var onToggleArmed: (() -> Void)?
+    private let toggle = NSButton(title: "", target: nil, action: nil)
 
     private static let font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
     private static let boldFont = NSFont.systemFont(ofSize: 11.5, weight: .semibold)
@@ -43,6 +57,11 @@ final class PaneHeaderView: NSView {
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
+        toggle.isBordered = false
+        toggle.target = self
+        toggle.action = #selector(toggled)
+        toggle.isHidden = true
+        addSubview(toggle)
     }
 
     @available(*, unavailable)
@@ -52,8 +71,47 @@ final class PaneHeaderView: NSView {
 
     override var isFlipped: Bool { true }
 
-    /// Clicks go to the card, which gives its terminal the keys.
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    /// Clicks go to the card, which gives its terminal the keys, except on the armed toggle.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !toggle.isHidden, toggle.frame.contains(convert(point, from: superview)) else { return nil }
+        return toggle
+    }
+
+    private static let margin: CGFloat = 12
+
+    /// "● receiving input" in the warning color, or "○ left out", or nothing.
+    private func updateToggle() {
+        guard let armed = content.armed, let colors = chrome?.colors else {
+            toggle.isHidden = true
+            return
+        }
+        let receiving = armed == .receiving
+        toggle.attributedTitle = NSAttributedString(
+            string: receiving ? "● receiving input" : "○ left out",
+            attributes: [
+                .font: receiving ? Self.boldFont : Self.font,
+                .foregroundColor: (receiving ? colors.warning : colors.inkMuted).nsColor,
+            ])
+        toggle.toolTip = receiving ? "Leave this pane out of Armed and Dangerous" : "Put this pane back"
+        toggle.setAccessibilityLabel(
+            receiving ? "Receiving input. Leave this pane out" : "Left out. Put this pane back")
+        toggle.isHidden = false
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        guard !toggle.isHidden else { return }
+        toggle.sizeToFit()
+        var trailing = bounds.width - Self.margin
+        if let keys = content.keys { trailing -= KeyCap.width(keys, font: Self.keyFont) + 10 }
+        toggle.frame.origin = NSPoint(
+            x: trailing - toggle.frame.width, y: ((bounds.height - toggle.frame.height) / 2).rounded())
+    }
+
+    @objc private func toggled() {
+        onToggleArmed?()
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let colors = chrome?.colors else { return }
@@ -75,7 +133,7 @@ final class PaneHeaderView: NSView {
         colors.line.nsColor.setFill()
         NSRect(x: rect.minX, y: bounds.height - 1, width: rect.width, height: 1).fill()
 
-        let margin: CGFloat = 12
+        let margin = Self.margin
         var trailing = bounds.width - margin
         if let keys = content.keys {
             let width = KeyCap.width(keys, font: Self.keyFont)
@@ -83,6 +141,7 @@ final class PaneHeaderView: NSView {
             KeyCap.draw(keys, at: NSPoint(x: trailing, y: 0), height: bounds.height, colors: colors, font: Self.keyFont)
             trailing -= 10
         }
+        if !toggle.isHidden { trailing = toggle.frame.minX - 10 }
         let text = describe(colors)
         let size = text.size()
         let textRect = NSRect(

@@ -1,6 +1,7 @@
 import Dispatch
 import Testing
 
+@testable import PTYKit
 @testable import SessionKit
 
 /// The mailbox lock under contention. Besides checking that it excludes, this is what keeps

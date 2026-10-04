@@ -12,6 +12,7 @@ public enum SettingsCatalog {
         case terminal = "Terminal"
         case keys = "Keys"
         case energy = "Energy"
+        case wrld = "WRLD"
         case advanced = "Advanced"
 
         public var id: String { rawValue }
@@ -24,6 +25,7 @@ public enum SettingsCatalog {
             case .terminal: "terminal"
             case .keys: "keyboard"
             case .energy: "leaf"
+            case .wrld: "globe"
             case .advanced: "slider.horizontal.3"
             }
         }
@@ -196,6 +198,21 @@ public enum SettingsCatalog {
                         Setting(
                             "output-frame-rate-cap", "Cap busy output at 60 frames per second", .toggle,
                             note: "Typing and scrolling keep the display's full rate."),
+                    ])
+            ]
+        case .wrld:
+            [
+                Group(
+                    title: "What WRLD finds out by itself",
+                    settings: [
+                        Setting(
+                            "wrld-check-hosts", "Check how quickly Legends answer", .toggle,
+                            note:
+                                "While the sidebar or WRLD shows them, five minutes apart, never through a jump host. Each check is a line in the server's log."
+                        ),
+                        Setting(
+                            "wrld-host-os", "Read what each host runs", .toggle,
+                            note: "From /etc/os-release, over a connection you already have, at most once a week."),
                     ])
             ]
         case .keys, .advanced:

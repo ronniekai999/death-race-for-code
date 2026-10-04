@@ -85,3 +85,40 @@ int cpty_process_cwd(pid_t pid, char *buffer, size_t size) {
     return 0;
 #endif
 }
+
+pid_t cpty_parent_pid(pid_t pid) {
+#if defined(__APPLE__)
+    struct proc_bsdinfo info;
+    errno = 0;
+    int got = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, (int)sizeof info);
+    if (got != (int)sizeof info) {
+        if (errno == 0) errno = ESRCH;
+        return -1;
+    }
+    return (pid_t)info.pbi_ppid;
+#else
+    char path[64];
+    snprintf(path, sizeof path, "/proc/%d/stat", (int)pid);
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return -1;
+    char buffer[1024];
+    ssize_t length = read(fd, buffer, sizeof buffer - 1);
+    int saved = errno;
+    close(fd);
+    if (length <= 0) {
+        errno = length < 0 ? saved : ESRCH;
+        return -1;
+    }
+    buffer[length] = '\0';
+    // "pid (comm) state ppid ...": the name may hold spaces and parentheses, so read after
+    // the last closing one.
+    char *after_name = strrchr(buffer, ')');
+    char state = 0;
+    int parent = -1;
+    if (after_name == NULL || sscanf(after_name + 1, " %c %d", &state, &parent) != 2) {
+        errno = EINVAL;
+        return -1;
+    }
+    return (pid_t)parent;
+#endif
+}

@@ -11,8 +11,8 @@ modules keep descriptive names, except where a themed name stays clear (`Legends
 | Snippets | Wishing Well | "Save a command to Wishing Well to run it again." |
 | Port forwards | Come & Go | "Forward 5432 to db through prod-api." |
 | SFTP browser | Maze | "Drop files here to upload them to prod-api." |
-| Broadcast input | Armed and Dangerous | "Typing goes to 3 sessions. Press Esc to stop." |
-| Command palette (⌘K) | Hear Me Calling | "Search hosts, snippets and commands." |
+| Broadcast input | Armed and Dangerous | "Typing goes to 3 panes: prod-api-1, prod-api-2 and prod-api-3." Stop is ⇧⌘I or the banner's button, never Esc, which belongs to the programs. |
+| Command palette (⇧⌘P) | Hear Me Calling | "Search hosts, snippets and commands." |
 | Notch quick terminal | Lucid Dreams | "Press ⌥Space to open Lucid Dreams." |
 | Session persistence | Legends Never Die | "3 sessions kept running while the app was closed." |
 | Command + output blocks | Conversations | |

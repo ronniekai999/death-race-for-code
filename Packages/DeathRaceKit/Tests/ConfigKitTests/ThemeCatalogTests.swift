@@ -93,6 +93,28 @@ import VTCore
         check(palette.colors[8], on: [palette.background], 3, "color 8")
     }
 
+    /// Armed and Dangerous's border is seen against the ground and the terminal around it,
+    /// and its words read: the banner's on its tint, the status bar's in the warning color.
+    @Test(arguments: ThemeCatalog.all)
+    func armedChromeHoldsItsContrast(_ theme: NamedTheme) {
+        let chrome = theme.chrome
+        func check(_ color: RGB, on background: RGB, _ minimum: Double, _ what: String) {
+            let ratio = color.contrast(with: background)
+            #expect(
+                ratio >= minimum,
+                "\(theme.name): \(what) \(color.hexString) on \(background.hexString) is \(ratio), under \(minimum)")
+        }
+        for color in chrome.armed {
+            check(color, on: chrome.ground, 3, "the armed border")
+            check(color, on: theme.terminal.palette.background, 3, "the armed border")
+        }
+        for tint in chrome.armedTint {
+            check(chrome.ink, on: tint, 4.5, "the banner's title")
+            check(chrome.inkMuted, on: tint, 4.5, "the banner's sentence")
+        }
+        check(chrome.warning, on: chrome.groundDeep, 4.5, "the status bar's warning")
+    }
+
     @Test func themesAreFoundByIdOrName() {
         #expect(ThemeCatalog.theme(id: "lucid-dreams")?.name == "Lucid Dreams")
         #expect(ThemeCatalog.theme(id: "Lucid Dreams") == nil)

@@ -37,7 +37,7 @@ extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
         let press = KeyPress(event)
         switch KeyRouting.route(press, optionAsMeta: optionAsMeta, composing: hasMarkedText()) {
         case .encode(let keyEvent):
-            if !send(keyEvent), keyEvent.modifiers.contains(.command) {
+            if !sendTyped(keyEvent), keyEvent.modifiers.contains(.command) {
                 // A ⌘ chord no menu item took, which the program cannot receive (only the
                 // Kitty protocol carries Command): up the responder chain, which beeps, as
                 // anywhere on macOS.
@@ -55,7 +55,7 @@ extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
     override public func keyUp(with event: NSEvent) {
         guard model != nil else { return }
         if let keyEvent = KeyRouting.release(KeyPress(event), optionAsMeta: optionAsMeta, composing: hasMarkedText()) {
-            send(keyEvent)
+            sendTyped(keyEvent)
         }
     }
 
@@ -68,11 +68,23 @@ extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
         let press = KeyPress(
             keyCode: event.keyCode, flags: EventFlags(rawValue: event.modifierFlags.rawValue), characters: "",
             plainCharacters: "", unmodifiedCharacters: "", isRepeat: false)
-        if let keyEvent = KeyRouting.modifierKey(press, optionAsMeta: optionAsMeta) { send(keyEvent) }
+        if let keyEvent = KeyRouting.modifierKey(press, optionAsMeta: optionAsMeta) { sendTyped(keyEvent) }
+    }
+
+    /// A key typed here: sent to this pane's program, and handed on for Armed and
+    /// Dangerous even when it means nothing to this program, as another's may want it (a
+    /// release, to a program that asked the Kitty protocol for them). False when it means
+    /// nothing here.
+    @discardableResult
+    func sendTyped(_ keyEvent: KeyEvent) -> Bool {
+        let sent = send(keyEvent)
+        onTyped?(.key(keyEvent))
+        return sent
     }
 
     /// Encodes a key for the program, in the modes it set, and sends it. False when the key
-    /// means nothing to the program.
+    /// means nothing to the program. The scroll wheel's arrows come this way too, so this
+    /// isn't typing to hand on.
     @discardableResult
     func send(_ keyEvent: KeyEvent) -> Bool {
         guard let mirror = model?.mirror else { return false }
@@ -95,6 +107,22 @@ extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
     private func sendText(_ text: String) {
         clearSelection()
         session?.send(Array(text.utf8))
+        onTyped?(.text(text))
+    }
+
+    /// Typing from elsewhere, as if typed here: another armed pane's (Armed and Dangerous),
+    /// or a Wishing Well snippet. It is encoded for this pane's program, in the modes it
+    /// set, and not handed on again. False when it couldn't be sent: the session has ended,
+    /// or more is waiting for the program than it holds.
+    @discardableResult
+    public func receive(_ input: TypedInput) -> Bool {
+        guard let mirror = model?.mirror, let session, case .running = session.status else { return false }
+        let (bytes, isReport) = input.bytes(modes: mirror.modes, kittyFlags: mirror.kittyFlags)
+        guard !bytes.isEmpty else { return true }
+        if isReport { return session.sendReport(bytes) }
+        noteInput()
+        clearSelection()
+        return session.send(bytes)
     }
 
     // MARK: - NSTextInputClient
@@ -111,7 +139,7 @@ extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
             // for, as kitty sends it.
             sendText(text)
         } else {
-            send(KeyRouting.textEvent(text, press: currentPress))
+            sendTyped(KeyRouting.textEvent(text, press: currentPress))
         }
     }
 
@@ -124,7 +152,7 @@ extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
         guard let press = currentPress, !hasMarkedText(),
             case .encode(let keyEvent) = KeyRouting.route(press, optionAsMeta: optionAsMeta, composing: false)
         else { return }
-        send(keyEvent)
+        sendTyped(keyEvent)
     }
 
     public func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {

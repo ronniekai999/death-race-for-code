@@ -54,7 +54,9 @@ import Testing
     @Test func settingsProblemsAreCounted() {
         var facts = StatusLine.Facts(columns: 80, rows: 24)
         facts.settingsProblems = 2
-        #expect(StatusLine(facts).leading.last == StatusLine.Run("2 settings could not be used", .warning))
+        #expect(
+            StatusLine(facts).leading.last
+                == StatusLine.Run("2 settings could not be used", .warning, tap: .settingsProblems))
         facts.settingsProblems = 1
         #expect(StatusLine(facts).leading.last?.text == "1 setting could not be used")
     }

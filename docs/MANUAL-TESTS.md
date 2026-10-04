@@ -4,7 +4,111 @@ What CI cannot check, because it needs a real Mac, a real GPU, a keyboard, input
 your eyes. Run it with a debug build (`CONFIG=debug make run`) before closing a phase, and
 note the macOS build (`sw_vers`) with the results.
 
-Phase 3's checks come first; Phase 2's follow, and still apply.
+Phase 4's checks come first; Phase 3's and Phase 2's follow, and still apply.
+
+## Phase 4 exit criteria
+
+Phase 4 is done when all of these hold on the M5:
+
+1. **A Secure Enclave key.** New Host… with "A new Secure Enclave key": Touch ID asks while
+   it's made, the first connection signs in as usual and puts the key on the server, and from
+   then on Touch ID asks once per connection. A split on that host (⌘D) opens with no second
+   Touch ID.
+2. **A tunnel, live.** Turning on 5432 → db:5432 in Come & Go works at once, with no new
+   login; turning it off refuses new connections (ones already through run on); the status
+   bar's "⇄ N tunnels" follows both.
+3. **A saved password.** Saved from the password sheet, it connects after Touch ID next time.
+   Declining Touch ID makes one attempt only, and the pane says the connection was cancelled.
+4. **Your ~/.ssh/config.** Its hosts show up ("Found N hosts in ~/.ssh/config"), connect with
+   their own settings, ProxyJump included, and the file's checksum (`shasum ~/.ssh/config`)
+   doesn't change.
+5. **The boards.** The sidebar, the WRLD window, Come & Go, Wishing Well and Armed and
+   Dangerous match the mockup boards in all eight themes (CI's `chrome-preview` pictures,
+   `<theme>.png` and `<theme>-armed.png`, are a start).
+6. **Armed and Dangerous.** Armed panes each get typing in their own mode (↑ in vim and in
+   zsh), ⇧⌘I stops it, and Esc reaches the programs.
+7. **Energy.** Idle with the sidebar showing, two connections and a tunnel: 0 frames and at
+   most 0.5 wakeups a second. With the sidebar and WRLD window hidden, no latency checks run.
+8. **Local Network.** The first connection to a host on your network shows macOS's alert
+   naming Death Race. If you deny it, the pane says how to allow it (Allow Local Network
+   Access…).
+9. **Quitting** with tunnels open asks first, and afterwards no `ssh -M` process remains
+   (`pgrep -fl 'ssh .*-M'`).
+
+The macOS side of Phase 4 was written while macOS CI could not run (see PR #4): expect the
+first macOS build to need compile fixes before any of this can be tried.
+
+## Connections
+
+- [ ] **A WRLD host** (New Host…): connecting shows "Connecting to prod-api…" with Cancel,
+      then the session; the pill and header say "prod-api".
+- [ ] **A host from ~/.ssh/config** in Hear Me Calling (⇧⌘P, type its name): ↵ opens it in a
+      new tab, ⌘↵ beside the active pane.
+- [ ] **A second pane** on the same host opens at once, with no login.
+- [ ] **Password prompts** come as sheets on the window; Save in the Keychain saves only after
+      the login succeeds.
+- [ ] **A new host key** shows its fingerprint in a sheet; Trust connects.
+- [ ] **A changed host key** (edit its line in `~/.ssh/known_hosts`): the pane refuses, offers
+      Forget the Old Key…, and the question shows both fingerprints. Forgetting reconnects,
+      and ssh asks about the new key.
+- [ ] **A failure** ("refused", "didn't answer", "no route") reads as a sentence, with
+      Reconnect and Try Plain ssh.
+- [ ] **Close and quit** name sessions on hosts ("prod-api's session") and open tunnels.
+
+## Secure Enclave
+
+- [ ] New Host… with "A new Secure Enclave key" makes it (Touch ID asks; macOS calls it
+      "ctccardtoken"), and WRLD › Keys lists it with Copy Public Key.
+- [ ] The first connection puts it in the server's `~/.ssh/authorized_keys` once, and the host
+      switches to it; reconnecting asks Touch ID, not the password.
+
+## WRLD window and sidebar
+
+- [ ] **⌘O** opens WRLD: All hosts, Legends and groups with counts; host cards with chips and
+      status; the selected card wears the NeonBorder.
+- [ ] **The inspector** saves address, user, port, sign-in and jump host with Save; group,
+      tags, Legend, agent forwarding and on-connect apply at once. A jump host can't be the
+      host itself or loop back to it.
+- [ ] **Remove…** names the hosts that jump through it; they connect directly afterwards.
+- [ ] **Known hosts** lists `~/.ssh/known_hosts`; Forget… asks first.
+- [ ] **⌃⌘S** and the button after the traffic lights show and hide the sidebar per window; a
+      new window opens as the last was left. The status bar sits beside it.
+- [ ] **Sidebar rows:** a click opens a host in a new tab, ⌘-click beside; a group opens and
+      closes; right-click offers Connect, Connect Beside, Edit, Pin to Legends, Copy Address,
+      Remove from WRLD….
+- [ ] **Hand edits** to `wrld.json` and to `~/.ssh/config` show up as they're saved.
+- [ ] **VoiceOver** reads each sidebar row, and presses it.
+
+## Come & Go
+
+- [ ] The add form (Local, Remote, Dynamic; Listen on; Forward to; Through) refuses a bad port
+      and a port another tunnel listens on, in words.
+- [ ] A tunnel set to open with its host opens when a pane on it connects.
+- [ ] Hear Me Calling finds tunnels by port; ↵ turns one on or off.
+
+## Wishing Well
+
+- [ ] In Hear Me Calling, ↵ on a snippet types it without Return, ⌘↵ runs it; one with
+      `{{fields}}` asks for them first, showing the command they make.
+- [ ] A host's on-connect snippet (`tmux new -A -s main`) runs as each session on it starts.
+- [ ] Edit › Save Selection to Wishing Well… (and the context menu) names the snippet for its
+      first line; a Go template (`{{.State}}`) stays as it was.
+
+## Armed and Dangerous
+
+- [ ] ⇧⌘I in a tab of three panes: the banner over the panes, orange-to-pink borders, the pill
+      "prod-api × 3", the status bar "Armed and Dangerous · 3 panes".
+- [ ] Typing goes to every armed pane, each in its own mode; a header's "receiving input"
+      leaves a pane out; Stop and ⇧⌘I disarm; Esc stays with the programs.
+- [ ] A multi-line paste asks once, saying how many panes would run it line by line.
+- [ ] A snippet while armed says "Run in 3 panes" and goes to all three.
+
+## Phase 4 energy
+
+- [ ] Idle with the sidebar, two connections and a tunnel: 0 frames, at most 0.5 wakeups a
+      second (`powermetrics`).
+- [ ] With the sidebar showing, one wakeup about every five minutes for latency checks; none
+      with it and the WRLD window hidden (the debug log line PERF.md names stops).
 
 ## Phase 3 exit criteria
 

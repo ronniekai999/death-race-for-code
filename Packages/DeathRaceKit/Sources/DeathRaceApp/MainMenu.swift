@@ -45,9 +45,11 @@ enum MainMenu {
 
     private static func shell() -> NSMenu {
         let menu = NSMenu(title: "Shell")
-        add([.newWindow, .newTab], to: menu)
+        add([.newWindow, .newTab, .newHost, .openWRLD], to: menu)
         menu.addItem(.separator())
         add([.splitRight, .splitDown], to: menu)
+        menu.addItem(.separator())
+        add([.armedAndDangerous], to: menu)
         menu.addItem(.separator())
         add([.closePane, .closeTab, .closeWindow], to: menu)
         return menu
@@ -57,13 +59,15 @@ enum MainMenu {
         let menu = NSMenu(title: "Edit")
         add([.copy, .paste, .selectAll], to: menu)
         menu.addItem(.separator())
+        add([.saveSelectionToWishingWell], to: menu)
+        menu.addItem(.separator())
         add([.clearToStart, .clearScrollback], to: menu)
         return menu
     }
 
     private static func view() -> NSMenu {
         let menu = NSMenu(title: "View")
-        add([.hearMeCalling], to: menu)
+        add([.hearMeCalling, .toggleSidebar], to: menu)
         menu.addItem(.separator())
         add([.bigger, .smaller, .actualSize], to: menu)
         menu.addItem(.separator())
@@ -162,6 +166,8 @@ enum MainMenu {
         case .quit: #selector(NSApplication.terminate(_:))
         case .newWindow: #selector(AppDelegate.newWindow(_:))
         case .newTab: #selector(PitLaneWindowController.newTab(_:))
+        case .newHost: #selector(AppDelegate.newHost(_:))
+        case .openWRLD: #selector(AppDelegate.openWRLD(_:))
         case .splitRight: #selector(PitLaneWindowController.splitRight(_:))
         case .splitDown: #selector(PitLaneWindowController.splitDown(_:))
         case .closePane: #selector(PitLaneWindowController.closePane(_:))
@@ -170,12 +176,15 @@ enum MainMenu {
         case .copy: #selector(NSText.copy(_:))
         case .paste: #selector(NSText.paste(_:))
         case .selectAll: #selector(NSText.selectAll(_:))
+        case .saveSelectionToWishingWell: #selector(PitLaneWindowController.saveSelectionToWishingWell(_:))
         case .clearToStart: #selector(PitLaneWindowController.clearToStart(_:))
         case .clearScrollback: #selector(PitLaneWindowController.clearScrollback(_:))
         case .hearMeCalling: #selector(PitLaneWindowController.showHearMeCalling(_:))
+        case .toggleSidebar: #selector(PitLaneWindowController.toggleSidebar(_:))
         case .bigger: #selector(PitLaneWindowController.increaseFontSize(_:))
         case .smaller: #selector(PitLaneWindowController.decreaseFontSize(_:))
         case .actualSize: #selector(PitLaneWindowController.resetFontSize(_:))
+        case .armedAndDangerous: #selector(PitLaneWindowController.toggleArmed(_:))
         case .zoomPane: #selector(PitLaneWindowController.togglePaneZoom(_:))
         case .equalizePanes: #selector(PitLaneWindowController.equalizePanes(_:))
         case .minimize: #selector(NSWindow.performMiniaturize(_:))

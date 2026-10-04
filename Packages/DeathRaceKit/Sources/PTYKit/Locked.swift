@@ -4,7 +4,8 @@
     import Glibc
 #endif
 
-/// A value behind a lock, for the mailbox the app and a session thread share.
+/// A value behind a lock, for state threads share: a session's mailbox, the askpass
+/// broker's registrations, the masters ssh runs for the app.
 ///
 /// On Apple platforms this is Synchronization's `Mutex`, an `os_unfair_lock`: a main thread
 /// waiting on it lends its priority to a utility-QoS session thread holding it.
@@ -14,16 +15,16 @@
 /// Sanitizer cannot see it, so CI would report every contended hand-off as a race. pthread
 /// mutexes are what the sanitizer understands. Linux runs only tests and tools, so nothing is
 /// lost.
-final class Locked<Value>: @unchecked Sendable {
+public final class Locked<Value>: @unchecked Sendable {
     #if canImport(Darwin)
         private let mutex: Mutex<Value>
 
-        init(_ value: sending Value) {
+        public init(_ value: sending Value) {
             mutex = Mutex(value)
         }
 
         /// The same shape as `Mutex.withLock`, which it forwards to.
-        func withLock<Result: ~Copyable, E: Error>(
+        public func withLock<Result: ~Copyable, E: Error>(
             _ body: (inout sending Value) throws(E) -> sending Result
         ) throws(E) -> sending Result {
             try mutex.withLock(body)
@@ -33,7 +34,7 @@ final class Locked<Value>: @unchecked Sendable {
         private let mutex = UnsafeMutablePointer<pthread_mutex_t>.allocate(capacity: 1)
         private var value: Value
 
-        init(_ value: Value) {
+        public init(_ value: Value) {
             self.value = value
             pthread_mutex_init(mutex, nil)
         }
@@ -43,7 +44,7 @@ final class Locked<Value>: @unchecked Sendable {
             mutex.deallocate()
         }
 
-        func withLock<Result, E: Error>(_ body: (inout Value) throws(E) -> Result) throws(E) -> Result {
+        public func withLock<Result, E: Error>(_ body: (inout Value) throws(E) -> Result) throws(E) -> Result {
             pthread_mutex_lock(mutex)
             defer { pthread_mutex_unlock(mutex) }
             return try body(&value)

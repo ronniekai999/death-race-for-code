@@ -14,6 +14,8 @@ final class HearMeCallingModel {
     /// The row to bring into view after a move by the keyboard.
     private(set) var scrollTarget: String?
     @ObservationIgnored var onChoose: ((PaletteItem) -> Void)?
+    /// ⌘↵ on a row that has a second action.
+    @ObservationIgnored var onAlternate: ((PaletteItem) -> Void)?
     /// The highlighted theme changed; nil when no theme is highlighted.
     @ObservationIgnored var onPreview: ((String?) -> Void)?
     @ObservationIgnored private var previewed: String?
@@ -45,6 +47,11 @@ final class HearMeCallingModel {
     func choose(at index: Int) {
         state.select(index)
         choose()
+    }
+
+    /// ⌘↵: the highlighted row's second action, when it has one.
+    func chooseAlternate() {
+        if let item = state.selected, item.alternate != nil { onAlternate?(item) }
     }
 
     /// A theme previews once the highlight reaches it; opening on a recent theme does not
@@ -82,7 +89,7 @@ final class HearMeCallingOverlay: NSView, NSTextFieldDelegate {
     static let visibleRows = 8
     static let listPadding: CGFloat = 6
     static let footerHeight: CGFloat = 34
-    static let placeholder = "Search actions, tabs, themes and settings"
+    static let placeholder = "Search actions, tabs, hosts, snippets, tunnels, themes and settings"
     static let font = NSFont.systemFont(ofSize: 18, weight: .regular)
     /// The mockup's dimming: rgba(8, 4, 20, 0.55).
     static let dim = NSColor(srgbRed: 8 / 255, green: 4 / 255, blue: 20 / 255, alpha: 0.55)
@@ -194,6 +201,17 @@ final class HearMeCallingOverlay: NSView, NSTextFieldDelegate {
         return true
     }
 
+    /// ⌘↵, before any menu sees it (none uses it): the highlighted row's second action.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // Return, or Enter on the keypad.
+        guard modifiers == .command || modifiers == [.command, .numericPad], [36, 76].contains(event.keyCode) else {
+            return super.performKeyEquivalent(with: event)
+        }
+        model.chooseAlternate()
+        return true
+    }
+
     /// The keys went elsewhere: a click on a pill, ⌘1 showing another tab.
     func controlTextDidEndEditing(_ notification: Notification) {
         dismiss()
@@ -241,6 +259,9 @@ extension PaletteItem.Kind {
         switch self {
         case .action: "ACTION"
         case .place: "TAB"
+        case .host: "HOST"
+        case .snippet: "SNIPPET"
+        case .tunnel: "TUNNEL"
         case .theme: "THEME"
         case .settings: "SETTINGS"
         }
@@ -406,6 +427,10 @@ struct PaletteGlyph: View {
             case .window: return "macwindow"
             }
         case .pane: return "rectangle.split.2x1"
+        case .host: return "server.rack"
+        // Wishing Well's », as on the boards.
+        case .snippet: return "chevron.right.2"
+        case .tunnel: return "arrow.left.arrow.right"
         case .theme: return "paintpalette"
         case .settings(let page): return page.symbol
         }
@@ -440,6 +465,9 @@ struct PaletteFooter: View {
             PaletteKeyHint(keys: "⇥", label: "kinds")
             PaletteKeyHint(keys: "↑↓", label: "move")
             PaletteKeyHint(keys: "↵", label: "open")
+            if let alternate = state.selected?.alternate {
+                PaletteKeyHint(keys: "⌘↵", label: alternate.lowercased())
+            }
             PaletteKeyHint(keys: "esc", label: "close")
         }
         .padding(.horizontal, 12)

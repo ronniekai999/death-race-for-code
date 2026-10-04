@@ -275,23 +275,3 @@ private func systemPoll(_ fds: UnsafeMutablePointer<pollfd>, _ count: Int, _ tim
 private func systemClose(_ fd: Int32) -> Int32 {
     close(fd)
 }
-
-/// A NULL-terminated array of C strings that outlives a `withCString` scope.
-private struct CStringArray {
-    let pointer: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
-    private let count: Int
-
-    init(_ strings: [String]) {
-        count = strings.count
-        pointer = .allocate(capacity: count + 1)
-        for (index, string) in strings.enumerated() {
-            pointer[index] = strdup(string)
-        }
-        pointer[count] = nil
-    }
-
-    func deallocate() {
-        for index in 0..<count { free(pointer[index]) }
-        pointer.deallocate()
-    }
-}

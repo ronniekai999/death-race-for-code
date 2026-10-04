@@ -14,6 +14,8 @@ struct PillState: Equatable {
     var rang: Bool
     /// The shell ended badly.
     var failed: Bool
+    /// Armed and Dangerous: typing in one of the tab's panes goes to several.
+    var armed = false
 }
 
 /// The tab pills, left to right, then the + pill. Pills shrink when the row is full; those
@@ -256,6 +258,7 @@ final class TabPillView: NSView {
         var text = state.title
         if state.failed { text += ", ended" } else if state.rang { text += ", rang the bell" }
         if state.isBusy && !state.isActive { text += ", has new output" }
+        if state.armed { text += ", Armed and Dangerous" }
         return text
     }
 

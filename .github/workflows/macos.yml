@@ -65,8 +65,20 @@ jobs:
       # swift-testing ends its run with a summary line. A test process that exits early,
       # midway through a test, can still exit 0, so the summary is required too. The window
       # tests drive AppKit and go first, on their own, so the rest report even if they stop.
+      # The Keychain round trip saves into this, never the runner's own keychain: unlocked,
+      # and the default only for this job's user session.
+      - name: A throwaway keychain
+        run: |
+          keychain="$RUNNER_TEMP/wrld-tests.keychain-db"
+          security create-keychain -p wrld "$keychain"
+          security set-keychain-settings "$keychain"
+          security unlock-keychain -p wrld "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | xargs)
+          security default-keychain -d user -s "$keychain"
       - name: Test the windows
         timeout-minutes: 5
+        env:
+          DEATHRACE_KEYCHAIN_TESTS: "1"
         run: |
           set -o pipefail
           mkdir -p build
@@ -76,6 +88,9 @@ jobs:
             || { echo "::error::The window tests ended without their summary: the test process exited early."; exit 1; }
       - name: Test
         timeout-minutes: 10
+        # Apple's ssh must read the config WRLD writes (SSHKit's tests); never skip that here.
+        env:
+          DEATHRACE_REQUIRE_SSH: "1"
         run: |
           set -o pipefail
           swift test --package-path Packages/DeathRaceKit --skip-build --skip DeathRaceAppTests 2>&1 | tee build/tests.log
@@ -113,6 +128,13 @@ jobs:
         run: '"build/Death Race for Code.app/Contents/MacOS/DeathRace" --smoke-test --write-frame build/smoke-frame.png'
       - name: Verify the signature
         run: codesign --verify --strict --verbose=2 "build/Death Race for Code.app"
+      # ssh runs it, not the app, so it carries its own identifier; with no app to ask, it
+      # must answer nothing.
+      - name: The askpass helper is bundled, signed and runs
+        run: |
+          helper="build/Death Race for Code.app/Contents/MacOS/deathrace-askpass"
+          codesign -dv "$helper" 2>&1 | grep "Identifier=local.deathraceforcode.deathrace-askpass"
+          if "$helper" "user@host's password: "; then echo "::error::It answered with no app to ask."; exit 1; fi
       - name: Zip the app
         run: ditto -c -k --keepParent "build/Death Race for Code.app" build/DeathRace.zip
       - uses: actions/upload-artifact@v4

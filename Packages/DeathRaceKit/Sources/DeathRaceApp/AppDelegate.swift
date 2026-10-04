@@ -4,7 +4,9 @@ import ConfigKit
 import LegendsUI
 import PTYKit
 import RenderKit
+import SSHKit
 import SessionKit
+import Vault
 
 /// Opens windows, owns their controllers, and answers the app-wide menu items.
 @MainActor
@@ -23,6 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     let makeSession: SessionMaker
     /// Where Hear Me Calling's recent picks are kept.
     private let defaults: UserDefaults
+    /// WRLD, made once the app has launched: tests that make an AppDelegate never touch your
+    /// vault, your ssh config or your Keychain.
+    private(set) var wrld: WRLDService?
+    var connections: (any HostConnecting)? { wrld }
     static let recentPicksKey = "HearMeCallingRecentPicks"
 
     /// Tests pass sessions that run no shell, and a settings file and defaults of their own.
@@ -50,6 +56,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         // `swift run` starts a bare executable as a background process: promote it so its
         // windows take keystrokes. In the bundled app this changes nothing.
         NSApp.setActivationPolicy(.regular)
+        let wrld = WRLDService(
+            home: NSHomeDirectory(), helper: WRLDService.bundledHelper, secrets: KeychainSecretStore(),
+            presence: DeviceOwnerPresence(), presenter: SheetPromptPresenter())
+        self.wrld = wrld
+        wrld.checksHosts = configStore.config.checkHosts
+        wrld.readsHostOS = configStore.config.readHostOS
+        watchWRLDFiles(wrld)
+        // Masters a crash left running hold their tunnels' ports: end them first.
+        Task { await wrld.cleanUpLeftovers() }
         if windows.isEmpty { newWindow(nil) }
         NSApp.activate()
         configStore.reportProblems(in: windows.first?.window)
@@ -82,33 +97,151 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         windows.flatMap { Array($0.panes.values) }
     }
 
-    /// Quitting with programs running in any pane asks once, for all of them.
+    /// Quitting with programs running in any pane, sessions on hosts among them, asks once
+    /// for all of them; then every ssh master ends before the app does.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let running = allPanes.filter { $0.isRunning }
-        guard configStore.config.confirmClose, !running.isEmpty else { return .terminateNow }
+        let running = configStore.config.confirmClose ? allPanes.filter { $0.isRunning } : []
+        let connected = !(wrld?.openConnections.isEmpty ?? true)
+        // Any master, even one still connecting, means there's something to shut down; quit
+        // through the Task below (which may skip the question) rather than leaving an orphan.
+        guard !running.isEmpty || connected || (wrld?.hasMasters ?? false) else { return .terminateNow }
+        let tunnels = configStore.config.confirmClose ? (wrld?.openTunnelCount ?? 0) : 0
         Task {
             var programs: [String] = []
             for pane in running {
                 if let program = await pane.runningProgram() { programs.append(program) }
             }
-            guard !programs.isEmpty else { return NSApp.reply(toApplicationShouldTerminate: true) }
-            let alert = NSAlert()
-            alert.messageText = "Goodbye & Good Riddance?"
-            alert.informativeText =
-                programs.count == 1
-                ? "\(programs[0]) is still running. Quit anyway?"
-                : "\(ListFormatter.localizedString(byJoining: programs)) are still running. Quit anyway?"
-            alert.addButton(withTitle: "Quit")
-            alert.addButton(withTitle: "Cancel")
-            NSApp.reply(toApplicationShouldTerminate: alert.runModal() == .alertFirstButtonReturn)
+            if !programs.isEmpty || tunnels > 0 {
+                let alert = NSAlert()
+                alert.messageText = "Goodbye & Good Riddance?"
+                alert.informativeText = Self.quitQuestion(programs: programs, tunnels: tunnels)
+                alert.addButton(withTitle: "Quit")
+                alert.addButton(withTitle: "Cancel")
+                guard alert.runModal() == .alertFirstButtonReturn else {
+                    return NSApp.reply(toApplicationShouldTerminate: false)
+                }
+            }
+            await wrld?.shutDown()
+            NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
     }
 
+    /// "vim is still running, and 2 tunnels are open. Quit anyway?"
+    static func quitQuestion(programs: [String], tunnels: Int) -> String {
+        var parts: [String] = []
+        if programs.count == 1 { parts.append("\(programs[0]) is still running") }
+        if programs.count > 1 {
+            parts.append("\(ListFormatter.localizedString(byJoining: programs)) are still running")
+        }
+        if tunnels == 1 { parts.append("1 tunnel is open") }
+        if tunnels > 1 { parts.append("\(tunnels) tunnels are open") }
+        return parts.joined(separator: ", and ") + ". Quit anyway?"
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         watcher?.stop()
+        for watcher in wrldWatchers { watcher.stop() }
         secureInput.update(appIsActive: false, focusedTabReadsPassword: false)
         for pane in allPanes { pane.shutDown() }
+    }
+
+    // MARK: - WRLD
+
+    /// The New Host sheet while it's open.
+    private var newHostSheet: NewHostSheet?
+    /// wrld.json and ~/.ssh/config, watched.
+    private var wrldWatchers: [ConfigWatcher] = []
+    /// The WRLD window, while it's open.
+    private(set) var wrldWindow: WRLDWindowController?
+
+    /// ⌘O: the WRLD window, made on first use.
+    @objc func openWRLD(_ sender: Any?) {
+        showWRLD(nil)
+    }
+
+    func showWRLD(at place: WRLDBoard.Place, selecting host: HostID?) {
+        showWRLD(place)
+        if let host { wrldWindow?.model.selected = host }
+    }
+
+    static let sidebarKey = "WRLDSidebarShown"
+
+    var sidebarPreferred: Bool {
+        get { defaults.bool(forKey: Self.sidebarKey) }
+        set { defaults.set(newValue, forKey: Self.sidebarKey) }
+    }
+
+    /// The WRLD window at `place`, when given.
+    func showWRLD(_ place: WRLDBoard.Place?) {
+        guard let wrld else { return }
+        let controller =
+            wrldWindow ?? WRLDWindowController(wrld: wrld, host: self, chrome: Chrome(configStore.config.namedTheme))
+        if wrldWindow == nil {
+            controller.onClose = { [weak self, weak controller] in
+                // Released once AppKit has finished closing it.
+                Task { @MainActor in
+                    if let self, self.wrldWindow === controller { self.wrldWindow = nil }
+                }
+            }
+            wrldWindow = controller
+        }
+        controller.show(place)
+    }
+
+    /// The Pit Lane window in front, or a new one when none is open.
+    private var frontWindow: PitLaneWindowController {
+        if let front = NSApp.orderedWindows.lazy.compactMap({ $0.windowController as? PitLaneWindowController })
+            .first
+        {
+            return front
+        }
+        if let any = windows.first { return any }
+        newWindow(nil)
+        return windows[windows.count - 1]
+    }
+
+    /// Hand edits to wrld.json and changes to ~/.ssh/config apply at once, as the settings
+    /// file's do.
+    private func watchWRLDFiles(_ wrld: WRLDService) {
+        wrldWatchers = [wrld.vaultPath, NSHomeDirectory() + "/.ssh/config"].map { path in
+            let watcher = ConfigWatcher(file: URL(fileURLWithPath: path))
+            watcher.onChange = { [weak wrld] in
+                wrld?.reload()
+                WRLDService.changed()
+            }
+            watcher.start()
+            return watcher
+        }
+    }
+
+    /// "New Host…": a sheet on the window in front; the host opens in a new tab once added.
+    @objc func newHost(_ sender: Any?) {
+        guard let wrld, newHostSheet == nil else { return }
+        let parent = NSApp.keyWindow ?? NSApp.mainWindow
+        let sheet = NewHostSheet(
+            jumpHosts: wrld.jumpHostChoices, parent: parent,
+            add: { draft in
+                // Name the thrown type: a closure doesn't infer it, so `error` would be
+                // `any Error` and wouldn't fit `Result<_, WRLDService.AddFailure>`.
+                do throws(WRLDService.AddFailure) {
+                    return .success(try await wrld.add(draft))
+                } catch {
+                    return .failure(error)
+                }
+            },
+            finished: { [weak self] id in
+                self?.newHostSheet = nil
+                guard let id else { return }
+                // The sheet's parent may be the WRLD window or Settings, not a Pit Lane
+                // window; open the host in the frontmost one and bring it forward, so the new
+                // tab isn't hidden behind a background window.
+                let controller = self?.windows.first { $0.window === parent } ?? self?.frontWindow
+                controller?.open(.vault(id), beside: false)
+                controller?.window?.makeKeyAndOrderFront(nil)
+            })
+        newHostSheet = sheet
+        sheet.show()
     }
 
     // MARK: - Windows
@@ -294,6 +427,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         secureInput.setMode(config.secureKeyboardEntry)
         updateSecureInput()
         settingsWindow?.update(config: config, chrome: Chrome(config.namedTheme))
+        wrldWindow?.setChrome(Chrome(config.namedTheme))
+        wrld?.checksHosts = config.checkHosts
+        wrld?.readsHostOS = config.readHostOS
     }
 
     /// Frames drawn so far by the panes that are open, for the Energy page.
@@ -332,5 +468,20 @@ extension AppDelegate: NSMenuItemValidation {
         guard menuItem.action == #selector(toggleSecureKeyboardEntry(_:)) else { return true }
         menuItem.state = secureInput.isChecked ? .on : .off
         return secureInput.canToggle
+    }
+}
+
+extension AppDelegate: WRLDWindowHost {
+    func connect(_ host: HostRef, beside: Bool) {
+        let controller = frontWindow
+        controller.window?.makeKeyAndOrderFront(nil)
+        controller.open(host, beside: beside)
+    }
+
+    func typeSnippet(_ command: String, run: Bool, from snippet: SnippetID) {
+        let controller = frontWindow
+        controller.window?.makeKeyAndOrderFront(nil)
+        controller.typeSnippet(command, run: run)
+        wrld?.used(snippet)
     }
 }

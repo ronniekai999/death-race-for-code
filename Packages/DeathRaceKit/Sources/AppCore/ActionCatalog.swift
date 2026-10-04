@@ -5,11 +5,12 @@ public enum ActionID: String, CaseIterable, Sendable {
     // The app menu
     case about, settings, openSettingsFile, reloadConfiguration, secureKeyboardEntry, hide, hideOthers, showAll, quit
     // Shell
-    case newWindow, newTab, splitRight, splitDown, closePane, closeTab, closeWindow
+    case newWindow, newTab, newHost, openWRLD, splitRight, splitDown, armedAndDangerous, closePane, closeTab,
+        closeWindow
     // Edit
-    case copy, paste, selectAll, clearToStart, clearScrollback
+    case copy, paste, selectAll, saveSelectionToWishingWell, clearToStart, clearScrollback
     // View
-    case hearMeCalling, bigger, smaller, actualSize, zoomPane, equalizePanes
+    case hearMeCalling, toggleSidebar, bigger, smaller, actualSize, zoomPane, equalizePanes
     // Window
     case minimize, zoomWindow, showPreviousTab, showNextTab, moveTabToNewWindow
     case previousPane, nextPane, focusPaneLeft, focusPaneRight, focusPaneUp, focusPaneDown
@@ -122,11 +123,21 @@ public enum ActionCatalog {
         Action(.newWindow, "New Window", "New window", .shell, KeyShortcut(.character("n"))),
         Action(.newTab, "New Tab", "New tab", .shell, KeyShortcut(.character("t"))),
         Action(
+            .newHost, "New Host…", "New host", .shell,
+            keywords: ["wrld", "ssh", "server", "add host", "secure enclave", "key"]),
+        Action(
+            .openWRLD, "Open WRLD", "Open WRLD", .shell, KeyShortcut(.character("o")),
+            keywords: ["hosts", "vault", "servers", "keys", "known hosts", "tunnels", "snippets"]),
+        Action(
             .splitRight, "Split Right", "Split pane right", .shell, KeyShortcut(.character("d")),
             keywords: ["vertical", "side by side"]),
         Action(
             .splitDown, "Split Down", "Split pane down", .shell, KeyShortcut(.character("d"), [.command, .shift]),
             keywords: ["horizontal", "stacked"]),
+        Action(
+            .armedAndDangerous, "Armed and Dangerous", "Armed and Dangerous: type into every pane", .shell,
+            KeyShortcut(.character("i"), [.command, .shift]),
+            keywords: ["broadcast", "all panes", "synchronize panes", "send input", "every server"]),
         Action(.closePane, "Close", "Close pane", .shell, KeyShortcut(.character("w"))),
         Action(.closeTab, "Close Tab", "Close tab", .shell, KeyShortcut(.character("w"), [.command, .option])),
         Action(
@@ -136,6 +147,9 @@ public enum ActionCatalog {
         Action(.copy, "Copy", "Copy", .edit, KeyShortcut(.character("c")), inPalette: false),
         Action(.paste, "Paste", "Paste", .edit, KeyShortcut(.character("v")), inPalette: false),
         Action(.selectAll, "Select All", "Select all", .edit, KeyShortcut(.character("a")), inPalette: false),
+        Action(
+            .saveSelectionToWishingWell, "Save Selection to Wishing Well…", "Save selection to Wishing Well", .edit,
+            keywords: ["snippet", "save command", "wishing well"]),
         Action(
             .clearToStart, "Clear to Start", "Clear to start", .edit, KeyShortcut(.character("k")),
             keywords: ["clear screen", "reset", "cls"]),
@@ -147,6 +161,9 @@ public enum ActionCatalog {
         Action(
             .hearMeCalling, "Hear Me Calling…", "Hear Me Calling", .view,
             KeyShortcut(.character("p"), [.command, .shift]), keywords: ["command palette", "search"], inPalette: false),
+        Action(
+            .toggleSidebar, "WRLD Sidebar", "Show or hide the WRLD sidebar", .view,
+            KeyShortcut(.character("s"), [.command, .control]), keywords: ["hosts", "legends", "side bar"]),
         Action(
             .bigger, "Bigger", "Make text bigger", .view, KeyShortcut(.character("+")),
             alternates: [KeyShortcut(.character("="))], keywords: ["font size", "zoom in"]),

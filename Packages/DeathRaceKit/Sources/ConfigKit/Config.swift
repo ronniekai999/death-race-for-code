@@ -58,6 +58,12 @@ public struct Config: Sendable, Equatable {
     /// full rate.
     public var outputFrameRateCap = true
 
+    // WRLD
+    /// Check how quickly Legends answer while the sidebar or the WRLD window shows them.
+    public var checkHosts = true
+    /// Read what each host runs from its /etc/os-release, at most weekly.
+    public var readHostOS = true
+
     // Other
     public var copyOnSelect = false
     public var bell = Bell.system

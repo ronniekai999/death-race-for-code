@@ -1,6 +1,7 @@
 import AppCore
 import AppKit
 import QuartzCore
+import SSHKit
 import SurfaceCore
 import TerminalUI
 import VTCore
@@ -15,7 +16,7 @@ final class PaneCardView: NSView {
     let surface: TerminalSurfaceView
     private let neon = NeonBorderView()
     private let headerView = PaneHeaderView()
-    private var banner: EndBannerView?
+    private var banner: PaneBannerView?
     private var chrome: Chrome
     /// The background the terminal last reported: the theme's, or a program's (OSC 11).
     private var reportedFill: RGB?
@@ -43,6 +44,16 @@ final class PaneCardView: NSView {
     var header: PaneHeader {
         get { headerView.content }
         set { headerView.content = newValue }
+    }
+    /// Armed and Dangerous: typing here goes to the tab's other armed panes too. Every armed
+    /// card has the orange-to-pink border, the active one or not.
+    var isArmed = false {
+        didSet { if isArmed != oldValue { applyColors() } }
+    }
+    /// A click on the header's "receiving input": the pane is left out, or put back.
+    var onToggleArmed: (() -> Void)? {
+        get { headerView.onToggleArmed }
+        set { headerView.onToggleArmed = newValue }
     }
 
     init(pane: PaneID, surface: TerminalSurfaceView, chrome: Chrome) {
@@ -102,15 +113,23 @@ final class PaneCardView: NSView {
         applyColors()
     }
 
-    /// Why the shell ended, along the card's bottom, with a button to start another; nil
-    /// takes it away.
-    func showEnd(_ message: String?, restart: (() -> Void)?) {
-        banner?.removeFromSuperview()
-        banner = nil
-        guard let message else { return }
-        let banner = EndBannerView(message: message, chrome: chrome, restart: restart)
-        addSubview(banner, positioned: .below, relativeTo: neon)
-        self.banner = banner
+    /// What the pane says along the card's bottom (connecting, why it couldn't, how its
+    /// session ended) with its buttons; nil takes it away.
+    func showBanner(_ banner: PaneBanner?, onButton: @escaping (PaneBanner.Button) -> Void) {
+        // Even when the banner's words are unchanged, take the new handler: after Move Tab to
+        // New Window the old one points at a controller that no longer owns this pane, so its
+        // Reconnect, Cancel and Forget would do nothing.
+        if banner == self.banner?.banner {
+            self.banner?.onButton = onButton
+            return
+        }
+        self.banner?.removeFromSuperview()
+        self.banner = nil
+        if let banner {
+            let view = PaneBannerView(banner: banner, chrome: chrome, onButton: onButton)
+            addSubview(view, positioned: .below, relativeTo: neon)
+            self.banner = view
+        }
         needsLayout = true
     }
 
@@ -125,8 +144,8 @@ final class PaneCardView: NSView {
     private func applyColors() {
         layer?.backgroundColor = (reportedFill ?? chrome.terminalBackground).cgColor
         layer?.borderColor = chrome.colors.line.cgColor
-        layer?.shadowColor = chrome.colors.glow.cgColor
-        neon.colors = chrome.colors.neon
+        layer?.shadowColor = (isArmed ? chrome.colors.warning : chrome.colors.glow).cgColor
+        neon.colors = isArmed ? chrome.colors.armed : chrome.colors.neon
         applyState()
         applyDimming()
     }
@@ -138,9 +157,12 @@ final class PaneCardView: NSView {
     private func applyState() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        neon.isHidden = !isActive
-        layer?.borderWidth = isActive ? 0 : 1
-        layer?.shadowOpacity = isActive && isWindowKey ? Float(chrome.colors.glowOpacity) : 0
+        let bordered = isActive || isArmed
+        neon.isHidden = !bordered
+        layer?.borderWidth = bordered ? 0 : 1
+        // Armed cards glow too, more softly, as on the board.
+        let opacity = isArmed ? min(chrome.colors.glowOpacity, 0.28) : chrome.colors.glowOpacity
+        layer?.shadowOpacity = bordered && isWindowKey ? Float(opacity) : 0
         CATransaction.commit()
     }
 }
@@ -321,6 +343,10 @@ final class PaneAreaView: NSView {
         get { !starfield.isHidden }
         set { starfield.isHidden = !newValue }
     }
+    /// Armed and Dangerous's banner, while the tab is armed.
+    private var armedBanner: ArmedBannerView?
+    /// The banner's Stop.
+    var onStopArmed: (() -> Void)?
 
     init(tree: SplitTree) {
         self.tree = tree
@@ -343,6 +369,28 @@ final class PaneAreaView: NSView {
     func setChrome(_ chrome: Chrome) {
         layer?.backgroundColor = chrome.colors.ground.cgColor
         for card in cards.values { card.setChrome(chrome) }
+        armedBanner?.chrome = chrome
+    }
+
+    /// Armed and Dangerous's banner saying `sentence`, or none: the panes move down to make
+    /// room for it, and back up after.
+    func showArmed(_ sentence: String?, chrome: Chrome) {
+        switch (sentence, armedBanner) {
+        case (nil, nil):
+            return
+        case (nil, let banner?):
+            banner.removeFromSuperview()
+            armedBanner = nil
+        case (let sentence?, let banner?):
+            banner.sentence = sentence
+            return
+        case (let sentence?, nil):
+            let banner = ArmedBannerView(sentence: sentence, chrome: chrome)
+            banner.onStop = { [weak self] in self?.onStopArmed?() }
+            addSubview(banner)
+            armedBanner = banner
+        }
+        needsLayout = true
     }
 
     func add(_ card: PaneCardView) {
@@ -356,17 +404,22 @@ final class PaneAreaView: NSView {
         needsLayout = true
     }
 
-    /// Where the panes go: inside the margin, in points.
+    /// Where the panes go: inside the margin, under the banner while there is one, in
+    /// points.
     var paneRect: LayoutRect {
-        LayoutRect(
-            x: Double(Chrome.paneMargin), y: Double(Chrome.paneMargin),
-            width: max(Double(bounds.width - Chrome.paneMargin * 2), 0),
-            height: max(Double(bounds.height - Chrome.paneMargin * 2), 0))
+        let margin = Double(Chrome.paneMargin)
+        let top = margin + (armedBanner == nil ? 0 : Double(ArmedBannerView.height + Chrome.paneGap))
+        return LayoutRect(
+            x: margin, y: top, width: max(Double(bounds.width) - margin * 2, 0),
+            height: max(Double(bounds.height) - top - margin, 0))
     }
 
     override func layout() {
         super.layout()
         if starfield.frame != bounds { starfield.frame = bounds }
+        armedBanner?.frame = NSRect(
+            x: Chrome.paneMargin, y: Chrome.paneMargin, width: max(bounds.width - Chrome.paneMargin * 2, 0),
+            height: ArmedBannerView.height)
         let rect = paneRect
         let scale = Double(window?.backingScaleFactor ?? 2)
         let frames = zoomedPane.map { [$0: rect] } ?? tree.frames(in: rect, gap: Double(Chrome.paneGap), scale: scale)
@@ -430,46 +483,70 @@ final class PaneAreaView: NSView {
     }
 }
 
-/// "The shell exited with status 3." and a Restart button, over the bottom of a pane whose
-/// shell ended badly.
+/// What a pane says along its bottom ("Connecting to prod-api…", "The connection to
+/// prod-api was lost.", "The shell exited with status 3.") and its buttons, the one most
+/// likely to help at the right. A spinner shows only while connecting: a banner left on
+/// screen draws nothing more.
 @MainActor
-final class EndBannerView: NSView {
-    private let message: String
+final class PaneBannerView: NSView {
+    let banner: PaneBanner
     var chrome: Chrome {
         didSet { needsDisplay = true }
     }
-    private let button: NSButton
-    private let restart: (() -> Void)?
+    private var buttons: [NSButton] = []
+    private let spinner: NSProgressIndicator?
+    /// Replaced, not just set once: Move Tab to New Window hands the pane a new controller.
+    var onButton: (PaneBanner.Button) -> Void
 
-    init(message: String, chrome: Chrome, restart: (() -> Void)?) {
-        self.message = message
+    init(banner: PaneBanner, chrome: Chrome, onButton: @escaping (PaneBanner.Button) -> Void) {
+        self.banner = banner
         self.chrome = chrome
-        self.restart = restart
-        button = NSButton(title: "Restart", target: nil, action: nil)
+        self.onButton = onButton
+        spinner = banner.isWorking ? NSProgressIndicator() : nil
         super.init(frame: .zero)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
-        button.bezelStyle = .push
-        button.controlSize = .small
-        button.target = self
-        button.action = #selector(restartClicked(_:))
-        addSubview(button)
+        for (index, kind) in banner.buttons.enumerated() {
+            let button = NSButton(title: kind.title, target: nil, action: nil)
+            button.bezelStyle = .push
+            button.controlSize = .small
+            button.tag = index
+            button.target = self
+            button.action = #selector(clicked(_:))
+            addSubview(button)
+            buttons.append(button)
+        }
+        if let spinner {
+            spinner.style = .spinning
+            spinner.controlSize = .small
+            spinner.isIndeterminate = true
+            addSubview(spinner)
+            spinner.startAnimation(nil)
+        }
         setAccessibilityElement(true)
-        setAccessibilityLabel(message)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel(banner.message)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
-        fatalError("EndBannerView is created in code")
+        fatalError("PaneBannerView is created in code")
     }
 
     override var isFlipped: Bool { true }
 
+    private var textX: CGFloat { spinner == nil ? 12 : 12 + 16 + 8 }
+
     override func layout() {
         super.layout()
-        button.sizeToFit()
-        button.frame.origin = NSPoint(
-            x: bounds.width - button.frame.width - 12, y: ((bounds.height - button.frame.height) / 2).rounded())
+        var x = bounds.width - 12
+        for button in buttons {
+            button.sizeToFit()
+            x -= button.frame.width
+            button.frame.origin = NSPoint(x: x, y: ((bounds.height - button.frame.height) / 2).rounded())
+            x -= 8
+        }
+        spinner?.frame = NSRect(x: 12, y: ((bounds.height - 16) / 2).rounded(), width: 16, height: 16)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -479,15 +556,16 @@ final class EndBannerView: NSView {
         colors.line.nsColor.setFill()
         NSRect(x: 0, y: 0, width: bounds.width, height: 1).fill()
         let text = NSAttributedString(
-            string: message,
+            string: banner.message,
             attributes: [
                 .font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: colors.inkMuted.nsColor,
             ])
         let size = text.size()
-        text.draw(at: NSPoint(x: 12, y: ((bounds.height - size.height) / 2).rounded()))
+        text.draw(at: NSPoint(x: textX, y: ((bounds.height - size.height) / 2).rounded()))
     }
 
-    @objc private func restartClicked(_ sender: Any?) {
-        restart?()
+    @objc private func clicked(_ sender: NSButton) {
+        guard banner.buttons.indices.contains(sender.tag) else { return }
+        onButton(banner.buttons[sender.tag])
     }
 }

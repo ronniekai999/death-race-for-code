@@ -92,6 +92,12 @@ The Phase 2 budgets above are checked by hand on the M5, with a debug build
   with one idle window and the cursor blinking. While the window is idle, the frame count
   in Log Frame Stats should not move.
 - **Memory.** Run `footprint $(pgrep -n DeathRace)` with one idle tab, then with eleven.
+- **Idle with WRLD** (Phase 4's exit criterion 7). Show the sidebar, connect to two hosts and
+  open a tunnel, then leave it for a minute: no frames, and at most 0.5 wakeups a second for
+  the app (the `ssh` processes are counted apart, and their keepalives are yours). Then hide
+  the sidebar and close the WRLD window: `log stream --level debug --predicate 'subsystem ==
+  "local.deathraceforcode.DeathRace" AND category == "WRLD"'` should show no "Checking how
+  quickly…" line from then on.
 
 ## Where the energy goes, and where it doesn't
 
@@ -123,6 +129,31 @@ The Phase 2 budgets above are checked by hand on the M5, with a debug build
   - The settings file is watched with kernel event sources.
   - The Energy page samples every two seconds only while it is on screen, and leaves its own
     wakeup out of what it shows.
+- **WRLD waits; it never polls.**
+  - Each master is an `ssh` the app waits on with one thread blocked in `poll`: on its
+    pipes, and on an exit watch (a kqueue on macOS, a pidfd on Linux). It is ready when it
+    prints the marker its `LocalCommand` echoes, so nothing knocks on its socket to find
+    out. A master with no panes or tunnels left ends ten minutes later, from one sleeping
+    task.
+  - Keepalives are ssh's own (your `ServerAliveInterval`); the app sends nothing to keep a
+    connection open.
+  - The askpass broker blocks in `poll` on its socket and a wake pipe, and answers only
+    when ssh asks.
+  - Come & Go keeps no counters and runs no `-O check` on a timer: OpenSSH reports no
+    traffic counts, and the app is the record of what it opened.
+  - Latency checks run only for Legends, only while the sidebar or the WRLD window is on
+    screen and not covered: one timer every five minutes with a minute's tolerance, so
+    macOS can fold it in with other wakeups, plus `NWPathMonitor` for network changes. A
+    check is a TCP connect that sends nothing and gives up after two seconds. When the last
+    viewer goes, the timer and the monitor go too.
+  - A host's OS is read at most once a week, over a master that is already connected,
+    after you've had a session there.
+  - `wrld.json` and `~/.ssh/config` are watched with kernel event sources, as the settings
+    file is.
+  - The WRLD window is made when it opens and released when it closes. The sidebar draws
+    its rows itself, and only when WRLD, its tunnels or the window change.
+- **Armed and Dangerous costs a few bytes per key.** Each armed pane encodes what was typed
+  for its own program; the banner and the borders are layers drawn once.
 - **Phase 9's effects ride existing frames.** Text glow and XDR Neon will draw only on frames
   that output, typing or scrolling already caused, and Low Power Mode, battery and thermal
   pressure will turn them off.

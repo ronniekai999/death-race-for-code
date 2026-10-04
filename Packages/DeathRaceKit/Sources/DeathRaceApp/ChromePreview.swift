@@ -5,12 +5,14 @@
     import ImageIO
     import PTYKit
     import RenderKit
+    import SSHKit
     import ScreenProtocol
     import SessionKit
     import SurfaceCore
     import TerminalUI
     import UniformTypeIdentifiers
     import VTCore
+    import Vault
 
     /// A shell that is only a script: what it printed is fed in, and it says which program
     /// runs where, as a pane's pill and status bar ask.
@@ -84,6 +86,19 @@
             ("ssh", "\u{1B}]2;prod-api\u{7}prod-api ~ \u{1B}[32m$\u{1B}[0m uptime\r\n 18:42  up 99 days\r\n"),
         ]
 
+        /// The armed picture's panes: three servers taking the same deploy, as on the board.
+        static let armedScripts: [(program: String, output: String)] = (1...3).map { number in
+            let deploy =
+                "\u{1B}[38;5;213m❯\u{1B}[0m ./deploy.sh prod --version 2.4.1\r\n"
+                + "\u{1B}[36m→\u{1B}[0m uploading release 2.4.1\r\n"
+            let end =
+                number == 3
+                ? "\u{1B}[31m✗ health check failed: 502 from :8080\u{1B}[0m\r\n\u{1B}[2m  rolled back to 2.4.0\u{1B}[0m\r\n"
+                : "\u{1B}[36m→\u{1B}[0m linking current → releases/2.4.1\r\n"
+                    + "\u{1B}[32m✓\u{1B}[0m healthy in 3.\(number * 2)s\r\n"
+            return ("prod-api-\(number)", deploy + end + "\u{1B}[38;5;213m❯\u{1B}[0m ")
+        }
+
         public static func run(arguments: [String]) -> Int32 {
             let index = arguments.firstIndex(of: "--render-chrome")!
             let folder = URL(
@@ -105,8 +120,9 @@
                 if renderer == nil { print("no Metal device: the panes are left empty") }
                 for theme in ThemeCatalog.all {
                     try write(window(theme: theme, renderer: renderer), to: folder, name: theme.id)
+                    try write(armedWindow(theme: theme, renderer: renderer), to: folder, name: theme.id + "-armed")
                 }
-                print("wrote \(ThemeCatalog.all.count) pictures to \(folder.path)")
+                print("wrote \(ThemeCatalog.all.count * 2) pictures to \(folder.path)")
                 return 0
             } catch {
                 FileHandle.standardError.write(Data("render-chrome: \(error)\n".utf8))
@@ -123,6 +139,13 @@
         @MainActor
         private final class Host: WindowHost {
             let ids = IDSource()
+            /// The Main board's WRLD, so the sidebar shows as it does there.
+            let preview = PreviewWRLD()
+            var connections: (any HostConnecting)? { preview }
+            var sidebarPreferred: Bool {
+                get { true }
+                set {}
+            }
             var scripts = ChromePreview.scripts
             private(set) var sessions: [ScriptedSession] = []
             var makeSession: SessionMaker {
@@ -152,17 +175,31 @@
             func picked(_ id: String) {}
         }
 
-        /// A window in `theme`: a split tab and two more tabs.
-        private static func window(theme: NamedTheme, renderer: OffscreenRenderer?) throws -> CGImage {
+        /// A window in `theme`, running `scripts`.
+        private static func makeWindow(theme: NamedTheme, scripts: [(program: String, output: String)])
+            -> PitLaneWindowController
+        {
             var config = Config()
             config.themeID = theme.id
             // The pills and headers name the shell the mockups show, whatever the runner's is.
             config.command = "/bin/zsh"
             let host = Host()
+            host.scripts = scripts
             let controller = PitLaneWindowController(config: config, host: host, directory: directory)
-            defer { controller.window?.close() }
+            // The window holds its host weakly: keep it for as long as the window is drawn.
+            hosts.append(host)
             controller.window?.setContentSize(size)
             controller.showWindow(nil)
+            return controller
+        }
+
+        /// Hosts of the windows being drawn.
+        private static var hosts: [Host] = []
+
+        /// A window in `theme`: a split tab and two more tabs.
+        private static func window(theme: NamedTheme, renderer: OffscreenRenderer?) throws -> CGImage {
+            let controller = makeWindow(theme: theme, scripts: scripts)
+            defer { controller.window?.close() }
             controller.splitRight(nil)
             try wait("the split") { controller.panes.count == 2 }
             controller.newTab(nil)
@@ -172,6 +209,24 @@
             // Back to the split tab, its left pane in use.
             _ = controller.selectTab(number: 1)
             _ = controller.selectPane(number: 1)
+            return try picture(of: try ready(controller), renderer: renderer)
+        }
+
+        /// Armed and Dangerous in `theme`: a tab of three panes, typing going to all of them.
+        private static func armedWindow(theme: NamedTheme, renderer: OffscreenRenderer?) throws -> CGImage {
+            let controller = makeWindow(theme: theme, scripts: armedScripts)
+            defer { controller.window?.close() }
+            controller.splitRight(nil)
+            try wait("the first split") { controller.panes.count == 2 }
+            controller.splitDown(nil)
+            try wait("the second split") { controller.panes.count == 3 }
+            _ = controller.selectPane(number: 1)
+            controller.toggleArmed(nil)
+            return try picture(of: try ready(controller), renderer: renderer)
+        }
+
+        /// `controller` once its panes show their screens and name their programs.
+        private static func ready(_ controller: PitLaneWindowController) throws -> PitLaneWindowController {
             for pane in controller.panes.values {
                 pane.surface.sessionDidUpdate()
                 // What runs in it and where: for the pills, headers and status bar.
@@ -185,7 +240,93 @@
             // As the app does when it becomes active, should that have come after the window.
             for pane in controller.panes.values { pane.surface.focusChanged() }
             settle()
-            return try picture(of: controller, renderer: renderer)
+            return controller
+        }
+
+        // MARK: - WRLD for the pictures
+
+        /// The Main board's hosts, snippets and tunnel, for the sidebar. Nothing in it
+        /// connects.
+        @MainActor
+        final class PreviewWRLD: HostConnecting {
+            let vault: Vault
+            let state: WRLDState
+            let now: Date
+
+            init() {
+                let now = Date()
+                self.now = now
+                let homelab = Group(id: GroupID(rawValue: "g1"), name: "Homelab")
+                let work = Group(id: GroupID(rawValue: "g2"), name: "Work")
+                func host(_ id: String, _ name: String, _ address: String, group: GroupID? = nil, legend: Bool = false)
+                    -> WRLDHost
+                {
+                    WRLDHost(
+                        id: HostID(rawValue: id), name: name, source: .wrld(Connection(address: address)),
+                        groupID: group, isLegend: legend)
+                }
+                var prod = host("h1", "prod-api", "10.0.4.21", group: work.id, legend: true)
+                prod.tunnels = [
+                    Tunnel(
+                        id: TunnelID(rawValue: "t1"),
+                        spec: TunnelSpec(kind: .local, listenPort: 5432, target: .init(host: "db", port: 5432)))
+                ]
+                let hosts =
+                    [
+                        prod, host("h2", "nas-999", "nas.local", group: homelab.id, legend: true),
+                        host("h3", "jellyfin", "192.168.12.40", group: homelab.id),
+                        host("h4", "bastion", "bastion.lan", group: homelab.id),
+                        host("h5", "media", "192.168.12.41", group: homelab.id),
+                        host("h6", "pi-hole", "192.168.12.2"),
+                    ] + (1...6).map { host("w\($0)", "work-\($0)", "work\($0).example.com", group: work.id) }
+                vault = Vault(
+                    hosts: hosts, groups: [homelab, work],
+                    snippets: [
+                        Snippet(name: "deploy", text: "./deploy.sh {{env:prod|staging}}"),
+                        Snippet(name: "tail api logs", text: "journalctl -fu api"),
+                        Snippet(name: "restart caddy", text: "sudo systemctl restart caddy"),
+                    ])
+                var state = WRLDState()
+                for (id, latency) in [("h1", 18), ("h2", 4)] {
+                    state.update(.vault(HostID(rawValue: id))) { facts in
+                        facts.latency = latency
+                        facts.latencyCheckedAt = now
+                    }
+                }
+                state.update(.vault(HostID(rawValue: "h6"))) { $0.latencyCheckedAt = now }
+                self.state = state
+            }
+
+            func sidebar(query: String, expanded: Set<GroupID>) -> SidebarModel {
+                SidebarModel(
+                    .init(
+                        vault: vault, state: state, connected: ["h1"], openTunnels: [TunnelID(rawValue: "t1")],
+                        expandedGroups: expanded, query: query, now: now))
+            }
+
+            func name(of host: HostRef) -> String { "host" }
+            func address(of host: HostRef) -> String? { nil }
+            func connect(_ host: HostRef, for pane: PaneID) async -> ConnectResult { .failed(.cancelled) }
+            func plainLaunch(_ host: HostRef) async -> ShellLaunch? { nil }
+            func release(_ pane: PaneID) {}
+            func cancel(_ host: HostRef) {}
+            func paletteHosts() -> [PaletteItem] { [] }
+            var openConnections: [String] { [] }
+            var openTunnelCount: Int { 1 }
+            func paletteTunnels() -> [PaletteItem] { [] }
+            func toggleTunnel(_ id: TunnelID) async {}
+            func paletteSnippets() -> [PaletteItem] { [] }
+            func snippet(_ id: SnippetID) -> Snippet? { nil }
+            func save(_ snippet: Snippet) -> Bool { false }
+            func onConnectCommand(for host: HostRef) -> String? { nil }
+            func used(_ snippet: SnippetID) {}
+            func host(_ id: HostID) -> WRLDHost? { vault.host(id) }
+            func setLegend(_ host: HostID, _ isLegend: Bool) {}
+            func remove(_ host: HostID) async {}
+            func shown(by viewer: AnyObject) {}
+            func hidden(by viewer: AnyObject) {}
+            func knownKeys(_ removal: KeyRemoval, for host: HostRef?) async -> [KnownHosts.Entry] { [] }
+            func forgetKey(_ removal: KeyRemoval, for host: HostRef?) async -> String? { nil }
         }
 
         // MARK: - Pictures

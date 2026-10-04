@@ -75,6 +75,10 @@ extension TerminalSurfaceView {
         }
         menu.addItem(NSMenuItem(title: "Copy", action: #selector(copy(_:)), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Paste", action: #selector(paste(_:)), keyEquivalent: ""))
+        if let extra = contextMenuItems?(), !extra.isEmpty {
+            menu.addItem(.separator())
+            for item in extra { menu.addItem(item) }
+        }
         return menu
     }
 

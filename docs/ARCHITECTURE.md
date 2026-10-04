@@ -45,13 +45,16 @@ UI half needs macOS.
 | `ScreenProtocol` | macOS, Linux | `ScreenDelta`, `DeltaBuilder` (session side), `MirrorGrid` (app side), `DeltaCodec` (bytes for XPC, format 3) |
 | `SessionKit` | macOS, Linux | `Session`: one thread per shell owning its PTY and engine, a locked mailbox for deltas and commands |
 | `ConfigKit` | macOS, Linux | the settings file: `ConfigSchema` (one table drives the parser, the defaults and the template), `ConfigParser` with diagnostics, `Config`, `Theme`; `ThemeCatalog` (the eight themes, terminal and chrome) with `Contrast`; `ConfigEditor` (changes one setting, every other line as it was) |
-| `AppCore` | macOS, Linux | the app's logic apart from AppKit: `SplitTree`, `WindowModel`, `ActionCatalog` (menus, palette, Keys page), `FuzzyMatcher`, `PaletteSearch`/`PaletteState`, `SettingsCatalog`, `EnergyMeter`, `GitHead`, `ShellLaunchPlan`, `StatusLine`/`TabLabel` |
-| `SurfaceCore` | macOS, Linux | what the terminal view does apart from AppKit and Metal: `SurfaceSession` (a `Session`, or `ReplaySession` in process), `SurfaceModel` (the mirror and what changed), `ColorResolver`, `FrameBuilder` (GPU instances, rebuilt per changed row), `SpriteRasterizer` (box drawing), `ShelfAtlas`, `CellMetrics`/`GridLayout`/`CellGeometry`, `Selection`/`WordRules`, `KeyRouting`/`MacKeyCode`, `ScrollAccumulator`, `FramePacer`, `FrameRatePolicy`, `SecureInput`, `PreeditLayout`, `ShellQuoting`, `WorkingDirectoryURL`, `Dimming`, `LinkPolicy`/`URLDetector`/`LinkFinder` |
+| `Vault` | macOS, Linux | WRLD's data: `Vault` (hosts, groups, snippets, keys, tunnels) and `VaultStore` (`wrld.json`), `VaultEdits` (changes that keep references whole), `HostDraft`, `SnippetTemplate`, `TunnelSpec`, `WRLDState` (`state.json`: last connected, OS, latency, uses), `AtomicFile` |
+| `SSHKit` | macOS, Linux | OpenSSH, driven: `GeneratedConfig`, `MasterSupervisor`/`MasterPool`/`MasterLog`, `AskpassBroker` and its wire format, `TunnelController`/`TunnelBoard`, `HostChain`, `LoginEnvironment`, `SecureEnclaveKeys`/`AuthorizedKeys`, `KnownHosts`, `HostChecks` (latency and OS, and when they may run), `PaneBanner`, `SSHConfigDiscovery`, `LocalNetwork`, `ProcessRunner` |
+| `deathrace-askpass` | macOS, Linux | the `SSH_ASKPASS` helper: asks the app's broker, prints the answer |
+| `AppCore` | macOS, Linux | the app's logic apart from AppKit: `SplitTree`, `WindowModel` (with the armed state), `ActionCatalog` (menus, palette, Keys page), `FuzzyMatcher`, `PaletteSearch`/`PaletteState`, `SettingsCatalog`, `EnergyMeter`, `GitHead`, `ShellLaunchPlan`, `StatusLine`/`TabLabel`, `BroadcastLabel`, `WishingWell`/`SnippetFill`, `WRLDBoard`, `SidebarModel`, `HostStatus`/`HostChips`/`RelativeTime` |
+| `SurfaceCore` | macOS, Linux | what the terminal view does apart from AppKit and Metal: `SurfaceSession` (a `Session`, or `ReplaySession` in process), `SurfaceModel` (the mirror and what changed), `ColorResolver`, `FrameBuilder` (GPU instances, rebuilt per changed row), `SpriteRasterizer` (box drawing), `ShelfAtlas`, `CellMetrics`/`GridLayout`/`CellGeometry`, `Selection`/`WordRules`, `KeyRouting`/`MacKeyCode`, `ScrollAccumulator`, `FramePacer`, `FrameRatePolicy`, `SecureInput`, `PreeditLayout`, `ShellQuoting`, `WorkingDirectoryURL`, `Dimming`, `LinkPolicy`/`URLDetector`/`LinkFinder`, `TypedInput`, `PasteWarning` |
 | `vthost` | macOS, Linux | headless host CLI: `run`, `replay`, `dump`, `bench`, `smoke`; the terminal esctest and vttest drive |
 | `LegendsUI` | macOS | design system: tokens, `LegendsPalette` in the SwiftUI environment, `NeonSwitchStyle`, `NeonSlider`, `Wordmark999`, `NeonBorder`, `Starfield`, `Tagline` |
 | `RenderKit` | macOS | `FontRegistry` (the bundled fonts, for this process), `FontSet` (SF Mono or a named family, real or slanted italics, an italic family, the Nerd Font symbols), `GlyphRasterizer` (CoreText, language-aware fallback, private-use characters from the symbols font, emoji fit to their cells), `Shaders` (compiled at launch; dimming and stars), `SurfaceRenderer` (three frames in flight, atlas uploads), `OffscreenRenderer` (render and read back) |
 | `TerminalUI` | macOS | `TerminalSurfaceView`: the grid, Metal drawing on a display link that pauses when idle, keys and input methods, the mouse, selection, the pasteboard, links, the frame-rate policy |
-| `DeathRaceApp` | macOS | the AppKit app: `PitLaneWindowController` (tabs of split panes and their chrome), `PaneController` (one shell), Hear Me Calling, the Settings window, `ConfigStore`/`ConfigWatcher`, menus, About, the icon |
+| `DeathRaceApp` | macOS | the AppKit app: `PitLaneWindowController` (tabs of split panes and their chrome, Armed and Dangerous, the WRLD sidebar), `PaneController` (one shell or session on a host), Hear Me Calling, the Settings window, `WRLDService` (WRLD for the app), the WRLD window, the New Host and Wishing Well sheets, `KeychainSecretStore`/`DeviceOwnerPresence`, `ConfigStore`/`ConfigWatcher`, menus, About, the icon |
 | `DeathRace` | macOS | executable; `--smoke-test` runs the headless end-to-end check, `--write-icon` draws the iconset, `--render-chrome` (debug builds) pictures every theme |
 
 ## Decisions
@@ -310,12 +313,82 @@ draw on frames that are happening anyway.
 
 ### The Termius layer rides OpenSSH
 
-We never implement SSH crypto. `SSHKit` runs `/usr/bin/ssh` with ControlMaster
-(`ControlPath=~/.deathrace/cm/%C`, since socket paths cap at 104 bytes), supplies passwords
-through an askpass helper backed by the Keychain and Touch ID, and creates Secure Enclave keys
-with macOS 26's `/usr/lib/ssh-keychain.dylib`. Tunnels are `ssh -O forward/cancel/check` on
-the live connection. The SFTP browser speaks SFTP v3 itself over `ssh -s <host> sftp`, on the
-same authenticated connection.
+We never implement SSH crypto. `SSHKit` runs macOS's `/usr/bin/ssh`.
+
+- **One master per host, owned by the app.** Connecting starts
+  `ssh -F ~/.deathrace/ssh_config -M -N -o ControlPersist=no …` as Death Race's own child, in
+  a session of its own with no terminal. Panes are sessions through it, so a second pane opens
+  without a second login. Tunnels are `ssh -F none -S <socket> -O forward|cancel` on it.
+  - ControlPersist is never used. It forks the master into the background (`daemon()`), where
+    it would outlive the app and its tunnels.
+  - The master is known to be connected when its `LocalCommand` prints a marker, which ssh
+    runs right after the control socket listens. There is no polling.
+- **The vault compiles to an ssh_config** (`GeneratedConfig`):
+  - WRLD's settings come first;
+  - every block says `ControlMaster no` and `ControlPersist no`;
+  - then `Match all` and `Include ~/.ssh/config`, so your own defaults still fill in the rest.
+  - Control sockets get fixed names under `~/.deathrace/cm/`. ssh's `%C` hashes this Mac's host
+    name, which changes between networks, and socket paths cap at 104 bytes.
+  - CI checks the file with real `ssh -G`.
+- **Every prompt goes to the app.** Every ssh the app starts gets `deathrace-askpass` as its
+  `SSH_ASKPASS` (forced: masters have no terminal), which asks the app's broker
+  (`AskpassBroker`) over a Unix socket in a 0700 folder.
+  - Before answering, the broker checks the token the app gave that ssh, that the asking
+    process is yours and descends from that ssh (at most four levels: jump hops, the helper),
+    and that nothing else is in flight for it.
+  - It answers a saved password only for the hop ssh named in its own words, after Touch ID
+    (`DeviceOwnerPresence`), and only once: asked again, the saved one was wrong.
+  - Saved secrets are generic passwords in your login keychain (`KeychainSecretStore`),
+    written only after the login they were typed for succeeds.
+  - Anything else becomes a question on the window. Cancelling, or declining Touch ID, ends
+    the attempt: the master's process group gets SIGTERM, since ssh would otherwise retry.
+- **Tested against a real server.** Linux CI starts a throwaway sshd on two loopback
+  addresses (`scripts/ci-sshd.sh`) and drives masters, prompts, ProxyJump hops and L/R/D
+  tunnels through it end to end. macOS CI runs the helper against the broker and Apple's ssh
+  against the generated config.
+- **Secure Enclave keys** come from macOS 26's `sc_auth` and `/usr/lib/ssh-keychain.dylib`.
+  The new key is told apart by its public key: the handles are downloaded before and after
+  the identity is made. It goes onto the host over the first connection's master.
+- **A changed host key is a refusal, not a question.** The pane says so and offers Forget the
+  Old Key…, taking the file and name from ssh's own "remove with" line; the confirmation shows
+  both fingerprints and asks you to check the new one before ssh asks you to trust it.
+- **Come & Go** (`TunnelBoard`): OpenSSH can't list what a master forwards, so the app is the
+  record. A tunnel joins its host's master as a pane does (starting one if needed, with no
+  pane), and a master that ends takes its tunnels with it.
+- **What WRLD finds out by itself** (`HostChecks`, `WRLDState`): when each host last
+  connected, what it runs (its `/etc/os-release`, over a live master, at most weekly) and how
+  quickly the Legends answer (a TCP connect that sends nothing). Checks run only while the
+  sidebar or the WRLD window is on screen, five minutes apart with a minute's tolerance and
+  after a network change; never through a jump host, never for a host `~/.ssh/config`
+  describes (only `ssh -G` would tell how ssh reaches it), and never to a local-network
+  address you haven't connected to yourself, since that raises macOS's Local Network question.
+  `wrld-check-hosts` and `wrld-host-os` turn them off.
+
+### Typing into many panes, and snippets
+
+Armed and Dangerous hands on what was *typed*, not bytes. The terminal view reports each key,
+composed text and paste as a `TypedInput` (the scroll wheel's arrows and the mouse never), and
+each armed pane encodes it for its own program, in the modes and Kitty flags that program
+set: ↑ is `ESC O A` to vim in application cursor mode and `ESC [ A` at a zsh prompt, and a
+paste is bracketed only where asked. One paste question covers every armed pane. The armed
+state lives on `TabModel`, so it moves with Move Tab to New Window, and a tab with fewer than
+two armed panes disarms itself. Esc stops nothing: it belongs to the programs.
+
+Wishing Well snippets are typed the same way, as a paste (so a shell takes a multi-line
+snippet whole) with Return after it as a key when they run. A host's on-connect snippet is
+typed as each session through its master starts: never for plain ssh in a pane, where a
+login prompt could take it.
+
+### WRLD on screen
+
+The WRLD window (⌘O, SwiftUI) and the sidebar (⌃⌘S, AppKit, so it shows in the CI pictures)
+draw from tested models (`WRLDBoard`, `SidebarModel`) and change WRLD only through
+`WRLDService`, which saves the vault and posts `.wrldChanged`; everything showing WRLD draws
+again from that. Hand edits to `wrld.json` and changes to `~/.ssh/config` are picked up as
+they're saved, as the settings file's are.
+
+The SFTP browser (Phase 6) speaks SFTP v3 itself over `ssh -s <host> sftp`, on the same
+authenticated connection.
 
 ### Signing
 
@@ -365,7 +438,7 @@ shells in the app and keeps sessions alive another way.
 | 1 | VTCore, ScreenProtocol, SessionKit, vthost; esctest, fuzzing, corpus, benchmarks |
 | 2 | First pixels: CPTY on Darwin, TerminalSurfaceView, RenderKit v1, tabs; daemon spike |
 | 3 | Pit Lane shell: tab pills, splits, Hear Me Calling, the Settings window, 8 themes, fonts, links, frame-rate policy (the WRLD sidebar moved to Phase 4, with its content) |
-| 4 | Termius layer: vault, SSH launcher, Secure Enclave keys, tunnels, snippets, broadcast |
+| 4 | Termius layer: WRLD (vault, window, sidebar), app-owned ssh masters and askpass with Touch ID, Secure Enclave keys, Come & Go tunnels, Wishing Well snippets, Armed and Dangerous |
 | 5 | Lucid Dreams: the notch quick terminal |
 | 6 | Maze: the SFTP browser |
 | 7 | Legends Never Die: `legendsd` keeps sessions alive |

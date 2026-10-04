@@ -3,9 +3,11 @@ import AppKit
 import ConfigKit
 import Foundation
 import LegendsUI
+import SSHKit
 import SurfaceCore
 import TerminalUI
 import VTCore
+import Vault
 
 /// Hands out pane and tab numbers, unique across windows, so a tab keeps its identity
 /// when it moves to another window.
@@ -40,12 +42,28 @@ protocol WindowHost: AnyObject {
     func places(from controller: PitLaneWindowController) -> [PaletteItem]
     /// Brings forward the window holding `pane` and gives the pane the keys.
     func focus(pane: PaneID, from controller: PitLaneWindowController)
+    /// WRLD, for panes on hosts; nil where there is none.
+    var connections: (any HostConnecting)? { get }
+    /// The WRLD window at `place`, with `host` in its inspector when given.
+    func showWRLD(at place: WRLDBoard.Place, selecting host: HostID?)
+    /// Whether a new window opens with the WRLD sidebar: as the last one was left.
+    var sidebarPreferred: Bool { get set }
     /// Writes `theme = id` for every window.
     func chooseTheme(_ id: String) throws
     func showSettings(page: SettingsCatalog.Page?)
     /// Earlier picks, most recent first.
     var recentPicks: [String] { get }
     func picked(_ id: String)
+}
+
+extension WindowHost {
+    /// No WRLD: previews and window tests that don't connect anywhere.
+    var connections: (any HostConnecting)? { nil }
+    func showWRLD(at place: WRLDBoard.Place, selecting host: HostID?) {}
+    var sidebarPreferred: Bool {
+        get { false }
+        set {}
+    }
 }
 
 /// One window: tabs of split panes under the Pit Lane chrome. The tabs and panes live in a
@@ -74,6 +92,8 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     private(set) var hearMeCalling: HearMeCallingOverlay?
     /// The theme Hear Me Calling shows on this window while its row is highlighted.
     private var previewThemeID: String?
+    /// A Wishing Well sheet, while one is open.
+    private var wishingWellSheet: WishingWellSheet?
 
     /// Shown while Secure Keyboard Entry is on and this is the key window.
     var showsSecureInput = false {
@@ -121,8 +141,38 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         strip.onDetach = { [weak self] id in self?.detach(id) }
         strip.onMove = { [weak self] from, to in self?.moveTab(from: from, to: to) }
         strip.onNewTab = { [weak self] in self?.newTab(nil) }
-        root.statusBar.onProblemsClick = { [weak self] in self?.onSettingsProblemsClick?() }
+        root.statusBar.onTap = { [weak self] tap in
+            switch tap {
+            case .settingsProblems: self?.onSettingsProblemsClick?()
+            case .comeAndGo: self?.host?.showWRLD(at: .comeAndGo, selecting: nil)
+            }
+        }
         applyChrome()
+        tunnelsObserver = NotificationCenter.default.addObserver(
+            forName: .tunnelsChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refreshStatus()
+                self?.refreshSidebar()
+            }
+        }
+        wrldObserver = NotificationCenter.default.addObserver(forName: .wrldChanged, object: nil, queue: .main) {
+            [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshSidebar() }
+        }
+        root.titleBar.sidebarButton.isHidden = host.connections == nil
+        root.titleBar.sidebarButton.onClick = { [weak self] in self?.toggleSidebar(nil) }
+        if host.connections != nil && host.sidebarPreferred { setSidebar(shown: true) }
+    }
+
+    /// Recounts the status bar's tunnels when one opens or closes. Set once, on the main
+    /// thread; read only by deinit, and removing an observer is safe from any thread.
+    nonisolated(unsafe) private var tunnelsObserver: (any NSObjectProtocol)?
+    nonisolated(unsafe) private var wrldObserver: (any NSObjectProtocol)?
+
+    deinit {
+        if let tunnelsObserver { NotificationCenter.default.removeObserver(tunnelsObserver) }
+        if let wrldObserver { NotificationCenter.default.removeObserver(wrldObserver) }
     }
 
     @available(*, unavailable)
@@ -136,10 +186,11 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
 
     // MARK: - Building tabs and panes
 
-    private func makePane(directory: String?) -> PaneController {
+    private func makePane(directory: String?, launch: PaneLaunch = .shell) -> PaneController {
         PaneController(
             id: ids.pane(), config: config, directory: directory,
-            scale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, makeSession: makeSession)
+            scale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, makeSession: makeSession,
+            launch: launch, connections: launch.host == nil ? nil : host?.connections)
     }
 
     /// The panes' callbacks lead to this window; a tab moving in brings panes whose
@@ -158,7 +209,37 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         pane.onPasswordInputChange = { [weak self] in self?.host?.inputStateChanged() }
         pane.onLinkHover = { [weak self] in self?.refreshStatus() }
         pane.presentAlert = { [weak self] alert in await self?.present(alert) }
+        pane.onBannerChange = { [weak self] in self?.showBanner(of: id) }
+        pane.surface.onTyped = { [weak self] input in self?.typed(input, in: id) }
+        pane.surface.pasteAlsoGoesTo = { [weak self] in self?.armedModes(besides: id) ?? [] }
+        pane.surface.contextMenuItems = { [weak self] in self?.contextMenuItems(for: id) ?? [] }
         panes[id] = pane
+    }
+
+    /// A card's callbacks lead to this window; a tab moving in brings cards whose callbacks
+    /// led to their old one.
+    private func wire(_ card: PaneCardView) {
+        let id = card.pane
+        card.onToggleArmed = { [weak self] in self?.toggleArmed(of: id) }
+    }
+
+    /// The pane's banner on its card, its buttons answered by the pane.
+    private func showBanner(of id: PaneID) {
+        guard let pane = panes[id], let tab = model.tab(containing: id) else { return }
+        areas[tab.id]?.cards[id]?.showBanner(pane.banner) { [weak self] button in self?.pressed(button, in: id) }
+        // A connection that failed is one fewer pane typing reaches.
+        if tab.isArmed { refreshStatus() }
+    }
+
+    private func pressed(_ button: PaneBanner.Button, in id: PaneID) {
+        guard let pane = panes[id], let tab = model.tab(containing: id) else { return }
+        // These ask or wait first: the tab's mark stays until something is tried again.
+        if button != .cancel && button != .allowLocalNetwork && button != .forgetHostKey {
+            activity[tab.id]?.failure = nil
+            refreshTabs()
+        }
+        pane.press(button)
+        window?.makeFirstResponder(pane.surface)
     }
 
     /// Adds a tab, with its panes and their views, and shows it.
@@ -170,6 +251,10 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         if existing == nil {
             for pane in tabPanes { area.add(PaneCardView(pane: pane.id, surface: pane.surface, chrome: chrome)) }
         }
+        for card in area.cards.values { wire(card) }
+        for pane in tabPanes where pane.banner != nil {
+            area.cards[pane.id]?.showBanner(pane.banner) { [weak self] button in self?.pressed(button, in: pane.id) }
+        }
         area.setChrome(chrome)
         area.showsStars = showsStars
         let id = tab.id
@@ -178,6 +263,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             guard let self, self.model.activeTabID == id else { return }
             self.equalizePanes(nil)
         }
+        area.onStopArmed = { [weak self] in self?.stopArmed(id) }
         areas[tab.id] = area
         root.tabArea.addSubview(area)
         root.needsLayout = true
@@ -186,12 +272,15 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         show(tab.id)
     }
 
-    /// Sizes a new window for `window-size` cells in its first pane.
+    /// Sizes a new window for `window-size` cells in its first pane, beside the sidebar
+    /// when it shows.
     private func sizeWindow(toFit pane: PaneController) {
         guard let window else { return }
         let header = config.paneHeaders == .always
         let surface = pane.surface.size(columns: config.windowSize.columns, rows: config.windowSize.rows)
-        window.setContentSize(PitLaneRootView.windowSize(forSurface: surface, header: header))
+        var size = PitLaneRootView.windowSize(forSurface: surface, header: header)
+        size.width += root.leadingColumnWidth
+        window.setContentSize(size)
         window.contentMinSize = PitLaneRootView.windowSize(
             forSurface: pane.surface.size(columns: 20, rows: 4), header: header)
     }
@@ -279,6 +368,8 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     private func paneChanged(_ id: PaneID) {
         guard let tab = model.tab(containing: id) else { return }
         refreshCards()
+        // An armed tab's pill names every armed pane.
+        if tab.isArmed && tab.activePane != id { return refreshTabs() }
         guard tab.activePane == id else { return }
         refreshTabs()
         if tab.id == model.activeTabID { refreshStatus(rereadBranch: true) }
@@ -317,22 +408,14 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         refreshTabs()
     }
 
-    /// A clean exit closes the pane; any other stays on screen saying why, and marks its tab.
+    /// A clean exit closes the pane; any other stays on screen saying why (the pane's
+    /// banner), and marks its tab.
     private func paneEnded(_ id: PaneID, _ end: ShellEnd) {
         guard let tab = model.tab(containing: id) else { return }
         if !end.isFailure { return closeNow(id) }
         activity[tab.id]?.failure = end
-        areas[tab.id]?.cards[id]?.showEnd(end.sentence) { [weak self] in self?.restart(id) }
         refreshTabs()
-    }
-
-    private func restart(_ id: PaneID) {
-        guard let pane = panes[id], let tab = model.tab(containing: id) else { return }
-        areas[tab.id]?.cards[id]?.showEnd(nil, restart: nil)
-        activity[tab.id]?.failure = nil
-        pane.restart()
-        window?.makeFirstResponder(pane.surface)
-        refreshTabs()
+        if tab.isArmed { refreshStatus() }
     }
 
     // MARK: - Closing
@@ -443,13 +526,15 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         // Found while the active pane has the keys, so the actions are the ones that would
         // work on it.
         let items =
-            paletteActions() + host.places(from: self) + PaletteSearch.themes(current: config.themeID)
-            + PaletteSearch.settingsPages
+            paletteActions() + host.places(from: self) + (host.connections?.paletteHosts() ?? [])
+            + (host.connections?.paletteSnippets() ?? []) + (host.connections?.paletteTunnels() ?? [])
+            + PaletteSearch.themes(current: config.themeID) + PaletteSearch.settingsPages
         let model = HearMeCallingModel(
             state: PaletteState(items: items, recent: host.recentPicks), palette: LegendsPalette(chrome))
         let overlay = HearMeCallingOverlay(model: model, chrome: chrome)
         model.onPreview = { [weak self] theme in self?.previewTheme(theme) }
         model.onChoose = { [weak self] item in self?.choose(item) }
+        model.onAlternate = { [weak self] item in self?.chooseAlternate(item) }
         overlay.onDismiss = { [weak self] in self?.closeHearMeCalling() }
         overlay.frame = root.bounds
         root.addSubview(overlay)
@@ -495,6 +580,33 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         case .settings(let page):
             closeHearMeCalling()
             host?.showSettings(page: page)
+        case .host(let ref):
+            closeHearMeCalling()
+            open(ref, beside: false)
+        case .snippet(let id):
+            closeHearMeCalling()
+            useSnippet(id, run: false)
+        case .tunnel(let id):
+            closeHearMeCalling()
+            let connections = host?.connections
+            Task { await connections?.toggleTunnel(id) }
+        }
+    }
+
+    /// ⌘↵ on a row that has a second action: a host opens beside the active pane, and a
+    /// snippet runs.
+    private func chooseAlternate(_ item: PaletteItem) {
+        switch item.target {
+        case .host(let ref):
+            host?.picked(item.id)
+            closeHearMeCalling()
+            open(ref, beside: true)
+        case .snippet(let id):
+            host?.picked(item.id)
+            closeHearMeCalling()
+            useSnippet(id, run: true)
+        default:
+            return
         }
     }
 
@@ -573,16 +685,36 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
 
     /// ⌘D and ⇧⌘D: the active pane shares its place with a new one, which starts where it
     /// is and takes the keys.
+    /// A split from a pane on a host opens on the same host, through the same master.
     private func split(_ axis: SplitAxis) {
         guard let tabID = model.activeTabID else { return }
         Task {
             let directory = await activePane?.currentDirectory()
-            guard model.activeTabID == tabID, let area = areas[tabID] else { return }
-            let pane = makePane(directory: directory)
-            wire(pane)
-            model.split(axis, newPane: pane.id)
-            area.add(PaneCardView(pane: pane.id, surface: pane.surface, chrome: chrome))
-            focusActivePane()
+            let launch = activePane?.launch.forSplit ?? .shell
+            guard model.activeTabID == tabID, areas[tabID] != nil else { return }
+            add(makePane(directory: directory, launch: launch), splitting: axis)
+        }
+    }
+
+    /// `pane` beside the active one, with the keys.
+    private func add(_ pane: PaneController, splitting axis: SplitAxis) {
+        guard let tabID = model.activeTabID, let area = areas[tabID] else { return }
+        wire(pane)
+        model.split(axis, newPane: pane.id)
+        let card = PaneCardView(pane: pane.id, surface: pane.surface, chrome: chrome)
+        wire(card)
+        area.add(card)
+        if pane.banner != nil { showBanner(of: pane.id) }
+        focusActivePane()
+    }
+
+    /// A session on `host`: in a new tab, or beside the active pane.
+    func open(_ host: HostRef, beside: Bool) {
+        let pane = makePane(directory: nil, launch: .connection(host))
+        if beside, model.activeTabID != nil {
+            add(pane, splitting: .sideBySide)
+        } else {
+            install(TabModel(id: ids.tab(), pane: pane.id), panes: [pane], area: nil)
         }
     }
 
@@ -708,6 +840,283 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         }
     #endif
 
+    // MARK: - Armed and Dangerous
+
+    /// ⇧⌘I: typing in any of the active tab's panes goes to all of them, or stops doing so.
+    @objc func toggleArmed(_ sender: Any?) {
+        model.toggleArmed()
+        armedChanged()
+    }
+
+    /// The banner's Stop.
+    private func stopArmed(_ tab: TabID) {
+        model.disarm(tab)
+        armedChanged()
+    }
+
+    /// A header's "receiving input" or "left out": the pane is left out, or put back.
+    private func toggleArmed(of pane: PaneID) {
+        guard let tab = model.tab(containing: pane), tab.isArmed else { return }
+        model.setArmed(pane, tab.unarmed.contains(pane))
+        armedChanged()
+    }
+
+    private func armedChanged() {
+        refreshCards()
+        refreshTabs()
+        refreshStatus()
+    }
+
+    /// Typing in an armed pane goes to the tab's other armed panes too, each encoding it for
+    /// its own program.
+    private func typed(_ input: TypedInput, in pane: PaneID) {
+        guard let tab = model.tab(containing: pane) else { return }
+        for target in tab.broadcastTargets(from: pane) { panes[target]?.surface.receive(input) }
+    }
+
+    /// The modes of the other panes a paste in `pane` goes to, so the paste question asks
+    /// once for all of them.
+    private func armedModes(besides pane: PaneID) -> [TerminalModes] {
+        guard let tab = model.tab(containing: pane) else { return [] }
+        return tab.broadcastTargets(from: pane).compactMap { panes[$0]?.surface.model?.mirror.modes }
+    }
+
+    /// What the pill and the banner call each armed pane: its host, else its program.
+    private func armedNames(_ tab: TabModel) -> [String] {
+        tab.armedPanes.compactMap { id in panes[id].map { $0.programName ?? $0.shellName } }
+    }
+
+    // MARK: - The WRLD sidebar
+
+    /// The sidebar, while it shows in this window.
+    private var sidebar: WRLDSidebarView?
+    private var sidebarQuery = ""
+    private var expandedGroups: Set<GroupID> = []
+    /// Counted among what shows WRLD: the sidebar is out, in a window on screen.
+    private var sidebarCounted = false
+
+    /// ⌃⌘S, or the title bar's button: the WRLD sidebar in this window, or not; new windows
+    /// open as this one was left.
+    @objc func toggleSidebar(_ sender: Any?) {
+        guard host?.connections != nil else { return }
+        setSidebar(shown: sidebar == nil)
+        host?.sidebarPreferred = sidebar != nil
+    }
+
+    private func setSidebar(shown: Bool) {
+        if shown, sidebar == nil {
+            let view = WRLDSidebarView(chrome: chrome)
+            view.onRow = { [weak self] row, command in self?.sidebarRow(row, commandHeld: command) }
+            view.menuForRow = { [weak self] row in self?.sidebarMenu(row) }
+            view.onSearch = { [weak self] query in
+                self?.sidebarQuery = query
+                self?.refreshSidebar()
+            }
+            view.onAddHost = { NSApp.sendAction(#selector(AppDelegate.newHost(_:)), to: nil, from: nil) }
+            sidebar = view
+            root.sidebar = view
+            root.leadingColumnWidth = WRLDSidebarView.width
+            refreshSidebar()
+        } else if !shown, sidebar != nil {
+            sidebar = nil
+            root.sidebar = nil
+            root.leadingColumnWidth = 0
+            // Don't carry a stale search into the next time the sidebar opens, and give the
+            // keys back to the pane (the search field had them, and it's gone now).
+            sidebarQuery = ""
+            focusActivePane()
+        }
+        root.titleBar.sidebarButton.isOn = sidebar != nil
+        root.titleBar.needsLayout = true
+        updateSidebarViewer()
+    }
+
+    private func refreshSidebar() {
+        guard let sidebar, let connections = host?.connections else { return }
+        sidebar.model = connections.sidebar(query: sidebarQuery, expanded: expandedGroups)
+    }
+
+    private func updateSidebarViewer() {
+        let showing = sidebar != nil && window?.occlusionState.contains(.visible) == true
+        guard showing != sidebarCounted else { return }
+        sidebarCounted = showing
+        if showing {
+            host?.connections?.shown(by: self)
+        } else {
+            host?.connections?.hidden(by: self)
+        }
+    }
+
+    /// A click on a row: a host opens in a new tab (⌘: beside the active pane), a group
+    /// opens or closes, a snippet types in (⌘: runs), a tunnel turns on or off.
+    private func sidebarRow(_ row: SidebarModel.Row, commandHeld: Bool) {
+        switch row.kind {
+        case .host(let ref):
+            open(ref, beside: commandHeld)
+        case .group(let id, _):
+            if expandedGroups.contains(id) { expandedGroups.remove(id) } else { expandedGroups.insert(id) }
+            refreshSidebar()
+        case .snippet(let id):
+            useSnippet(id, run: commandHeld)
+        case .tunnel(let id):
+            let connections = host?.connections
+            Task { await connections?.toggleTunnel(id) }
+        }
+    }
+
+    private func sidebarMenu(_ row: SidebarModel.Row) -> NSMenu? {
+        let menu = NSMenu()
+        func add(_ title: String, _ action: @escaping @MainActor () -> Void) {
+            menu.addItem(ClosureMenuItem(title, action))
+        }
+        switch row.kind {
+        case .host(let ref):
+            add("Connect") { [weak self] in self?.open(ref, beside: false) }
+            add("Connect Beside") { [weak self] in self?.open(ref, beside: true) }
+            guard case .vault(let id) = ref, let connections = host?.connections, let saved = connections.host(id)
+            else { return menu }
+            menu.addItem(.separator())
+            add("Edit") { [weak self] in self?.host?.showWRLD(at: .allHosts, selecting: id) }
+            add(saved.isLegend ? "Unpin from Legends" : "Pin to Legends") {
+                connections.setLegend(id, !saved.isLegend)
+            }
+            if let address = connections.address(of: ref) {
+                add("Copy Address") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(address, forType: .string)
+                }
+            }
+            menu.addItem(.separator())
+            add("Remove from WRLD…") { [weak self] in self?.confirmRemoval(saved) }
+        case .group(_, let expanded):
+            add(expanded ? "Collapse" : "Expand") { [weak self] in self?.sidebarRow(row, commandHeld: false) }
+        case .snippet(let id):
+            add("Insert") { [weak self] in self?.useSnippet(id, run: false) }
+            add("Run") { [weak self] in self?.useSnippet(id, run: true) }
+            menu.addItem(.separator())
+            add("Edit in WRLD") { [weak self] in self?.host?.showWRLD(at: .wishingWell, selecting: nil) }
+        case .tunnel:
+            add(row.dot == .connected ? "Turn Off" : "Turn On") { [weak self] in
+                self?.sidebarRow(row, commandHeld: false)
+            }
+        }
+        return menu
+    }
+
+    /// "Remove prod-api from WRLD?", from the sidebar.
+    private func confirmRemoval(_ host: WRLDHost) {
+        guard let connections = self.host?.connections else { return }
+        let alert = NSAlert()
+        alert.messageText = "Remove \(host.name) from WRLD?"
+        alert.informativeText =
+            host.sshConfigAlias != nil
+            ? "It stays in ~/.ssh/config." : "Its tunnels go too, and hosts that jump through it connect directly."
+        alert.addButton(withTitle: "Remove")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+        Task {
+            guard await present(alert) == .alertFirstButtonReturn else { return }
+            await connections.remove(host.id)
+        }
+    }
+
+    // MARK: - Wishing Well
+
+    /// Where a snippet typed now goes: the active pane, and every armed pane with it.
+    private var snippetTargets: [PaneID] {
+        guard let active = model.activePane, let tab = model.activeTab else { return [] }
+        return [active] + tab.broadcastTargets(from: active)
+    }
+
+    /// A Wishing Well snippet, into the active pane and every armed pane with it: at once,
+    /// or once its fields are filled in.
+    private func useSnippet(_ id: SnippetID, run: Bool) {
+        guard let connections = host?.connections, let snippet = connections.snippet(id) else { return }
+        let fill = SnippetFill(snippet.text)
+        guard !fill.fields.isEmpty else {
+            connections.used(id)
+            return typeSnippet(fill.command, run: run)
+        }
+        let sheet = WishingWellSheet(title: snippet.name, parent: window)
+        wishingWellSheet = sheet
+        sheet.show(
+            SnippetFillView(name: snippet.name, panes: snippetTargets.count, fill: fill) { [weak self, weak sheet] in
+                sheet?.close()
+                self?.wishingWellSheet = nil
+                switch $0 {
+                case .insert(let command)?:
+                    connections.used(id)
+                    self?.typeSnippet(command, run: false)
+                case .run(let command)?:
+                    connections.used(id)
+                    self?.typeSnippet(command, run: true)
+                case nil: break
+                }
+                self?.focusActivePane()
+            })
+    }
+
+    /// `command` as if typed into the active pane and every armed pane with it.
+    ///
+    /// Run adds Return and goes straight through: you asked to execute it. Insert must not
+    /// run, but into a shell without bracketed paste a newline is Enter, so a multi-line
+    /// Insert would run its lines. So Insert goes through the pane's own paste path, which
+    /// asks first when that could happen and reaches the armed panes itself.
+    func typeSnippet(_ command: String, run: Bool) {
+        guard run else {
+            if let active = model.activePane, let surface = panes[active]?.surface {
+                surface.paste(text: command)
+            }
+            return
+        }
+        let inputs = TypedInput.snippet(command, run: true)
+        for target in snippetTargets {
+            guard let surface = panes[target]?.surface else { continue }
+            for input in inputs { surface.receive(input) }
+        }
+    }
+
+    /// Edit › Save Selection to Wishing Well…, or the context menu's: the selected text as a
+    /// new snippet, named and looked over in a sheet first.
+    @objc func saveSelectionToWishingWell(_ sender: Any?) {
+        guard let pane = pane(of: sender), let connections = host?.connections else { return }
+        Task {
+            guard let selected = await pane.surface.selectedText(), !selected.allSatisfy(\.isWhitespace) else {
+                return
+            }
+            let sheet = WishingWellSheet(title: "Save to Wishing Well", parent: window)
+            wishingWellSheet = sheet
+            sheet.show(
+                SaveSnippetView(
+                    name: WishingWell.suggestedName(for: selected),
+                    text: WishingWell.snippetText(fromSelection: selected), save: { connections.save($0) },
+                    done: { [weak self, weak sheet] in
+                        sheet?.close()
+                        self?.wishingWellSheet = nil
+                        self?.focusActivePane()
+                    }))
+        }
+    }
+
+    /// The pane a context menu item was for, else the active one.
+    private func pane(of sender: Any?) -> PaneController? {
+        if let raw = (sender as? NSMenuItem)?.representedObject as? Int, let pane = panes[PaneID(raw)] {
+            return pane
+        }
+        return activePane
+    }
+
+    /// What the app adds to `pane`'s context menu: Save Selection to Wishing Well.
+    private func contextMenuItems(for pane: PaneID) -> [NSMenuItem] {
+        guard host?.connections != nil else { return [] }
+        let item = NSMenuItem(
+            title: ActionCatalog.action(.saveSelectionToWishingWell).menuTitle,
+            action: #selector(saveSelectionToWishingWell(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = pane.rawValue
+        return [item]
+    }
+
     // MARK: - Settings and theme
 
     /// Applies reloaded settings to every pane, and the theme to the chrome.
@@ -738,6 +1147,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         window?.backgroundColor = chrome.colors.ground.nsColor
         root.titleBar.setChrome(chrome)
         root.statusBar.setChrome(chrome)
+        sidebar?.setChrome(chrome)
         root.layer?.backgroundColor = chrome.colors.ground.cgColor
         for area in areas.values {
             area.setChrome(chrome)
@@ -752,20 +1162,27 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
 
     // MARK: - Keeping the chrome in step
 
-    /// The NeonBorder and glow on each tab's active pane, the others dimmed, and the headers.
+    /// The NeonBorder and glow on each tab's active pane, the others dimmed, and the headers;
+    /// in an armed tab, the banner and the armed panes' borders.
     private func refreshCards() {
         let isKey = window?.isKeyWindow ?? false
         for tab in model.tabs {
             guard let area = areas[tab.id] else { continue }
             let headers = showsHeaders(tab)
+            let armed = Set(tab.armedPanes)
+            area.showArmed(tab.isArmed ? BroadcastLabel.banner(names: armedNames(tab)) : nil, chrome: chrome)
             for (index, id) in tab.panes.enumerated() {
                 guard let card = area.cards[id] else { continue }
                 card.isActive = id == tab.activePane
                 card.isWindowKey = isKey
-                card.isDimmed = tab.isSplit && tab.zoomedPane == nil && id != tab.activePane
+                card.isArmed = armed.contains(id)
+                // Typing reaches every armed pane, so none of them fades.
+                card.isDimmed = tab.isSplit && tab.zoomedPane == nil && id != tab.activePane && !armed.contains(id)
                 card.showsHeader = headers
                 if headers, let pane = panes[id] {
-                    card.header = header(for: pane, number: Self.paneNumber(index, of: tab.panes.count))
+                    var content = header(for: pane, number: Self.paneNumber(index, of: tab.panes.count))
+                    if tab.isArmed { content.armed = armed.contains(id) ? .receiving : .leftOut }
+                    card.header = content
                 }
             }
         }
@@ -786,14 +1203,17 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             model.tabs.map { tab in
                 let pane = panes[tab.activePane]
                 let state = activity[tab.id] ?? TabActivity()
-                let title = TabLabel.text(
-                    title: pane?.title ?? "", program: pane?.programName ?? pane?.shellName,
-                    directory: pane?.directory, home: Self.home, end: state.failure)
+                let title =
+                    tab.isArmed
+                    ? BroadcastLabel.pill(names: armedNames(tab))
+                    : TabLabel.text(
+                        title: pane?.title ?? "", program: pane?.programName ?? pane?.shellName,
+                        directory: pane?.directory, home: Self.home, end: state.failure)
                 return (
                     id: tab.id,
                     state: PillState(
                         title: title, isActive: tab.id == model.activeTabID, isBusy: state.isBusy(at: now),
-                        rang: state.rang, failed: state.failure != nil)
+                        rang: state.rang, failed: state.failure != nil, armed: tab.isArmed)
                 )
             })
         window?.title =
@@ -816,6 +1236,11 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         facts.program = pane.programName
         facts.secureInput = showsSecureInput
         facts.settingsProblems = settingsProblems
+        facts.openTunnels = host?.connections?.openTunnelCount ?? 0
+        if let tab = model.activeTab, tab.isArmed {
+            facts.armedPanes = tab.armedPanes.count
+            facts.endedArmedPanes = tab.armedPanes.filter { panes[$0]?.isDone ?? true }.count
+        }
         // Where the link ⌘ is held over goes, in whichever pane it is.
         facts.hoveredLink = panes.values.lazy.compactMap { $0.surface.hoveredLink }.first.map {
             LinkPolicy.shown($0.uri)
@@ -866,6 +1291,10 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     }
 
     func windowWillClose(_ notification: Notification) {
+        if sidebarCounted {
+            sidebarCounted = false
+            host?.connections?.hidden(by: self)
+        }
         window?.delegate = nil
         for check in quietChecks.values { check.cancel() }
         quietChecks = [:]
@@ -904,6 +1333,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
 
     func windowDidChangeOcclusionState(_ notification: Notification) {
         for pane in panes.values { pane.surface.visibilityChanged() }
+        updateSidebarViewer()
     }
 
     /// Everything the window shows starts here, once AppKit has placed the buttons.
@@ -932,6 +1362,14 @@ extension PitLaneWindowController: NSMenuItemValidation {
         case #selector(showHearMeCalling(_:)):
             menuItem.state = hearMeCalling != nil ? .on : .off
             return true
+        case #selector(toggleArmed(_:)):
+            menuItem.state = model.activeTab?.isArmed == true ? .on : .off
+            return model.activeTab?.isSplit == true
+        case #selector(toggleSidebar(_:)):
+            menuItem.state = sidebar != nil ? .on : .off
+            return host?.connections != nil
+        case #selector(saveSelectionToWishingWell(_:)):
+            return host?.connections != nil && pane(of: menuItem)?.surface.hasSelection == true
         default:
             return true
         }

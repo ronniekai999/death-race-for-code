@@ -75,7 +75,7 @@ first macOS build to need compile fixes before any of this can be tried.
       new window opens as the last was left. The status bar sits beside it.
 - [ ] **Sidebar rows:** a click opens a host in a new tab, ⌘-click beside; a group opens and
       closes; right-click offers Connect, Connect Beside, Edit, Pin to Legends, Copy Address,
-      Remove….
+      Remove from WRLD….
 - [ ] **Hand edits** to `wrld.json` and to `~/.ssh/config` show up as they're saved.
 - [ ] **VoiceOver** reads each sidebar row, and presses it.
 

@@ -27,7 +27,7 @@ func usage() -> Never {
               prints the final screen. Exits with the program's status.
           vthost replay [--columns N] [--rows N] [--scrollback] file
               Feeds a recorded byte stream to the engine and prints the screen.
-          vthost bench [--seconds S] [file...]
+          vthost bench [--seconds S] [--only ascii|sgr|unicode|cursor] [file...]
               Measures throughput on built-in workloads, or on the given recordings.
           vthost smoke
               Spawns /bin/sh on a pseudo-terminal, runs a command and checks the output.
@@ -60,6 +60,7 @@ struct Options {
     var dump = false
     var scrollback = false
     var seconds = 1.0
+    var only: String?
     var rest: [String] = []
 
     init(_ arguments: [String]) {
@@ -77,6 +78,7 @@ struct Options {
             case "--dump": dump = true
             case "--scrollback": scrollback = true
             case "--seconds": seconds = Double(value()) ?? seconds
+            case "--only": only = value()
             case "--":
                 rest = Array(arguments[(index + 1)...])
                 return
@@ -226,7 +228,7 @@ func benchCommand(_ arguments: [String]) -> Int32 {
     let options = Options(arguments)
     var workloads: [(String, [UInt8])] = []
     if options.rest.isEmpty {
-        workloads = Workloads.all
+        workloads = Workloads.all.filter { options.only == nil || $0.0 == options.only }
     } else {
         for file in options.rest {
             guard let bytes = readFile(file) else {

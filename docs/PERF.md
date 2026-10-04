@@ -14,6 +14,39 @@ MacBook Pro this app is built on; regressions in CI are tracked relative to the 
 | Hitches | 0 at 120 Hz | Instruments › Animation Hitches |
 | Linux benchmark regression | ≤ 10% | `linux.yml` VTBench job |
 
+## Engine throughput, measured
+
+`make bench` (`vthost bench`, release build) feeds 4 MiB workloads to a 120×40 terminal for
+two seconds each. These numbers are from the Linux CI container (4 vCPUs), not the M5, so
+treat them as relative. The M5 budget above is checked on the Mac.
+
+| Workload | What it is | First run | Now |
+| --- | --- | ---: | ---: |
+| ascii | log lines, like `cat` and build output | 80 MB/s | 190–200 MB/s |
+| sgr | colored diagnostics: truecolor, 256-color, curly underlines | 44 MB/s | 84–87 MB/s |
+| unicode | CJK, accents, skin tones, ZWJ families, flags | 13 MB/s | 31 MB/s |
+| cursor | full-screen redraws: CUP, SGR, short writes, EL | 12.5 MB/s | 54 MB/s |
+
+What moved the numbers, found with `perf`:
+
+- **Runtime exclusivity checks off in VTCore release builds** (about 2×). They cost a third
+  of the time on class property access. Debug builds, where every test runs, keep them.
+- **Rows move by `consuming` ownership** into scrollback and the spare pool, and recycled
+  rows are cleared with a zero fill (a default blank cell is all zero bits).
+- **Erasing fills a range in one pass** instead of writing cell by cell through a class
+  property.
+- **The parser's handler holds the terminal strongly.** Calls through an
+  `unowned(unsafe)` reference retain and release it every time.
+- **Width and grapheme properties come from a two-stage table**, two array loads instead
+  of binary searches.
+- **Graphemes are only looked up for cells whose grapheme bit is set.**
+
+Tried and reverted: `unowned(unsafe)` locals for the screen and rows in the print path made
+everything 25–60% slower, because each use copies a strong reference.
+
+Still to do: the per-character path retains and releases rows on every cell access. That
+needs restructuring, done when the M5 measurements say it matters.
+
 ## Where the energy goes, and where it doesn't
 
 - **Idle is free.** Session threads block in `poll`; the display link pauses after a few empty

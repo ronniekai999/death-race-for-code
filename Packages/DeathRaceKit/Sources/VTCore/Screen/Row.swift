@@ -112,9 +112,15 @@ public final class Row {
         styles.removeAll(keepingCapacity: true)
         styles.append(.default)
         styleIndex = nil
-        let fillID = fill == .default ? 0 : styleID(for: fill)
-        cells.removeAll(keepingCapacity: true)
-        cells.append(contentsOf: repeatElement(.blank(styleID: fillID), count: columns))
+        let blank = Cell.blank(styleID: fill == .default ? 0 : styleID(for: fill))
+        if cells.count != columns {
+            cells = ContiguousArray(repeating: blank, count: columns)
+        } else if blank == .empty {
+            // A default blank cell is all zero bits: clear the row like memory.
+            _ = cells.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) }
+        } else {
+            cells.withUnsafeMutableBufferPointer { $0.update(repeating: blank) }
+        }
         graphemes.removeAll()
         isWrapped = false
         promptMarks = []

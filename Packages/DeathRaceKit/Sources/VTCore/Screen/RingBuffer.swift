@@ -25,7 +25,7 @@ struct RingBuffer<Element> {
     var first: Element? { count > 0 ? self[0] : nil }
     var last: Element? { count > 0 ? self[count - 1] : nil }
 
-    mutating func append(_ element: Element) {
+    mutating func append(_ element: consuming Element) {
         if count == storage.count { grow() }
         storage[(head + count) % storage.count] = element
         count += 1

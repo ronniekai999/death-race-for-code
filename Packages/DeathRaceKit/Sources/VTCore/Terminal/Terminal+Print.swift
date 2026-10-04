@@ -28,7 +28,9 @@ extension Terminal {
             s.splitWideCharacter(in: row, at: x)
             s.splitWideCharacter(in: row, at: x + n)
             if !row.graphemes.isEmpty {
-                for column in x..<(x + n) where row.graphemes[column] != nil { row.graphemes[column] = nil }
+                // The cell's grapheme bit says which columns have an entry; the dictionary
+                // is only touched for those.
+                for column in x..<(x + n) where row.cells[column].hasGrapheme { row.graphemes[column] = nil }
             }
             row.cells.withUnsafeMutableBufferPointer { cells in
                 for k in 0..<n {

@@ -30,7 +30,14 @@ var targets: [Target] = [
         linkerSettings: [.linkedLibrary("util", .when(platforms: [.linux]))]
     ),
     .target(name: "PTYKit", dependencies: ["CPTY"]),
-    .target(name: "VTCore"),
+    .target(
+        name: "VTCore",
+        swiftSettings: [
+            // The parser and grid touch class properties on every byte; runtime exclusivity
+            // checks were a third of the time. Debug builds, where every test runs, keep them.
+            .unsafeFlags(["-enforce-exclusivity=unchecked"], .when(configuration: .release))
+        ]
+    ),
     // What a session sends the app: screen deltas, the mirror that applies them, and the
     // byte codec the session daemon will use.
     .target(name: "ScreenProtocol", dependencies: ["VTCore"]),

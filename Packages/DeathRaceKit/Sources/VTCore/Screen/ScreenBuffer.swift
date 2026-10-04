@@ -151,7 +151,7 @@ final class ScreenBuffer {
         active[y].version = clock.tick()
     }
 
-    func recycle(_ row: Row) {
+    func recycle(_ row: consuming Row) {
         if spareRows.count < 64 { spareRows.append(row) }
     }
 
@@ -210,14 +210,14 @@ final class ScreenBuffer {
         }
     }
 
-    func pushToScrollback(_ row: Row) {
+    func pushToScrollback(_ row: consuming Row) {
         guard keepsScrollback, scrollbackLimitBytes > 0 else {
             recycle(row)
             return
         }
-        scrollback.append(row)
-        scrollbackLinesAdded &+= 1
         scrollbackBytes += row.estimatedBytes
+        scrollbackLinesAdded &+= 1
+        scrollback.append(row)
         while scrollbackBytes > scrollbackLimitBytes, !scrollback.isEmpty {
             let oldest = scrollback.removeFirst()
             scrollbackBytes -= oldest.estimatedBytes
@@ -249,10 +249,17 @@ final class ScreenBuffer {
         splitWideCharacter(in: row, at: lower)
         splitWideCharacter(in: row, at: upper)
         let blank = Cell.blank(styleID: row.styleID(for: fill))
-        for x in lower..<upper {
-            if selective && row.cells[x].isProtected { continue }
-            if row.cells[x].hasGrapheme { row.graphemes[x] = nil }
-            row.cells[x] = blank
+        if !row.graphemes.isEmpty {
+            for x in lower..<upper where row.cells[x].hasGrapheme && !(selective && row.cells[x].isProtected) {
+                row.graphemes[x] = nil
+            }
+        }
+        row.cells.withUnsafeMutableBufferPointer { cells in
+            if selective {
+                for x in lower..<upper where !cells[x].isProtected { cells[x] = blank }
+            } else {
+                UnsafeMutableBufferPointer(rebasing: cells[lower..<upper]).update(repeating: blank)
+            }
         }
         if upper == columns { row.isWrapped = false }
         touch(row)

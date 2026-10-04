@@ -196,10 +196,11 @@ public final class Terminal {
     }
 }
 
-/// Bridges the parser's generic handler to the terminal without retain traffic: the
-/// terminal outlives every `feed` call it makes.
+/// Bridges the parser's generic handler to the terminal. The reference is strong on
+/// purpose: calls through an `unowned(unsafe)` one retain and release the terminal every
+/// time, which measured slower than one retain per `feed`.
 struct Dispatcher: VTHandler {
-    unowned(unsafe) let terminal: Terminal
+    let terminal: Terminal
 
     @inline(__always)
     mutating func printASCII(_ bytes: UnsafeBufferPointer<UInt8>) { terminal.printASCII(bytes) }

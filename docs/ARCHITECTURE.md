@@ -237,12 +237,24 @@ same authenticated connection.
 one MenuGlance uses. Ad-hoc signatures change with every build, which resets Keychain access,
 privacy permissions and login-item approval each time.
 
+### The legendsd spike
+
+Phase 7's daemon depends on one question: are shells that a LaunchAgent starts on a
+pseudo-terminal still attributed to Death Race by macOS privacy protection (TCC)? Or is the
+agent its own responsible process, needing grants of its own? `legendsd-spike` measures it
+on a real Mac: [SPIKE.md](SPIKE.md) has the steps and the three possible outcomes.
+
+**Verdict: pending.** It is recorded here with the macOS build it was measured on, and decides
+whether Phase 7 builds legendsd as planned, adds an onboarding step for its grants, or keeps
+shells in the app and keeps sessions alive another way.
+
 ## Known risks
 
 - **The daemon and privacy permissions.** A LaunchAgent is its own responsible process, so
   shells it spawns do not inherit the app's grants, and a PTY host re-parented to launchd has
-  hit "Failed to create Attribution Chain" on macOS 26.3.1. Phase 2 includes a one-day spike;
-  its verdict goes here before Phase 7 is designed. Never double-fork.
+  hit "Failed to create Attribution Chain" on macOS 26.3.1. Phase 2 includes a one-day spike
+  ([above](#the-legendsd-spike)); its verdict goes there before Phase 7 is designed. Never
+  double-fork.
 - **Secure Keyboard Entry is global.** Enable and disable calls must balance, and it is dropped
   whenever the app deactivates. It cannot see password prompts on the far side of SSH.
 - **A password prompt is canonical input with echo off**, not echo off alone. Shells' line
@@ -254,8 +266,10 @@ privacy permissions and login-item approval each time.
   dash, which has no line editor.
 - **The notch is shared with MenuGlance.** A DistributedNotificationCenter handshake makes
   MenuGlance hide its island while Lucid Dreams is open.
-- **CI has no GPU.** macOS runners are VMs; renderer golden-image tests skip without a Metal
-  device and run locally.
+- **CI's GPU is virtual.** macOS runners are VMs with a paravirtual Metal device. The renderer
+  tests and the smoke test's render run there, and every run keeps the corpus screens it
+  rendered as an artifact for review. Pixel goldens, which need a real GPU's antialiasing,
+  run on a Mac with `make test-render`.
 
 ## Roadmap
 

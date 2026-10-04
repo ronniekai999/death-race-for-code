@@ -9,6 +9,7 @@
 # Keychain access, privacy permissions and login-item approval each time.
 #
 # CONFIG=debug|release (default release). Output: build/Death Race for Code.app
+# SPIKE=1 also embeds the legendsd spike: its helper and LaunchAgent (docs/SPIKE.md).
 set -euo pipefail
 
 CONFIG="${CONFIG:-release}"
@@ -16,7 +17,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PKG="$ROOT/Packages/DeathRaceKit"
 APP="$ROOT/build/Death Race for Code.app"
 
+SPIKE="${SPIKE:-0}"
 swift build --package-path "$PKG" -c "$CONFIG" --product DeathRace
+if [ "$SPIKE" = "1" ]; then
+  swift build --package-path "$PKG" -c "$CONFIG" --product legendsd-spike
+fi
 BIN="$(swift build --package-path "$PKG" -c "$CONFIG" --show-bin-path)"
 
 rm -rf "$APP"
@@ -33,6 +38,11 @@ shopt -u nullglob
 if [ -f "$ROOT/App/AppIcon.icns" ]; then
   cp "$ROOT/App/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 fi
+if [ "$SPIKE" = "1" ]; then
+  cp "$BIN/legendsd-spike" "$APP/Contents/MacOS/legendsd-spike"
+  mkdir -p "$APP/Contents/Library/LaunchAgents"
+  cp "$ROOT/App/LaunchAgents/local.deathraceforcode.legendsd-spike.plist" "$APP/Contents/Library/LaunchAgents/"
+fi
 
 IDENTITY="${SIGN_IDENTITY:-}"
 if [ -z "$IDENTITY" ]; then
@@ -45,6 +55,12 @@ if [ -z "$IDENTITY" ]; then
   IDENTITY="-"
 fi
 
+# Nested code first: the app's signature seals what is inside it.
+if [ -f "$APP/Contents/MacOS/legendsd-spike" ]; then
+  codesign --force --options runtime --timestamp=none \
+    --identifier local.deathraceforcode.legendsd-spike \
+    --sign "$IDENTITY" "$APP/Contents/MacOS/legendsd-spike"
+fi
 codesign --force --options runtime --timestamp=none \
   --entitlements "$ROOT/App/DeathRace.entitlements" \
   --sign "$IDENTITY" "$APP"

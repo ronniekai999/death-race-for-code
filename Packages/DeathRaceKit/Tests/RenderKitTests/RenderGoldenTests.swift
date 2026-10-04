@@ -34,6 +34,9 @@ struct RenderGoldenTests {
     }()
 
     nonisolated static let names = ["htop", "vim-syntax", "tmux-split", "less-search", "vttest-colors"]
+    /// Where to stop playing a recording, when its last screen is not the telling one: vttest
+    /// ends on its menu, so it stops on the color test pattern.
+    nonisolated static let stopAt = ["vttest-colors": 7877]
     nonisolated static let tolerance = 2
     nonisolated static let allowedFraction = 0.001
 
@@ -43,7 +46,8 @@ struct RenderGoldenTests {
         let theme = Theme.legendsNeverDie
         let session = ReplaySession(Terminal.Configuration(columns: 80, rows: 24, palette: theme.palette))
         let model = SurfaceModel(session: session)
-        session.feed([UInt8](recording))
+        let bytes = [UInt8](recording)
+        session.feed(Array(bytes[..<min(Self.stopAt[name] ?? bytes.count, bytes.count)]))
         _ = model.drain()
 
         let fonts = FontSet(family: "SF Mono", size: 13)

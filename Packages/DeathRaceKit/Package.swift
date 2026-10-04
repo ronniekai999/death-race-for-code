@@ -72,6 +72,7 @@ var targets: [Target] = [
         .library(name: "RenderKit", targets: ["RenderKit"]),
         .library(name: "TerminalUI", targets: ["TerminalUI"]),
         .executable(name: "DeathRace", targets: ["DeathRace"]),
+        .executable(name: "legendsd-spike", targets: ["legendsd-spike"]),
     ]
     targets += [
         // Design system: the Legends Never Die tokens and components shared with MenuGlance.
@@ -90,6 +91,8 @@ var targets: [Target] = [
                 "PTYKit", "VTCore",
             ]),
         .executableTarget(name: "DeathRace", dependencies: ["DeathRaceApp", "RenderKit"]),
+        // Temporary: the one-day privacy-permission spike for legendsd (docs/SPIKE.md).
+        .executableTarget(name: "legendsd-spike", dependencies: ["PTYKit"], path: "Tools/legendsd-spike"),
         .testTarget(
             name: "RenderKitTests", dependencies: ["RenderKit", "SurfaceCore", "ConfigKit", "ScreenProtocol", "VTCore"]),
     ]

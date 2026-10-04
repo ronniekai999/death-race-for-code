@@ -98,6 +98,11 @@ enum MainMenu {
         private static func debug() -> NSMenu {
             let menu = NSMenu(title: "Debug")
             menu.addItem(item("Log Frame Stats", #selector(TerminalWindowController.logFrameStats(_:))))
+            menu.addItem(.separator())
+            // The legendsd spike (docs/SPIKE.md).
+            menu.addItem(item("Run Spike Probe in App", #selector(AppDelegate.runSpikeProbe(_:))))
+            menu.addItem(item("Register Spike Agent", #selector(AppDelegate.registerSpikeAgent(_:))))
+            menu.addItem(item("Unregister Spike Agent", #selector(AppDelegate.unregisterSpikeAgent(_:))))
             return menu
         }
     #endif

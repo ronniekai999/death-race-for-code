@@ -59,9 +59,10 @@ jobs:
       - name: Render the corpus screens
         timeout-minutes: 3
         run: DEATHRACE_RENDER_PREVIEW="$PWD/build/render" swift test --package-path Packages/DeathRaceKit --skip-build --filter RenderGoldenTests
+      # With the legendsd spike's helper and agent, so the signature check covers nested code.
       - name: Bundle
         timeout-minutes: 10
-        run: CONFIG=debug scripts/bundle.sh
+        run: SPIKE=1 CONFIG=debug scripts/bundle.sh
       # A shell, a session, CoreText glyphs and, where the runner has a Metal device, an
       # offscreen render whose pixels are checked; the frame is kept as an artifact.
       - name: Smoke test the bundled app

@@ -109,6 +109,29 @@ in all eight themes without a screen recording permission, and CI keeps them as 
 - The SwiftUI windows (Settings, Hear Me Calling) are left out. Their text doesn't survive
   being drawn this way, so they are reviewed on the Mac.
 
+## Lucid Dreams
+
+The quick terminal drops out of the notch and settles just below the menu bar.
+
+- **Where.** Centred under the notch on the screen that holds the pointer, or top-centre on a
+  display without a notch, hung a few points below the menu bar. The math is `NotchPlacement`
+  (AppCore), so it is checked on Linux; the notch rectangle comes from the screen's
+  `auxiliaryTopLeftArea` and `auxiliaryTopRightArea`.
+- **The panel.** One `PaneCardView` — the same card the Pit Lane draws — lit with the focused
+  pane's NeonBorder, its surface inset by `Chrome.cardInset`, in a borderless panel on a clear
+  background (the card draws its own glow). A 90 × 20 grid: wide enough for a command, short
+  enough to read as a drop-in.
+- **The motion.** On show it springs down from the notch and fades in over about 0.18 s
+  (`easeOut`); on hide it lifts back and fades out over about 0.14 s, then `orderOut`. Nothing
+  animates once it is at rest.
+- **Secure Keyboard Entry.** The panel is non-activating, so summoning it doesn't switch apps —
+  and Secure Keyboard Entry, which engages on `NSApp.isActive`, stays off on the quick terminal
+  until you click into Death Race. This is the chosen trade-off, drop-in over always-secure,
+  stated plainly rather than worked around.
+
+(The `lucid-dreams` row in the Themes table is the colour theme of that name — a different
+thing from this feature.)
+
 ## WRLD and Armed and Dangerous
 
 **The sidebar** (⌃⌘S) is AppKit drawing from `SidebarModel`, so it follows the theme and

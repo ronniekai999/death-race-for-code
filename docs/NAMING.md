@@ -22,5 +22,9 @@ modules keep descriptive names, except where a themed name stays clear (`Legends
 | Close confirmation | Goodbye & Good Riddance? | "2 sessions are still running. Close anyway?" |
 | Max-effects preset | The Party Never Ends | |
 
+Secure Keyboard Entry has no themed name, and its copy stays literal. On the Lucid Dreams
+panel it is off until you click into the app (the panel is non-activating), so nothing there
+claims the keyboard is secured.
+
 Never quote lyrics, use slang, or add emoji to interface copy. Use sentence case, and give
 every number a unit.

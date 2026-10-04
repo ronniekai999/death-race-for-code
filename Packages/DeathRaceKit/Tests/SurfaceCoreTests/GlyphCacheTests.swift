@@ -1,4 +1,6 @@
+import ConfigKit
 import Testing
+import VTCore
 
 @testable import SurfaceCore
 
@@ -113,6 +115,24 @@ private final class BlockRasterizer: GlyphRasterizing {
         #expect(cache.placement(for: GlyphKey(scalar: 0x41)) != nil)
         cache.beginFrame()
         #expect(cache.placement(for: GlyphKey(scalar: 0x42)) != nil)
+    }
+
+    /// A frame of new glyphs past the budget fills in over a few frames.
+    @Test func framesFillInUntilComplete() {
+        let rasterizer = BlockRasterizer()
+        let cache = GlyphCache(rasterizer: rasterizer, budget: .zero)
+        let session = ReplaySession(Terminal.Configuration(columns: 4, rows: 1))
+        let model = SurfaceModel(session: session)
+        session.feed("abcd")
+        _ = model.drain()
+        let cell = CellMetrics(
+            width: 6, height: 10, baseline: 8, underlineTop: 9, underlineThickness: 1, strikethroughTop: 5,
+            strikethroughThickness: 1, scale: 1)
+        let (frame, frames) = FrameBuilder().buildComplete(
+            mirror: model.mirror, theme: .legendsNeverDie, cell: cell, selection: nil, glyphs: cache)
+        #expect(frame.isComplete)
+        #expect(frames == 4)
+        #expect(frame.glyphs.count == 4)
     }
 
     /// The real box-drawing sprites through the cache and the frame builder.

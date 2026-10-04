@@ -58,11 +58,14 @@ public enum DeathRaceSmokeTest {
         let glyphs = GlyphCache(rasterizer: GlyphRasterizer(fonts: fonts, cell: cell))
         var frame: Frame?
         step("glyphs") {
-            glyphs.beginFrame()
-            let built = FrameBuilder().build(mirror: mirror, theme: theme, cell: cell, selection: nil, glyphs: glyphs)
+            // Rasterizing has a budget per frame, so a screen of new glyphs takes a few frames,
+            // as it does in a window.
+            let (built, frames) = FrameBuilder().buildComplete(
+                mirror: mirror, theme: theme, cell: cell, selection: nil, glyphs: glyphs)
+            guard built.isComplete else { throw Failure("glyphs still missing after \(frames) frames") }
             try checkGlyphs(built, mirror: mirror, red: mirror.palette.colors[1])
             frame = built
-            return "CoreText drew 9 at \(cell.width)×\(cell.height) px cells, placed in red"
+            return "CoreText drew the screen at \(cell.width)×\(cell.height) px cells in \(frames) frames; 999 is red"
         }
         if let frame {
             step("Metal") { try render(frame, cell: cell, glyphs: glyphs, mirror: mirror, arguments: arguments) }

@@ -93,9 +93,10 @@ struct RendererTests {
         session.feed("\r\n\u{1B}[31;44mHI\u{1B}[0m \u{1B}[4mu\u{1B}[0m")
         _ = model.drain()
         let glyphs = GlyphCache(rasterizer: GlyphRasterizer(fonts: fonts, cell: cell))
-        glyphs.beginFrame()
-        let frame = FrameBuilder().build(
-            mirror: model.mirror, theme: .legendsNeverDie, cell: cell, selection: nil, glyphs: glyphs)
+        let frame = FrameBuilder().buildComplete(
+            mirror: model.mirror, theme: .legendsNeverDie, cell: cell, selection: nil, glyphs: glyphs
+        ).frame
+        #expect(frame.isComplete)
         let layout = PixelLayout(
             width: 10 * cell.width + 20, height: 3 * cell.height + 20, originX: 10, originY: 10)
         let image = try renderer.render(frame, cell: cell, layout: layout, glyphs: glyphs)

@@ -1,3 +1,6 @@
+import ConfigKit
+import ScreenProtocol
+
 /// A glyph's bitmap, ready to go into an atlas.
 public struct RasterizedGlyph: Sendable, Equatable {
     public var atlas: AtlasKind
@@ -183,5 +186,22 @@ public final class GlyphCache: GlyphSource {
         for key in shelfKeys[kind]?[shelf] ?? [] { placements[key] = nil }
         shelfKeys[kind]?[shelf] = []
         epoch &+= 1
+    }
+}
+
+extension FrameBuilder {
+    /// Builds frames until every glyph is in, as a view does over its first few ticks, and
+    /// says how many it took: for tools and tests that need the whole frame at once.
+    public func buildComplete(
+        mirror: MirrorGrid, theme: Theme, cell: CellMetrics, selection: TextRegion?, glyphs: GlyphCache,
+        maxFrames: Int = 1_000
+    ) -> (frame: Frame, frames: Int) {
+        var frames = 0
+        while true {
+            glyphs.beginFrame()
+            let frame = build(mirror: mirror, theme: theme, cell: cell, selection: selection, glyphs: glyphs)
+            frames += 1
+            if frame.isComplete || frames >= maxFrames { return (frame, frames) }
+        }
     }
 }

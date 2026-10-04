@@ -66,11 +66,39 @@ func eventually(_ condition: () -> Bool) async {
     }
 }
 
+/// Set while a window test runs. The first run of these tests on CI ended the test process
+/// midway through one, with status 0 and no word: if anything calls `exit` again, the
+/// handler below names the caller.
+nonisolated(unsafe) var windowTestRunning = false
+
+private let reportExitDuringWindowTest: Void = {
+    _ = atexit {
+        guard windowTestRunning else { return }
+        let stack = Thread.callStackSymbols.joined(separator: "\n")
+        FileHandle.standardError.write(Data("exit() during a window test, called from:\n\(stack)\n".utf8))
+    }
+}()
+
 @MainActor
 @Suite(.serialized)
-struct WindowTests {
+final class WindowTests {
+    private static var described = false
+
     init() {
         _ = NSApplication.shared
+        _ = reportExitDuringWindowTest
+        windowTestRunning = true
+        if !Self.described {
+            Self.described = true
+            let facts =
+                "window tests: main thread \(Thread.isMainThread), screens \(NSScreen.screens.count), "
+                + "app active \(NSApp.isActive)\n"
+            FileHandle.standardError.write(Data(facts.utf8))
+        }
+    }
+
+    deinit {
+        windowTestRunning = false
     }
 
     func makeWindow(_ host: TestHost) -> PitLaneWindowController {

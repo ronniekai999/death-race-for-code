@@ -52,9 +52,37 @@ jobs:
       - name: Smoke test the pseudo-terminal outside the test runner
         timeout-minutes: 2
         run: swift run --package-path Packages/DeathRaceKit --skip-build vthost smoke --verbose
+      # swift-testing ends its run with a summary line. A test process that exits early,
+      # midway through a test, can still exit 0, so the summary is required too. The window
+      # tests drive AppKit and go first, on their own, so the rest report even if they stop.
+      - name: Test the windows
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          mkdir -p build
+          swift test --package-path Packages/DeathRaceKit --skip-build --filter DeathRaceAppTests 2>&1 \
+            | tee build/window-tests.log
+          grep -q "Test run with .* passed" build/window-tests.log \
+            || { echo "::error::The window tests ended without their summary: the test process exited early."; exit 1; }
       - name: Test
         timeout-minutes: 10
-        run: swift test --package-path Packages/DeathRaceKit --skip-build
+        run: |
+          set -o pipefail
+          swift test --package-path Packages/DeathRaceKit --skip-build --skip DeathRaceAppTests 2>&1 | tee build/tests.log
+          grep -q "Test run with .* passed" build/tests.log \
+            || { echo "::error::The tests ended without their summary: the test process exited early."; exit 1; }
+      - name: What the system logged about the tests
+        if: failure()
+        run: |
+          log show --last 10m --style compact \
+            --predicate 'process CONTAINS "swiftpm-testing-helper" OR process CONTAINS "xctest" OR process CONTAINS "PackageTests"' \
+            | grep -v "^Filtering" | tail -150 || true
+          # A crash leaves a report even when the test runner says nothing.
+          for report in $(ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -2); do
+            echo "== $report"
+            head -c 12000 "$report"
+            echo
+          done
       # The recorded programs' screens drawn by the GPU, kept as an artifact for review.
       - name: Render the corpus screens
         timeout-minutes: 3

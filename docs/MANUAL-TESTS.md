@@ -46,6 +46,11 @@ Phase 2 is done when all of these hold on the M5:
   - [ ] The composing text appears at the cursor, underlined.
   - [ ] The candidate window opens under it.
   - [ ] Return commits.
+- [ ] **Korean** (2-Set): type a syllable, then press Return once. The syllable and the
+      Return both arrive.
+- [ ] **US-International**: `'` then Return types `'` and runs the line, in one press.
+- [ ] **Russian layout**: Control-C interrupts `sleep 10`, and Control-D ends `cat`.
+- [ ] An unbound ⌘ chord (⌘J) beeps and types nothing.
 - [ ] **Emoji & Symbols** (Control-Command-Space): the chosen emoji is typed.
 - [ ] Holding a key repeats it; no accent popup appears.
 - [ ] ⌘1–⌘9 switch tabs; ⌘⇧[ and ⌘⇧] go to the previous and next tab.

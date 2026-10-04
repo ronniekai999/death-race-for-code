@@ -594,6 +594,23 @@ struct MasterPoolTests {
         await rig.finish()
     }
 
+    // Reconnecting to a host whose master is being ended must start a fresh master, not join
+    // the dying one (which handed back .cancelled). The new connect waits for the old socket
+    // to go, then logs in again.
+    @Test func reconnectingWhileAMasterIsEndingStartsAfresh() async throws {
+        let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword])
+        let pool = try rig.pool()
+        let jump = try rig.target(Rig.jumpID)
+        #expect(await pool.connect(jump, for: "pane-1", secrets: rig.saved) == .ready)
+        pool.cancel(Rig.jumpID.rawValue)
+        #expect(await pool.connect(jump, for: "pane-2", secrets: rig.saved) == .ready)
+        #expect(pool.connected == [Rig.jumpID.rawValue])
+        let whoami = try await rig.run(on: Rig.jumpID, "whoami")
+        #expect(whoami.outputText == TestSSHD.jumpUser + "\n")
+        await pool.endAll()
+        await rig.finish()
+    }
+
     @Test func aFailedConnectionIsTriedAfreshNextTime() async throws {
         let rig = try Rig()
         let pool = try rig.pool()

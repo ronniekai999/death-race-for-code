@@ -94,6 +94,10 @@ public final class MasterPool: Sendable {
 
     struct State {
         var entries: [String: Entry] = [:]
+        /// Masters that have been taken out of `entries` and told to end, by host key. A
+        /// fresh connect for that host starts a new entry at once, but its `start()` waits
+        /// for the retiring master's socket to go before spawning, so the two never collide.
+        var retiring: [String: MasterSupervisor] = [:]
     }
 
     /// `onEnd` hears of every master that ends, with the host's key: closed, cancelled,
@@ -115,9 +119,9 @@ public final class MasterPool: Sendable {
         }
     }
 
-    /// Whether any master exists at all, connected or still connecting: quitting must clean
-    /// these up, even a master that only a tunnel started and that hasn't come up yet.
-    public var hasEntries: Bool { state.withLock { !$0.entries.isEmpty } }
+    /// Whether any master exists at all, connected, still connecting, or on its way out:
+    /// quitting must clean these up, even a master that only a tunnel started.
+    public var hasEntries: Bool { state.withLock { !$0.entries.isEmpty || !$0.retiring.isEmpty } }
 
     /// A host's master, if it has one.
     public func master(for key: String) -> MasterSupervisor? {
@@ -161,6 +165,11 @@ public final class MasterPool: Sendable {
 
     /// Works out the hops, registers with the broker, and starts the master.
     private func start(_ target: ConnectionTarget, secrets: [String: SavedSecret], mayAsk: Bool) async -> Started {
+        // A previous master for this host may still be tearing down; wait for its control
+        // socket to go, or our `ssh -M` would refuse with "already running".
+        if let retiring = state.withLock({ $0.retiring[target.key] }) {
+            _ = await retiring.ending()
+        }
         let chain: HostChain
         do {
             chain = try await HostChain.resolve(
@@ -215,13 +224,22 @@ public final class MasterPool: Sendable {
     /// hosts it reached through is released, so they can idle out once nothing else needs
     /// them. (A newer master kept the entry, so it keeps the holds too.)
     private func ended(_ key: String, _ master: MasterSupervisor?, _ ending: MasterSupervisor.Ending) {
-        let removed = state.withLock { state -> Bool in
+        let known = state.withLock { state -> Bool in
+            // A master taken out of `entries` to retire: just forget it.
+            if state.retiring[key] === master {
+                state.retiring[key] = nil
+                return true
+            }
             guard let entry = state.entries[key], entry.master === master else { return false }
             entry.idle?.cancel()
             state.entries[key] = nil
             return true
         }
-        if removed { release(Self.viaUser(key)) }
+        // Whether it was live or retiring, a master that ends releases the hold it kept on
+        // the jump hosts it reached through (a newer master for the host re-adds its own,
+        // after waiting for this one's socket to go). A stale callback for a master already
+        // replaced does nothing.
+        if known { release(Self.viaUser(key)) }
         onEnd(key, ending)
     }
 
@@ -268,11 +286,17 @@ public final class MasterPool: Sendable {
                             guard !Task.isCancelled else { return }
                             self?.closeIfUnused(key)
                         }
+                        state.entries[key] = entry
                     } else {
+                        // Still connecting and now unwanted: retire it and take the entry out,
+                        // so a fresh connect starts clean rather than joining this dying one.
+                        if let master = entry.master { state.retiring[key] = master }
+                        state.entries[key] = nil
                         abandoned.append(entry)
                     }
+                } else {
+                    state.entries[key] = entry
                 }
-                state.entries[key] = entry
             }
             return abandoned
         }
@@ -283,33 +307,51 @@ public final class MasterPool: Sendable {
     }
 
     private func closeIfUnused(_ key: String) {
+        // Take the entry out under the lock as we decide to end it, so a connect that arrives
+        // in the window either added a user (and we see it's no longer unused) or finds no
+        // entry and starts fresh — it can't join a master that's on its way out.
         let master = state.withLock { state -> MasterSupervisor? in
-            guard let entry = state.entries[key], entry.users.isEmpty else { return nil }
-            return entry.master
+            guard let entry = state.entries[key], entry.users.isEmpty, let master = entry.master else { return nil }
+            state.retiring[key] = master
+            state.entries[key] = nil
+            return master
         }
         master?.end(.closed)
     }
 
     /// Stops connecting to `key`: the sheet's Cancel, or the pane's.
     public func cancel(_ key: String) {
-        let entry = state.withLock { $0.entries[key] }
+        let entry = state.withLock { state -> Entry? in
+            guard let entry = state.entries[key] else { return nil }
+            if let master = entry.master { state.retiring[key] = master }
+            state.entries[key] = nil
+            return entry
+        }
         entry?.startup.cancel()
         entry?.master?.end(.failed(.cancelled))
     }
 
     /// Ends `key`'s master now, whoever uses it.
     public func end(_ key: String) {
-        state.withLock { $0.entries[key]?.master }?.end(.closed)
+        let master = state.withLock { state -> MasterSupervisor? in
+            guard let master = state.entries[key]?.master else { return nil }
+            state.retiring[key] = master
+            state.entries[key] = nil
+            return master
+        }
+        master?.end(.closed)
     }
 
     /// Ends every master and waits for them: quitting.
     public func endAll() async {
-        let entries = state.withLock { state in Array(state.entries.values) }
+        let (entries, retiring) = state.withLock { state in (Array(state.entries.values), Array(state.retiring.values))
+        }
         for entry in entries {
             entry.idle?.cancel()
             entry.startup.cancel()
         }
-        let masters = entries.compactMap(\.master)
+        // The live masters, plus any already on their way out, so quit waits for them all.
+        let masters = entries.compactMap(\.master) + retiring
         for master in masters { master.end(.closed) }
         for master in masters { _ = await master.ending() }
     }

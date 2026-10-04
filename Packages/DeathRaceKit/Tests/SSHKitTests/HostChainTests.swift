@@ -55,6 +55,8 @@ struct HostChainTests {
                 .init(user: "r", host: "a.example.com"), .init(user: "ops", host: "b.internal"),
                 .init(user: "ubuntu", host: "10.0.4.21"),
             ])
+        // Only b was reached with a user/port override (ops@b:2222); a and target weren't.
+        #expect(chain.hops.map(\.reachedWithOverride) == [false, true, false])
     }
 
     @Test func aHostKeyAliasIsWhatThePromptNames() async throws {
@@ -113,6 +115,27 @@ struct HostChainTests {
         #expect(context.name(for: bastion) == "bastion")
         #expect(context.name(for: prod) == "prod-api")
         #expect(context.hostName == "prod-api")
+    }
+
+    // A jump host reached through "ops@bastion:2222" isn't the identity WRLD saved the
+    // bastion password under (its own user/port), so that password must not be offered for
+    // it — it would go to a different account, or a different service on another port.
+    @Test func aSavedPasswordIsntSentToAnOverriddenJumpHop() {
+        let overridden = HostChain(hops: [
+            .init(alias: "bastion", prompt: .init(user: "admin", host: "bastion"), reachedWithOverride: true),
+            .init(alias: "deathrace-prod-api", prompt: .init(user: "ubuntu", host: "10.0.4.21")),
+        ])
+        let bastion = SecretRef(.hostPassword, "h-bastion")
+        let prod = SecretRef(.hostPassword, "h-prod")
+        let context = overridden.askpassContext(hostName: "prod-api") { alias in
+            switch alias {
+            case "bastion": (bastion, "bastion")
+            case "deathrace-prod-api": (prod, "prod-api")
+            default: nil
+            }
+        }
+        // prod-api still gets its password; the overridden bastion hop gets none.
+        #expect(context.passwords == [.init(user: "ubuntu", host: "10.0.4.21"): prod])
     }
 
     @Test func hopsTheirPromptsCantTellApartGetNoSavedPassword() {

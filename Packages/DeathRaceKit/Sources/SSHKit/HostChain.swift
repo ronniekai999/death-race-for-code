@@ -19,14 +19,19 @@ public struct HostChain: Equatable, Sendable {
         /// when its host and file match one of these, never the server's own words.
         public var knownHostsName: String?
         public var knownHostsFiles: [String]
+        /// This hop was reached through a `ProxyJump user@host:port` that set a user or port,
+        /// so its identity isn't the one WRLD saved a password under; no saved secret applies.
+        public var reachedWithOverride: Bool
 
         public init(
-            alias: String, prompt: AskpassPrompt.Hop, knownHostsName: String? = nil, knownHostsFiles: [String] = []
+            alias: String, prompt: AskpassPrompt.Hop, knownHostsName: String? = nil, knownHostsFiles: [String] = [],
+            reachedWithOverride: Bool = false
         ) {
             self.alias = alias
             self.prompt = prompt
             self.knownHostsName = knownHostsName
             self.knownHostsFiles = knownHostsFiles
+            self.reachedWithOverride = reachedWithOverride
         }
     }
 
@@ -80,10 +85,14 @@ public struct HostChain: Equatable, Sendable {
             throw .unreadable(line ?? "ssh -G failed.")
         }
         let effective = EffectiveConfig(parsing: result.outputText)
+        // Reached through a ProxyJump that set a user or port: this host's identity isn't
+        // what WRLD resolved and saved under, so no saved password should be matched to it.
+        let overridden = extra.contains("-l") || extra.contains("-p")
         let hop = Hop(
             alias: alias,
             prompt: AskpassPrompt.Hop(user: effective.user ?? "", host: effective.promptHost ?? alias),
-            knownHostsName: effective.knownHostsName, knownHostsFiles: effective.userKnownHostsFiles)
+            knownHostsName: effective.knownHostsName, knownHostsFiles: effective.userKnownHostsFiles,
+            reachedWithOverride: overridden)
         guard let proxyJump = effective.proxyJump else { return [hop] }
 
         let specs = proxyJump.split(separator: ",").map(String.init)
@@ -108,14 +117,19 @@ public struct HostChain: Equatable, Sendable {
         var passwords: [AskpassPrompt.Hop: SecretRef] = [:]
         var names: [SecretRef: String] = [:]
         var ambiguous: Set<AskpassPrompt.Hop> = []
+        // A hop reached with a user/port override isn't the identity WRLD saved under, so it
+        // has no usable saved secret even when WRLD holds one for the bare alias.
+        func usable(_ hop: Hop) -> (ref: SecretRef, name: String)? {
+            hop.reachedWithOverride ? nil : secret(hop.alias)
+        }
         for hop in hops {
-            guard let (ref, name) = secret(hop.alias) else { continue }
+            guard let (ref, name) = usable(hop) else { continue }
             if let existing = passwords[hop.prompt], existing != ref { ambiguous.insert(hop.prompt) }
             passwords[hop.prompt] = ref
             names[ref] = name
         }
         // A prompt also names a hop WRLD doesn't save for, which would make it ambiguous too.
-        for hop in hops where secret(hop.alias) == nil && passwords[hop.prompt] != nil {
+        for hop in hops where usable(hop) == nil && passwords[hop.prompt] != nil {
             ambiguous.insert(hop.prompt)
         }
         for prompt in ambiguous { passwords[prompt] = nil }

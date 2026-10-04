@@ -97,6 +97,20 @@ import VTCore
         #expect(ConfigEditor.set("command", to: "a\nb", in: "") == "command = a b\n")
     }
 
+    /// A command whose path has a space is written in double quotes; the parser takes the
+    /// outer pair as quoting, so the value keeps another.
+    @Test func doubleQuotedValuesKeepTheirQuotes() {
+        let command = "\"/Applications/My Shell.app/Contents/MacOS/fish\""
+        let file = ConfigEditor.set("command", to: command, in: ConfigSchema.template)
+        let (config, diagnostics) = Config.parse(file)
+        #expect(diagnostics.isEmpty)
+        #expect(config.command == command)
+        #expect(config.commandArguments == ["/Applications/My Shell.app/Contents/MacOS/fish"])
+        // Quotes inside a value need nothing.
+        let inside = ConfigEditor.set("command", to: "fish -c \"echo hi\"", in: "")
+        #expect(Config.parse(inside).0.commandArguments == ["fish", "-c", "echo hi"])
+    }
+
     @Test func lineEndingsAndTheLastNewlineStay() {
         #expect(
             ConfigEditor.set("bell", to: "visual", in: "bell = none\r\nfont-size = 14\r\n")

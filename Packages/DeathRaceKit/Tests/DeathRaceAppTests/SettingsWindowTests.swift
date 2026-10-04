@@ -105,6 +105,33 @@ extension WindowTests {
         #expect(controller.window?.attachedSheet == nil)
     }
 
+    /// A file Death Race could not read, or that is not UTF-8, is never replaced by the
+    /// template with one change in it.
+    @Test func aFileThatCannotBeReadIsNotWrittenOver() throws {
+        let home = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let store = ConfigStore(environment: ["XDG_CONFIG_HOME": home.path])
+        let manager = FileManager.default
+        try manager.createDirectory(at: store.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let theme = try setting("theme")
+
+        let mine = Data("font-size = 15\n# mine\n".utf8)
+        try mine.write(to: store.url)
+        try manager.setAttributes([.posixPermissions: 0o000], ofItemAtPath: store.url.path)
+        #expect(throws: ConfigFileError.self) {
+            try store.update { SettingsCatalog.set(theme, to: .text("righteous"), in: $0) }
+        }
+        try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: store.url.path)
+        #expect(manager.contents(atPath: store.url.path) == mine)
+
+        let latin1 = Data([0x23, 0x20, 0xE9, 0x0A]) + Data("font-size = 15\n".utf8)
+        try latin1.write(to: store.url)
+        #expect(throws: ConfigFileError.self) {
+            try store.update { SettingsCatalog.set(theme, to: .text("righteous"), in: $0) }
+        }
+        #expect(manager.contents(atPath: store.url.path) == latin1)
+    }
+
     @Test func theWatcherSeesEditsButNotDeathRacesOwnWrites() async throws {
         let folder = try makeFolder()
         defer { try? FileManager.default.removeItem(at: folder) }

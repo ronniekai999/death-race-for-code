@@ -57,20 +57,92 @@ public enum LinkPolicy {
     /// as in a phishing link: the text says apple.com, the link opens evil.example. Such a
     /// link asks before it opens, whatever its scheme.
     public static func misleads(text: String, target: String) -> Bool {
-        let shown = Substring(text).drop { $0.isWhitespace }.reversed().drop { $0.isWhitespace }
-        let trimmed = Substring(String(shown.reversed()))
-        guard let shownHost = host(of: trimmed) ?? bareHost(trimmed) else { return false }
+        guard let shownHost = namedHost(in: text) else { return false }
         guard let targetHost = host(of: target) else { return true }
         return comparable(shownHost) != comparable(targetHost)
     }
 
-    /// A URI as it is safe to show, in the status bar or a question: characters that are
-    /// invisible, separate lines or reorder text are percent-encoded (U+202E can make
-    /// `example.com/gpj.exe` read as `example.com/exe.jpg`), and a long one ends in "…".
+    /// The site a link's text names, as a reader takes it. Characters that do not show (a
+    /// zero-width space inside "apple.com") are dropped; dots and letters that only look like
+    /// ASCII ones (U+2024, full-width letters) count as them; and the punctuation of the
+    /// sentence around it, a user name, a port and a path are not the site.
+    static func namedHost(in text: String) -> String? {
+        var folded = ""
+        for scalar in text.unicodeScalars {
+            if scalar.properties.generalCategory == .format { continue }
+            if lookalikeDots.contains(scalar.value) {
+                folded.append(".")
+            } else if (0xFF01...0xFF5E).contains(scalar.value), let ascii = Unicode.Scalar(scalar.value - 0xFEE0) {
+                folded.unicodeScalars.append(ascii)
+            } else {
+                folded.unicodeScalars.append(scalar)
+            }
+        }
+        func edge(_ character: Character) -> Bool { character.isWhitespace || "\"'()[]<>{}.,;:!?`".contains(character) }
+        let core = String(Substring(folded).drop(while: edge).reversed().drop(while: edge).reversed())
+        if let named = host(of: core) { return named }
+        return bareHost(Substring(core))
+    }
+
+    /// Dots that read as a full stop in an address.
+    static let lookalikeDots: Set<UInt32> = [
+        0x00B7, 0x2024, 0x2027, 0x2219, 0x22C5, 0x3002, 0x30FB, 0xFE52, 0xFF0E, 0xFF61,
+    ]
+
+    /// A URI as it is safe to show, in the status bar or a question.
+    /// - Characters that are invisible, separate lines or reorder text are percent-encoded:
+    ///   U+202E can make `example.com/gpj.exe` read as `example.com/exe.jpg`.
+    /// - The scheme and host always show: past `limit` the path gives way, a long user
+    ///   name before an `@` shows as "…", and a very long host keeps its end, which is the
+    ///   site.
     public static func shown(_ uri: String, limit: Int = 200) -> String {
+        guard let start = uri.firstRange(of: "://")?.upperBound else { return escaped(uri[...], limit: limit) }
+        let rest = uri[start...]
+        let authorityEnd = rest.firstIndex { $0 == "/" || $0 == "?" || $0 == "#" } ?? rest.endIndex
+        var host = rest[..<authorityEnd]
+        var head = escaped(uri[..<start], limit: .max)
+        if let at = host.lastIndex(of: "@") {
+            let user = host[...at]
+            head += user.count > 24 ? "…@" : escaped(user, limit: .max)
+            host = host[host.index(after: at)...]
+        }
+        let site = escaped(host, limit: .max)
+        head += site.count > 64 ? String(site.prefix(16)) + "…" + String(site.suffix(44)) : site
+        return head + escaped(rest[authorityEnd...], limit: max(limit - head.count, 16))
+    }
+
+    /// A link's text as it is safe to show in a question: characters that are invisible or
+    /// reorder text are spelled out (⟨U+202E⟩), and long text ends in "…".
+    public static func visibleText(_ text: String, limit: Int = 120) -> String {
+        var out = ""
+        for (count, scalar) in text.unicodeScalars.enumerated() {
+            guard count < limit else {
+                out += "…"
+                break
+            }
+            switch scalar.properties.generalCategory {
+            case .control, .format, .lineSeparator, .paragraphSeparator, .unassigned, .privateUse, .surrogate:
+                out += spelledOut(scalar)
+            case .spaceSeparator where scalar.value != 0x20:
+                out += spelledOut(scalar)
+            default:
+                out.unicodeScalars.append(scalar)
+            }
+        }
+        return out
+    }
+
+    private static func spelledOut(_ scalar: Unicode.Scalar) -> String {
+        let digits = String(scalar.value, radix: 16, uppercase: true)
+        return "⟨U+" + String(repeating: "0", count: max(0, 4 - digits.count)) + digits + "⟩"
+    }
+
+    /// `text` with invisible, line-breaking and reordering characters percent-encoded, cut
+    /// at `limit` characters with "…".
+    private static func escaped(_ text: Substring, limit: Int) -> String {
         let hex = Array("0123456789ABCDEF")
         var out = ""
-        for (count, scalar) in uri.unicodeScalars.enumerated() {
+        for (count, scalar) in text.unicodeScalars.enumerated() {
             guard count < limit else {
                 out += "…"
                 break
@@ -111,10 +183,15 @@ public enum LinkPolicy {
         return String(authority.prefix { $0 != ":" }).lowercased()
     }
 
-    /// Text like "apple.com" or "www.apple.com/store": a name with a dot and no spaces.
+    /// Text like "apple.com" or "www.apple.com/store": a name with a dot and no spaces. A
+    /// user name before an `@`, a port and the dot that ends a fully qualified name are not
+    /// part of it.
     static func bareHost(_ text: Substring) -> String? {
-        let name = text.prefix { $0 != "/" && $0 != "?" && $0 != "#" }
-        guard name.contains("."), !name.hasPrefix("."), !name.hasSuffix("."),
+        var name = text.prefix { $0 != "/" && $0 != "?" && $0 != "#" }
+        if let at = name.lastIndex(of: "@") { name = name[name.index(after: at)...] }
+        name = name.prefix { $0 != ":" }
+        while name.hasSuffix(".") { name = name.dropLast() }
+        guard name.contains("."), !name.hasPrefix("."),
             name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "." }),
             let tld = name.split(separator: ".").last, tld.count >= 2, tld.allSatisfy(\.isLetter)
         else { return nil }
@@ -125,8 +202,11 @@ public enum LinkPolicy {
         host(of: String(text))
     }
 
+    /// Hosts compare without case, a leading "www." or the dot that ends a fully qualified name.
     private static func comparable(_ host: String) -> String {
-        host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        var host = host.lowercased()
+        while host.hasSuffix(".") { host.removeLast() }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 }
 

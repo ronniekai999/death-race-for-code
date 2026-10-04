@@ -279,7 +279,7 @@ final class PaneController {
             if link.isExplicit && LinkPolicy.misleads(text: link.text, target: uri) {
                 confirm(
                     "This link goes somewhere other than its text says",
-                    detail: "Its text says “\(PasteWarning.visible(link.text, limit: 120))”, but it opens \(shown).",
+                    detail: "Its text says “\(LinkPolicy.visibleText(link.text))”, but it opens \(shown).",
                     button: "Open Link"
                 ) { NSWorkspace.shared.open(url) }
             } else {

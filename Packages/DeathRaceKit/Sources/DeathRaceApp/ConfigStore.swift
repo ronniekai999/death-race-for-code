@@ -2,6 +2,17 @@ import AppKit
 import ConfigKit
 import UniformTypeIdentifiers
 
+/// Why the settings file was not changed.
+struct ConfigFileError: LocalizedError {
+    let message: String
+
+    init(_ message: String) {
+        self.message = message
+    }
+
+    var errorDescription: String? { message }
+}
+
 /// The settings file, and what it said when last read.
 @MainActor
 final class ConfigStore {
@@ -34,13 +45,24 @@ final class ConfigStore {
     /// Changes the file with `change`, given its text (the template when there is none), writes
     /// it in one step, and reads it again; returns what was written. A file that is a link,
     /// into a dotfiles repository say, stays one: the file it points to is the one written.
+    /// A file that exists but cannot be read, or is not UTF-8 text, is left alone: writing
+    /// the template over it would lose it.
     @discardableResult
     func update(_ change: (String) -> String) throws -> Data {
         let manager = FileManager.default
         let target = url.resolvingSymlinksInPath()
-        let current =
-            manager.contents(atPath: target.path).map { String(decoding: $0, as: UTF8.self) }
-            ?? ConfigSchema.template
+        let current: String
+        if manager.fileExists(atPath: target.path) {
+            guard let contents = manager.contents(atPath: target.path) else {
+                throw ConfigFileError("Death Race can’t read \(target.path), so it left the file as it is.")
+            }
+            guard let text = String(data: contents, encoding: .utf8) else {
+                throw ConfigFileError("\(target.path) isn’t UTF-8 text, so Death Race left it as it is.")
+            }
+            current = text
+        } else {
+            current = ConfigSchema.template
+        }
         let data = Data(change(current).utf8)
         try manager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: target, options: .atomic)

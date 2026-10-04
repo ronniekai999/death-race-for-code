@@ -90,8 +90,11 @@ extension Terminal {
         } else {
             name = Array(id)
         }
-        guard Hyperlink.isAcceptable(id: name, uri: uri) else { return }
-        currentLink = Hyperlink(id: String(decoding: name, as: UTF8.self), uri: String(decoding: uri, as: UTF8.self))
+        // The limits hold for the text as kept: decoding turns each byte that is not UTF-8 into
+        // a three-byte U+FFFD, so the bytes as they came cannot be the measure.
+        let link = Hyperlink(id: String(decoding: name, as: UTF8.self), uri: String(decoding: uri, as: UTF8.self))
+        guard Hyperlink.isAcceptable(link) else { return }
+        currentLink = link
     }
 
     private static let idPrefix = Array("id=".utf8)

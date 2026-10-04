@@ -444,6 +444,18 @@ private func text(_ row: RowSnapshot) -> String {
         }
     }
 
+    /// Debug builds send every delta through the codec, so output that made a link the codec
+    /// refuses would stop the app: what the engine keeps, the codec takes.
+    @Test func linksFromBytesThatAreNotUTF8StillRoundTrip() throws {
+        var link = Link(columns: 10, rows: 2)
+        link.terminal.feed(
+            Array("\u{1B}]8;;http://a/".utf8) + Array(repeating: 0x80, count: 700) + Array("\u{1B}\\X".utf8))
+        link.terminal.feed(Array("\u{1B}]8;;http://b/".utf8) + [0xC3, 0x28] + Array("\u{7}Y\u{1B}]8;;\u{7}".utf8))
+        try link.sync()
+        #expect(link.mirror.link(column: 0, row: 0) == nil)
+        #expect(link.mirror.link(column: 1, row: 0)?.uri.hasPrefix("http://b/") == true)
+    }
+
     @Test func theMirrorAnswersWhichLinkACellIsIn() throws {
         var link = Link(columns: 10, rows: 2)
         link.terminal.feed(Array("a\u{1B}]8;;https://wrld.example\u{7}bc\u{1B}]8;;\u{7}d".utf8))

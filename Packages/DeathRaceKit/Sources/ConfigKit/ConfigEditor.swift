@@ -65,12 +65,16 @@ public enum ConfigEditor {
         return Int(value[..<equals].trimmingSpaces)
     }
 
-    /// Values with spaces at either end keep them in double quotes, as the parser expects.
-    /// A line break cannot be stored, so it becomes a space.
+    /// Values with spaces at either end keep them in double quotes, as the parser expects,
+    /// and so do values already in double quotes (a command whose path has spaces), which
+    /// the parser would otherwise take as quoting and strip. A line break cannot be stored,
+    /// so it becomes a space.
     static func quoted(_ value: String) -> String {
         let flat = String(value.map { $0.isNewline ? " " : $0 })
         guard let first = flat.first, let last = flat.last else { return flat }
-        return first == " " || first == "\t" || last == " " || last == "\t" ? "\"\(flat)\"" : flat
+        let edgeSpace = first == " " || first == "\t" || last == " " || last == "\t"
+        let inQuotes = flat.count >= 2 && first == "\"" && last == "\""
+        return edgeSpace || inQuotes ? "\"\(flat)\"" : flat
     }
 
     private static func joined(_ lines: [String], newline: String, endsWithNewline: Bool) -> String {

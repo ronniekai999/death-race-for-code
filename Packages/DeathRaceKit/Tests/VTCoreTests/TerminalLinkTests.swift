@@ -102,6 +102,21 @@ import Testing
         #expect(t.currentLink == nil)
     }
 
+    /// Bytes that are not UTF-8 grow when decoded (each becomes U+FFFD, three bytes), so the
+    /// limits are checked on the link as kept, which is what the codec checks.
+    @Test func linksThatAreNotUTF8AreMeasuredAsKept() {
+        let t = makeTerminal(columns: 10, rows: 2)
+        t.feed(Array("\u{1B}]8;;http://a/".utf8) + Array(repeating: 0x80, count: 700) + Array("\u{1B}\\X".utf8))
+        #expect(t.currentLink == nil)
+        #expect(t.row(0).link(at: 0) == nil)
+        t.feed(Array("\u{1B}]8;id=".utf8) + Array(repeating: 0xFF, count: 90) + Array(";https://a\u{7}Y".utf8))
+        #expect(t.currentLink == nil)
+        // A few such bytes still fit: kept, as U+FFFD.
+        t.feed(Array("\u{1B}]8;;http://a/".utf8) + [0xFF] + Array("\u{7}Z".utf8))
+        #expect(t.currentLink?.uri == "http://a/\u{FFFD}")
+        #expect(t.currentLink.map(Hyperlink.isAcceptable) == true)
+    }
+
     @Test func aRowKeepsAtMostItsLimitAndMakesRoomWhenLinksGo() {
         let count = Row.linkLimit + 20
         let t = makeTerminal(columns: count + 10, rows: 1)

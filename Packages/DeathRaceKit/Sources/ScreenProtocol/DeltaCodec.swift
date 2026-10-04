@@ -316,8 +316,10 @@ public enum DeltaCodec {
         for _ in 0..<linkCount {
             let id = try r.take(try r.count(elementSize: 1))
             let uri = try r.take(try r.count(elementSize: 1))
-            guard Hyperlink.isAcceptable(id: id, uri: uri) else { throw .invalid("link") }
-            links.append(Hyperlink(id: String(decoding: id, as: UTF8.self), uri: String(decoding: uri, as: UTF8.self)))
+            // Checked as decoded, as the engine checks it: bytes that are not UTF-8 grow.
+            let link = Hyperlink(id: String(decoding: id, as: UTF8.self), uri: String(decoding: uri, as: UTF8.self))
+            guard Hyperlink.isAcceptable(link) else { throw .invalid("link") }
+            links.append(link)
         }
         for cell in cells {
             let index = Int(cell.reserved)

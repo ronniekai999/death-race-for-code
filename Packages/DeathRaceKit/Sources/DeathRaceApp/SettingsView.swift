@@ -241,12 +241,16 @@ struct NumberControl: View {
     }
 }
 
-/// Free text, written on Return or when the field loses focus.
+/// Free text, written on Return or when the field loses focus, and only when the user
+/// changed it: the file may have changed meanwhile (an edit in an editor), and its value
+/// then shows here instead of being written over.
 struct TextControl: View {
     let setting: SettingsCatalog.Setting
     let model: SettingsModel
     let placeholder: String
     @State private var draft = ""
+    /// The file's value when `draft` last came from it.
+    @State private var original = ""
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -254,11 +258,24 @@ struct TextControl: View {
             .textFieldStyle(.roundedBorder)
             .frame(width: 280)
             .focused($focused)
-            .onSubmit { model.set(setting, .text(draft)) }
-            .onAppear { draft = model.textValue(setting) }
-            .onChange(of: focused) { _, isFocused in
-                if !isFocused { model.set(setting, .text(draft)) }
+            .onSubmit { commit() }
+            .onAppear {
+                draft = model.textValue(setting)
+                original = draft
             }
+            .onChange(of: model.textValue(setting)) { _, value in
+                // Untouched, the field follows the file.
+                if draft == original { draft = value }
+                original = value
+            }
+            .onChange(of: focused) { _, isFocused in
+                if !isFocused { commit() }
+            }
+    }
+
+    private func commit() {
+        guard draft != original else { return }
+        model.set(setting, .text(draft))
     }
 }
 

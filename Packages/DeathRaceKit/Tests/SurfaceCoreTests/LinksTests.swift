@@ -50,6 +50,21 @@ import Testing
         #expect(!LinkPolicy.misleads(text: "v1.2", target: "https://example.com"))
         #expect(LinkPolicy.misleads(text: "example.com", target: "file:///etc/passwd"))
     }
+
+    /// Text that reads as apple.com to a person reads as apple.com here too.
+    @Test func disguisedSiteNamesStillMislead() {
+        let evil = "https://evil.example/"
+        for text in [
+            "apple.com.", "apple\u{200B}.com", "apple\u{2024}com", "apple.com:443", "(apple.com)",
+            "\u{FF41}\u{FF50}\u{FF50}\u{FF4C}\u{FF45}.com", "apple\u{3002}com", "https://apple.com.", "user@apple.com",
+        ] {
+            #expect(LinkPolicy.misleads(text: text, target: evil), "\(text.debugDescription)")
+        }
+        // The same site, written another way, is not misleading.
+        #expect(!LinkPolicy.misleads(text: "apple.com.", target: "https://apple.com/"))
+        #expect(!LinkPolicy.misleads(text: "https://apple.com.", target: "https://www.apple.com/mac"))
+        #expect(!LinkPolicy.misleads(text: "apple\u{200B}.com", target: "https://apple.com/"))
+    }
 }
 
 @Suite struct URLDetectorTests {
@@ -127,5 +142,28 @@ import Testing
         #expect(LinkPolicy.shown("https://a.example/a\u{200B}b c") == "https://a.example/a%E2%80%8Bb%20c")
         #expect(LinkPolicy.shown("https://a.example/中文") == "https://a.example/中文")
         #expect(LinkPolicy.shown(String(repeating: "x", count: 10), limit: 4) == "xxxx…")
+    }
+
+    @Test func theSiteAlwaysShows() {
+        // A long path gives way; the host does not.
+        let long = LinkPolicy.shown("https://wrld.example/" + String(repeating: "p", count: 400), limit: 60)
+        #expect(long.hasPrefix("https://wrld.example/pp") && long.hasSuffix("…"))
+        // A host of many labels keeps its end, which is the site.
+        let labels = String(repeating: "a1b2.", count: 40)
+        let deep = LinkPolicy.shown("https://apple.com.\(labels)evil.example/x")
+        #expect(deep.contains("evil.example/x"))
+        #expect(deep.hasPrefix("https://apple.com."))
+        // A long user name before the @ shows as "…".
+        let user = LinkPolicy.shown("https://" + String(repeating: "apple.com", count: 6) + "@evil.example/")
+        #expect(user == "https://…@evil.example/")
+        #expect(LinkPolicy.shown("https://me@evil.example/") == "https://me@evil.example/")
+    }
+
+    @Test func linkTextShowsWhatHides() {
+        #expect(LinkPolicy.visibleText("\u{202E}gpj.exe") == "⟨U+202E⟩gpj.exe")
+        #expect(LinkPolicy.visibleText("apple\u{200B}.com") == "apple⟨U+200B⟩.com")
+        #expect(LinkPolicy.visibleText("a\u{3000}b c") == "a⟨U+3000⟩b c")
+        #expect(LinkPolicy.visibleText("Legends ✦ 999") == "Legends ✦ 999")
+        #expect(LinkPolicy.visibleText("abcdef", limit: 3) == "abc…")
     }
 }

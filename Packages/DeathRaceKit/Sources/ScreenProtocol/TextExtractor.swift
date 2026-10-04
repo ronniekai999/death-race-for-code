@@ -144,6 +144,17 @@ extension MirrorGrid {
         return y < UInt64(lines.count) ? lines[Int(y)] : nil
     }
 
+    /// Every line the session still has, history and screen: what Select All selects. Nil
+    /// before the first delta.
+    public var allLines: TextRegion? {
+        guard generation != nil, columns > 0, rows > 0 else { return nil }
+        // Line numbers come from the session; a bad delta must not trap here.
+        let scrolledOff = viewportTopLine &+ UInt64(max(viewportOffset, 0))
+        let first = scrolledOff >= UInt64(scrollbackCount) ? scrolledOff - UInt64(scrollbackCount) : 0
+        return TextRegion(
+            TextPoint(line: first, column: 0), TextPoint(line: scrolledOff &+ UInt64(rows - 1), column: columns - 1))
+    }
+
     /// The text of `range` if every line of it is in view; nil when some of it has to come
     /// from the session.
     public func text(in range: TextRegion) -> String? {

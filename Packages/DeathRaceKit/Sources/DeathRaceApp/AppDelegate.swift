@@ -144,7 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-extension AppDelegate: @preconcurrency NSMenuItemValidation {
+extension AppDelegate: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard menuItem.action == #selector(toggleSecureKeyboardEntry(_:)) else { return true }
         menuItem.state = secureInput.isChecked ? .on : .off

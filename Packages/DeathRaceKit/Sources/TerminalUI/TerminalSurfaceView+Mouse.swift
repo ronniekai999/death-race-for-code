@@ -6,8 +6,9 @@ import VTCore
 ///
 /// While a program tracks the mouse (vim, tmux, htop with mouse support), presses, releases,
 /// drags and the wheel are reported to it, as its mode and encoding ask; holding Shift keeps
-/// them for the terminal instead. Otherwise the wheel scrolls through history, or, on the
-/// alternate screen (less, man), sends arrow keys so the program scrolls.
+/// them for the terminal instead. Otherwise the left button selects text, and the wheel
+/// scrolls through history or, on the alternate screen (less, man), sends arrow keys so the
+/// program scrolls.
 extension TerminalSurfaceView {
     /// Cells the mouse is over and pixels, in the grid, for a mouse event.
     private func position(of event: NSEvent) -> (column: Int, row: Int, pixelX: Int, pixelY: Int) {
@@ -50,15 +51,28 @@ extension TerminalSurfaceView {
 
     override public func mouseDown(with event: NSEvent) {
         if window?.firstResponder !== self { window?.makeFirstResponder(self) }
-        if reportsMouse(event) { report(.press, .left, event) }
+        leftButtonReported = reportsMouse(event)
+        if leftButtonReported {
+            report(.press, .left, event)
+        } else {
+            beginSelection(with: event)
+        }
     }
 
     override public func mouseUp(with event: NSEvent) {
-        if reportsMouse(event) { report(.release, .left, event) }
+        if leftButtonReported {
+            report(.release, .left, event)
+        } else {
+            endSelection()
+        }
     }
 
     override public func mouseDragged(with event: NSEvent) {
-        if reportsMouse(event) { report(.motion, .left, event) }
+        if leftButtonReported {
+            report(.motion, .left, event)
+        } else {
+            dragSelection(with: event)
+        }
     }
 
     override public func rightMouseDown(with event: NSEvent) {

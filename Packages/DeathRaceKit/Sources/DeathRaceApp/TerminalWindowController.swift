@@ -211,6 +211,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         surface.mouseScrollMultiplier = config.mouseScrollMultiplier
         surface.mouseScrollAlternate = config.mouseScrollAlternate
         surface.pasteProtection = config.pasteProtection
+        surface.copyOnSelect = config.copyOnSelect
         window?.backgroundColor = config.theme.palette.background.nsColor
         updateResizeIncrements()
     }

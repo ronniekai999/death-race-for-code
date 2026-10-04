@@ -61,6 +61,10 @@ extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
         guard let mirror = model?.mirror else { return }
         let bytes = KeyEncoder.encode(keyEvent, modes: mirror.modes, kittyFlags: mirror.kittyFlags)
         guard !bytes.isEmpty else { return }
+        // Typing clears the selection; a release or a modifier key alone does not.
+        var isModifier = false
+        if case .modifier = keyEvent.key { isModifier = true }
+        if keyEvent.action != .release && !isModifier { clearSelection() }
         session?.send(bytes)
     }
 

@@ -112,4 +112,20 @@ import VTCore
         #expect(mirror.text(in: TextRegion(TextPoint(line: 4, column: 0), TextPoint(line: 8, column: 9))) == nil)
         #expect(mirror.line(5).map { TextExtractor.text(of: $0, columns: 0...9) } == "6         ")
     }
+
+    @Test func allLinesIsHistoryAndScreen() throws {
+        let t = terminal((1...9).map(String.init).joined(separator: "\r\n"))
+        var builder = DeltaBuilder()
+        var mirror = MirrorGrid()
+        #expect(mirror.allLines == nil)
+        try mirror.apply(builder.makeDelta(from: t, events: []))
+        let all = TextRegion(TextPoint(line: 0, column: 0), TextPoint(line: 8, column: 9))
+        #expect(mirror.allLines == all)
+        // Scrolled back, the same lines.
+        builder.scroll(by: 3, in: t)
+        try mirror.apply(builder.makeDelta(from: t, events: []))
+        #expect(mirror.viewportTopLine == 2)
+        #expect(mirror.allLines == all)
+        #expect(TextExtractor.text(in: all) { t.line($0) } == "1\n2\n3\n4\n5\n6\n7\n8\n9")
+    }
 }

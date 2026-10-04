@@ -54,6 +54,8 @@ public final class TerminalSurfaceView: NSView {
     public var mouseScrollAlternate = true
     /// Ask before a paste that would run commands (see `PasteWarning`).
     public var pasteProtection = true
+    /// A finished selection goes to the pasteboard, as in X11 terminals.
+    public var copyOnSelect = false
 
     /// The grid's size in cells changed.
     public var onGridChange: ((GridLayout) -> Void)?
@@ -93,6 +95,14 @@ public final class TerminalSurfaceView: NSView {
     /// the scroll that has not added up to a whole line yet.
     var lastMouseCell: (column: Int, row: Int)?
     var scrollAccumulator = ScrollAccumulator()
+    /// The left button went down as a report to the program, so its drags and release go
+    /// there too, whatever Shift does meanwhile.
+    var leftButtonReported = false
+    /// Selection state kept by the selection extension.
+    var selection: Selection?
+    var selectionGeneration: UInt64?
+    var autoscrollTimer: Timer?
+    var autoscrollDirection = 0
 
     private struct CursorKey: Equatable {
         var character: [UInt32]
@@ -205,6 +215,8 @@ public final class TerminalSurfaceView: NSView {
     private func drain() -> Bool {
         guard let model else { return false }
         let update = model.drain()
+        // A new screen (a resize, the alternate screen): the selection's lines are gone.
+        if selection != nil, model.mirror.generation != selectionGeneration { clearSelection() }
         if update.titleChanged { onTitleChange?(model.mirror.title) }
         if !update.events.isEmpty { onEvents?(update.events) }
         if model.mirror.readingPassword != reportedReadsPassword {
@@ -265,7 +277,8 @@ public final class TerminalSurfaceView: NSView {
 
         glyphs.beginFrame()
         let frame = builder.build(
-            mirror: model.mirror, theme: theme, cell: cell, selection: nil, glyphs: glyphs, preedit: preedit)
+            mirror: model.mirror, theme: theme, cell: cell, selection: selectionRange, glyphs: glyphs,
+            preedit: preedit)
         guard let drawable = metalLayer.nextDrawable(), let commandBuffer = context.queue.makeCommandBuffer() else {
             needsFrame = true
             return true

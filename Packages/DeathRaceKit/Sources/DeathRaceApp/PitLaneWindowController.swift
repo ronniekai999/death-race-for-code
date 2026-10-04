@@ -144,6 +144,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         root.statusBar.onTap = { [weak self] tap in
             switch tap {
             case .settingsProblems: self?.onSettingsProblemsClick?()
+            case .comeAndGo: self?.host?.showWRLD(at: .comeAndGo, selecting: nil)
             }
         }
         applyChrome()

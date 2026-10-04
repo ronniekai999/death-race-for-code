@@ -69,6 +69,8 @@ public struct StatusLine: Equatable, Sendable {
     public enum Tap: Equatable, Sendable {
         /// Shows the settings lines that could not be used.
         case settingsProblems
+        /// Opens the Come & Go page of the WRLD window.
+        case comeAndGo
     }
 
     public struct Run: Equatable, Sendable {
@@ -133,7 +135,9 @@ public struct StatusLine: Equatable, Sendable {
             if facts.openTunnels > 0 {
                 let count = facts.openTunnels
                 leading.append(
-                    Run(count == 1 ? "1 tunnel" : "\(count) tunnels", .muted, symbol: "arrow.left.arrow.right"))
+                    Run(
+                        count == 1 ? "1 tunnel" : "\(count) tunnels", .muted, symbol: "arrow.left.arrow.right",
+                        tap: .comeAndGo))
             }
             if facts.secureInput { leading.append(Run("Secure input", .muted, symbol: "lock.fill")) }
             if facts.settingsProblems > 0 {

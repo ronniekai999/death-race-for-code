@@ -91,6 +91,9 @@ struct TunnelItemsTests {
         facts.openTunnels = 1
         #expect(StatusLine(facts).leading.map(\.text) == ["~/code", "1 tunnel"])
         facts.openTunnels = 2
-        #expect(StatusLine(facts).leading.last == .init("2 tunnels", .muted, symbol: "arrow.left.arrow.right"))
+        // A click on the count opens Come & Go.
+        #expect(
+            StatusLine(facts).leading.last
+                == .init("2 tunnels", .muted, symbol: "arrow.left.arrow.right", tap: .comeAndGo))
     }
 }

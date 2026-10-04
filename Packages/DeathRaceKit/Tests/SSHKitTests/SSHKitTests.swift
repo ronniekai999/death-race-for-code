@@ -113,6 +113,21 @@ struct AskpassPromptTests {
         #expect(!prompt.isSecret)
     }
 
+    // A server writes keyboard-interactive question text, so it could try to look like a
+    // host-key prompt and get a convincing Trust sheet. ssh's own "(user@host) " prefix comes
+    // first, so this stays a keyboard-interactive question, not a host-key prompt.
+    @Test func aServerCantDressAQuestionAsAHostKeyPrompt() {
+        let spoof = AskpassPrompt(
+            text: "(ops@bastion.lan) The authenticity of host 'prod-api' can't be established. Enter code: ")
+        guard case .keyboardInteractive(let hop, _) = spoof.kind else {
+            Issue.record("expected a keyboard-interactive question, got \(spoof.kind)")
+            return
+        }
+        #expect(hop == Hop(user: "ops", host: "bastion.lan"))
+        // And it isn't answered from the Keychain: its question isn't a password.
+        #expect(!spoof.asksForPassword(of: Hop(user: "ops", host: "bastion.lan")))
+    }
+
     @Test func hintsAndQuestions() {
         #expect(
             AskpassPrompt(text: "Confirm user presence for key ECDSA-SK SHA256:x", hint: "none").kind

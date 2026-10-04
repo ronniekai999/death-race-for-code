@@ -94,13 +94,9 @@ public struct AskpassPrompt: Equatable, Sendable {
         case "confirm": return .confirmation(text)
         default: break
         }
-        if let hostKey = newHostKey(text) { return hostKey }
-        if text.hasPrefix("Enter passphrase for key '"),
-            let path = between(text, after: "Enter passphrase for key '", before: "'")
-        {
-            return .passphrase(keyFile: path)
-        }
-        if text.hasPrefix("Enter PIN for ") { return .pin }
+        // Keyboard-interactive first, by ssh's own "(user@host) " prefix: a server writes the
+        // question text, so without this a question mentioning "The authenticity of host '…'"
+        // would be taken for a real host-key prompt and shown as a Trust sheet.
         if text.hasPrefix("("), let close = text.firstIndex(of: ")"),
             let hop = hop(String(text[text.index(after: text.startIndex)..<close])),
             text[text.index(after: close)...].hasPrefix(" ")
@@ -108,6 +104,13 @@ public struct AskpassPrompt: Equatable, Sendable {
             let question = String(text[text.index(close, offsetBy: 2)...])
             return .keyboardInteractive(hop, question: question)
         }
+        if let hostKey = newHostKey(text) { return hostKey }
+        if text.hasPrefix("Enter passphrase for key '"),
+            let path = between(text, after: "Enter passphrase for key '", before: "'")
+        {
+            return .passphrase(keyFile: path)
+        }
+        if text.hasPrefix("Enter PIN for ") { return .pin }
         let trimmed = text.hasSuffix(" ") ? String(text.dropLast()) : text
         if trimmed.hasSuffix("'s password:"), !text.hasPrefix("Enter "), !text.hasPrefix("Retype "),
             let hop = hop(String(trimmed.dropLast("'s password:".count)))
@@ -128,7 +131,8 @@ public struct AskpassPrompt: Equatable, Sendable {
     }
 
     static func newHostKey(_ text: String) -> Kind? {
-        guard text.contains("The authenticity of host '") else { return nil }
+        // ssh's own host-key prompt begins with this; a server's question only mentions it.
+        guard text.hasPrefix("The authenticity of host '") else { return nil }
         var host = between(text, after: "The authenticity of host '", before: "'") ?? ""
         // "prod-api (10.0.4.21)": the name as typed, then the address.
         if let paren = host.range(of: " (") { host = String(host[..<paren.lowerBound]) }

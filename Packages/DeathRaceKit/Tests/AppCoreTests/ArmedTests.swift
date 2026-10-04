@@ -1,0 +1,79 @@
+import Testing
+
+@testable import AppCore
+
+@Suite("Armed and Dangerous")
+struct ArmedTests {
+    let a = PaneID(1)
+    let b = PaneID(2)
+    let c = PaneID(3)
+
+    func window() -> WindowModel {
+        var model = WindowModel(tab: TabModel(id: TabID(1), pane: a))
+        model.split(.sideBySide, newPane: b)
+        model.split(.stacked, newPane: c)
+        return model
+    }
+
+    @Test func armingSendsTypingToEveryOtherPane() throws {
+        var model = window()
+        model.toggleArmed()
+        let tab = try #require(model.activeTab)
+        #expect(tab.isArmed)
+        #expect(tab.armedPanes == [a, b, c])
+        #expect(tab.broadcastTargets(from: b) == [a, c])
+        model.toggleArmed()
+        #expect(model.activeTab?.isArmed == false)
+        #expect(model.activeTab?.broadcastTargets(from: b) == [])
+    }
+
+    @Test func aPaneLeftOutNeitherSendsNorReceives() throws {
+        var model = window()
+        model.toggleArmed()
+        model.setArmed(c, false)
+        let tab = try #require(model.activeTab)
+        #expect(tab.armedPanes == [a, b])
+        #expect(tab.broadcastTargets(from: a) == [b])
+        #expect(tab.broadcastTargets(from: c) == [])
+        model.setArmed(c, true)
+        #expect(model.activeTab?.armedPanes == [a, b, c])
+    }
+
+    @Test func oneArmedPaneOnItsOwnDisarms() {
+        var model = window()
+        model.toggleArmed()
+        model.setArmed(b, false)
+        model.setArmed(c, false)
+        #expect(model.activeTab?.isArmed == false)
+
+        var closing = window()
+        closing.toggleArmed()
+        closing.closePane(b)
+        #expect(closing.activeTab?.isArmed == true)
+        closing.closePane(c)
+        #expect(closing.activeTab?.isArmed == false)
+    }
+
+    @Test func aTabOfOnePaneCantBeArmedAndNewSplitsJoin() {
+        var single = WindowModel(tab: TabModel(id: TabID(1), pane: a))
+        single.toggleArmed()
+        #expect(single.activeTab?.isArmed == false)
+
+        var model = window()
+        model.toggleArmed()
+        let d = PaneID(4)
+        model.split(.sideBySide, newPane: d)
+        #expect(model.activeTab?.armedPanes.contains(d) == true)
+    }
+
+    @Test func theWords() {
+        #expect(BroadcastLabel.pill(names: ["prod-api", "prod-api", "prod-api"]) == "prod-api × 3")
+        #expect(BroadcastLabel.pill(names: ["prod-api", "zsh"]) == "2 panes")
+        #expect(
+            BroadcastLabel.banner(names: ["prod-api-1", "prod-api-2", "prod-api-3"])
+                == "Typing goes to 3 panes: prod-api-1, prod-api-2 and prod-api-3.")
+        #expect(BroadcastLabel.banner(names: ["a", "b"]) == "Typing goes to 2 panes: a and b.")
+        #expect(BroadcastLabel.status(panes: 3, ended: 1) == "Armed and Dangerous · 3 panes · 1 ended")
+        #expect(BroadcastLabel.status(panes: 3, ended: 0) == "Armed and Dangerous · 3 panes")
+    }
+}

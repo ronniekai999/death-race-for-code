@@ -238,8 +238,11 @@ import Testing
         let t = makeTerminal()
         t.feed("a\u{1B}[3b")
         #expect(t.lines[0] == "aaaa")
+        // A REP is a control sequence too: the next one has nothing to repeat.
         t.feed("\u{1B}[b")
-        #expect(t.lines[0] == "aaaaa")
+        #expect(t.lines[0] == "aaaa")
+        t.feed("b\u{1B}[b")
+        #expect(t.lines[0] == "aaaabb")
         // After a control, there is nothing to repeat.
         t.feed("\r\n\u{1B}[3b")
         #expect(t.lines[1] == "")

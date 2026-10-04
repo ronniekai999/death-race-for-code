@@ -1,6 +1,7 @@
 extension Terminal {
     /// The screen as text: the form `vthost` prints and the recorded-session goldens hold.
-    /// Each row with trailing blanks trimmed, then the cursor, then every run of styled cells:
+    /// Each row with trailing blanks trimmed, then the cursor (and whether the whole screen is
+    /// in reverse video, DECSCNM), then every run of styled cells:
     ///
     ///     (END)
     ///     ---- cursor 24;6 ----
@@ -19,6 +20,7 @@ extension Terminal {
         for y in 0..<rows { out += row(y).text + "\n" }
         let cursor = cursor
         out += "---- cursor \(cursor.y + 1);\(cursor.x + 1)\(cursor.visible ? "" : " hidden") ----\n"
+        if modes.reverseVideo { out += "---- reverse video ----\n" }
         guard styles else { return out }
         var styled = ""
         for y in 0..<rows {

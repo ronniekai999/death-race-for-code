@@ -184,4 +184,25 @@ import Testing
         t.feed("\u{1B}[?1049hfoo\u{1B}c")
         #expect(!t.isAlternateScreen)
     }
+
+    @Test func columnModeHasItsSideEffectsOnlyWhenAllowed() {
+        let t = makeTerminal()
+        t.feed("abc\u{1B}[2;4r\u{1B}[3;3H\u{1B}[?3h")
+        #expect(t.lines[0] == "abc")
+        #expect(t.cursorPosition == [2, 2])
+        // Allowed, as vttest allows it: the screen clears, margins reset, the cursor goes
+        // home, and the width stays the window's.
+        t.feed("\u{1B}[?40h\u{1B}[2;4r\u{1B}[3;3H\u{1B}[?3h")
+        #expect(t.lines == ["", "", "", "", ""])
+        #expect(t.cursorPosition == [0, 0])
+        #expect(t.scrollRegion == 0...4)
+        #expect(t.columns == 10)
+        // DECNCSM keeps the screen.
+        t.feed("xyz\u{1B}[?95h\u{1B}[?3l")
+        #expect(t.lines[0] == "xyz")
+        #expect(t.cursorPosition == [0, 0])
+        _ = t.takeReplies()
+        t.feed("\u{1B}[?40$p\u{1B}[?95$p\u{1B}[?3$p")
+        #expect(t.takeReplyString() == "\u{1B}[?40;1$y\u{1B}[?95;1$y\u{1B}[?3;2$y")
+    }
 }

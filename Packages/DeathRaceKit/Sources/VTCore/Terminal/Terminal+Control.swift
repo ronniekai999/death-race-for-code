@@ -133,6 +133,8 @@ extension Terminal {
         lastGraphic = nil
         savedPrivateModes.removeAll()
         inertModes.removeAll()
+        allowsColumnSwitch = false
+        keepsScreenOnColumnSwitch = false
         emit(.colorsChanged)
         bumpGeneration()
     }

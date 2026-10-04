@@ -114,5 +114,7 @@ import Testing
 
                 """)
         #expect(t.dump(styles: false).hasSuffix("---- cursor 2;1 hidden ----\n"))
+        t.feed("\u{1B}[?5h")
+        #expect(t.dump(styles: false).hasSuffix("---- cursor 2;1 hidden ----\n---- reverse video ----\n"))
     }
 }

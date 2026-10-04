@@ -48,10 +48,15 @@ VTHOST="$(swift build --package-path "$PKG" -c "$CONFIG" --show-bin-path)/vthost
 # DECRQCRA, which only vthost --checksums answers; the app never does. We test against
 # current xterm: erased cells read as spaces (--xterm-checksum 334) and mode 45 reverse-wraps
 # only soft-wrapped lines, with 1045 for the old behavior (--xterm-reverse-wrap 383).
+# xtermWinopsEnabled: without it, esctest expects xterm to fail the tests that need window
+# operations and files those failures as known xterm bugs. With it, our deliberate refusals
+# (title and clipboard reads) count as the failures they are, and what we do pass (DECNCSM)
+# counts as a pass.
 rm -f "$LOG"
 "$VTHOST" run --columns 80 --rows 25 --checksums -- \
   python3 "$WORK/esctest2/esctest/esctest.py" \
     --expected-terminal xterm --xterm-checksum 334 --xterm-reverse-wrap 383 --max-vt-level 5 \
+    --options xtermWinopsEnabled \
     --timeout 0.5 --no-print-logs --logfile "$LOG" --include "$include" || true
 
 summary=$(grep -E '^\*\*\* ' "$LOG" | tail -1 || true)

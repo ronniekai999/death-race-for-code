@@ -1,7 +1,9 @@
 extension Terminal {
     func controlSequence(_ csi: ControlSequence) {
-        let repeating = csi.final == 0x62 && csi.privateMarker == 0 && csi.intermediates.count == 0
-        defer { if !repeating { lastGraphic = nil } }
+        // REP repeats only a character printed just before it: any control sequence ends
+        // that, REP included (ECMA-48 leaves REP after a control undefined; xterm ignores
+        // it, and vttest checks).
+        defer { lastGraphic = nil }
 
         let p = csi.params
         let s = screen
@@ -303,13 +305,30 @@ extension Terminal {
                 leaveAlternateScreen(restoreCursor: true)
             }
         case 3:
-            break  // DECCOLM: 80/132 columns is the window's business; ignored, like most terminals.
+            switchColumnMode()
+        case 40:
+            allowsColumnSwitch = on
+        case 95:
+            keepsScreenOnColumnSwitch = on
         case 6:
             modes.origin = on
             setCursorPosition(row: 0, column: 0)
         default:
             if !modes.setDEC(mode, on) { setInert(mode, dec: true, on) }
         }
+    }
+
+    /// DECCOLM. The window decides the width, so it never changes. But once a program allowed
+    /// the switch (mode 40, as vttest does), DECCOLM still clears the screen (unless DECNCSM
+    /// says not to), resets the margins and homes the cursor, as xterm does when the window
+    /// manager refuses the resize.
+    private func switchColumnMode() {
+        guard allowsColumnSwitch else { return }
+        if !keepsScreenOnColumnSwitch { eraseInDisplay(2, selective: false) }
+        let s = screen
+        s.scrollTop = 0
+        s.scrollBottom = s.rows - 1
+        setCursorPosition(row: 0, column: 0)
     }
 
     /// Modes programs may set and query that change nothing here: keyboard lock (KAM, which
@@ -335,6 +354,8 @@ extension Terminal {
         switch mode {
         case 47, 1047, 1049: return isAlternateScreen ? 1 : 2
         case 1048: return 2
+        case 40: return allowsColumnSwitch ? 1 : 2
+        case 95: return keepsScreenOnColumnSwitch ? 1 : 2
         default:
             return modes.dec(mode).map { $0 ? 1 : 2 } ?? inertState(mode, dec: true) ?? Self.fixedDECModeStates[mode]
                 ?? 0

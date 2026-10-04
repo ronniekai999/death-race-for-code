@@ -70,6 +70,11 @@ public final class Terminal {
     var lastGraphic: UInt32?
     /// DEC private modes saved by XTSAVE, for XTRESTORE.
     var savedPrivateModes: [UInt16: Bool] = [:]
+    /// Mode 40 (xterm): the program may switch between 80 and 132 columns. The width never
+    /// changes here, but DECCOLM then has its other effects.
+    var allowsColumnSwitch = false
+    /// DECNCSM (95): DECCOLM leaves the screen as it is.
+    var keepsScreenOnColumnSwitch = false
     /// Inert modes that are set (see `Terminal.inertANSIModes`); DEC modes are offset by
     /// 0x10000.
     var inertModes: Set<UInt32> = []

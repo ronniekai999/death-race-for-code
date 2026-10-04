@@ -41,17 +41,18 @@ UI half needs macOS.
 | --- | --- | --- |
 | `CPTY` | macOS, Linux | `openpty` → `fork` → `setsid` → `TIOCSCTTY` → `dup2` → `execve`, in C |
 | `PTYKit` | macOS, Linux | `PseudoTerminal` (non-blocking master, resize, password-prompt detection, child-exit watch, hang-up), `ShellLaunch`, `SmokeTest` |
-| `VTCore` | macOS, Linux | the engine: parser, screens and scrollback, reflow, SGR, modes, reports, OSC/DCS; key, mouse, focus and paste encoding |
-| `ScreenProtocol` | macOS, Linux | `ScreenDelta`, `DeltaBuilder` (session side), `MirrorGrid` (app side), `DeltaCodec` (bytes for XPC) |
+| `VTCore` | macOS, Linux | the engine: parser, screens and scrollback, reflow, SGR, modes, reports, OSC/DCS (OSC 8 links in per-row tables); key, mouse, focus and paste encoding |
+| `ScreenProtocol` | macOS, Linux | `ScreenDelta`, `DeltaBuilder` (session side), `MirrorGrid` (app side), `DeltaCodec` (bytes for XPC, format 3) |
 | `SessionKit` | macOS, Linux | `Session`: one thread per shell owning its PTY and engine, a locked mailbox for deltas and commands |
-| `ConfigKit` | macOS, Linux | the settings file: `ConfigSchema` (one table drives the parser, the defaults and the template), `ConfigParser` with diagnostics, `Config`, `Theme` |
-| `SurfaceCore` | macOS, Linux | what the terminal view does apart from AppKit and Metal: `SurfaceSession` (a `Session`, or `ReplaySession` in process), `SurfaceModel` (the mirror and what changed), `ColorResolver`, `FrameBuilder` (GPU instances, rebuilt per changed row), `SpriteRasterizer` (box drawing), `ShelfAtlas`, `CellMetrics`/`GridLayout`/`CellGeometry`, `Selection`/`WordRules`, `KeyRouting`/`MacKeyCode`, `ScrollAccumulator`, `FramePacer`, `SecureInput`, `PreeditLayout`, `ShellQuoting`, `WorkingDirectoryURL` |
+| `ConfigKit` | macOS, Linux | the settings file: `ConfigSchema` (one table drives the parser, the defaults and the template), `ConfigParser` with diagnostics, `Config`, `Theme`; `ThemeCatalog` (the eight themes, terminal and chrome) with `Contrast`; `ConfigEditor` (changes one setting, every other line as it was) |
+| `AppCore` | macOS, Linux | the app's logic apart from AppKit: `SplitTree`, `WindowModel`, `ActionCatalog` (menus, palette, Keys page), `FuzzyMatcher`, `PaletteSearch`/`PaletteState`, `SettingsCatalog`, `EnergyMeter`, `GitHead`, `ShellLaunchPlan`, `StatusLine`/`TabLabel` |
+| `SurfaceCore` | macOS, Linux | what the terminal view does apart from AppKit and Metal: `SurfaceSession` (a `Session`, or `ReplaySession` in process), `SurfaceModel` (the mirror and what changed), `ColorResolver`, `FrameBuilder` (GPU instances, rebuilt per changed row), `SpriteRasterizer` (box drawing), `ShelfAtlas`, `CellMetrics`/`GridLayout`/`CellGeometry`, `Selection`/`WordRules`, `KeyRouting`/`MacKeyCode`, `ScrollAccumulator`, `FramePacer`, `FrameRatePolicy`, `SecureInput`, `PreeditLayout`, `ShellQuoting`, `WorkingDirectoryURL`, `Dimming`, `LinkPolicy`/`URLDetector`/`LinkFinder` |
 | `vthost` | macOS, Linux | headless host CLI: `run`, `replay`, `dump`, `bench`, `smoke`; the terminal esctest and vttest drive |
-| `LegendsUI` | macOS | design system: tokens, `Wordmark999`, `NeonBorder`, `Starfield`, `Tagline` |
-| `RenderKit` | macOS | `FontSet` (SF Mono or a named family, real or slanted italics), `GlyphRasterizer` (CoreText, language-aware fallback, emoji fit to their cells), `Shaders` (compiled at launch), `SurfaceRenderer` (three frames in flight, atlas uploads), `OffscreenRenderer` (render and read back, for the smoke test) |
-| `TerminalUI` | macOS | `TerminalSurfaceView`: lays out the grid; drawing and input next |
-| `DeathRaceApp` | macOS | the AppKit app: a window controller per tab (native tabs), menus, settings, About |
-| `DeathRace` | macOS | executable; `--smoke-test` runs the headless end-to-end check |
+| `LegendsUI` | macOS | design system: tokens, `LegendsPalette` in the SwiftUI environment, `NeonSwitchStyle`, `NeonSlider`, `Wordmark999`, `NeonBorder`, `Starfield`, `Tagline` |
+| `RenderKit` | macOS | `FontRegistry` (the bundled fonts, for this process), `FontSet` (SF Mono or a named family, real or slanted italics, an italic family, the Nerd Font symbols), `GlyphRasterizer` (CoreText, language-aware fallback, private-use characters from the symbols font, emoji fit to their cells), `Shaders` (compiled at launch; dimming and stars), `SurfaceRenderer` (three frames in flight, atlas uploads), `OffscreenRenderer` (render and read back) |
+| `TerminalUI` | macOS | `TerminalSurfaceView`: the grid, Metal drawing on a display link that pauses when idle, keys and input methods, the mouse, selection, the pasteboard, links, the frame-rate policy |
+| `DeathRaceApp` | macOS | the AppKit app: `PitLaneWindowController` (tabs of split panes and their chrome), `PaneController` (one shell), Hear Me Calling, the Settings window, `ConfigStore`/`ConfigWatcher`, menus, About, the icon |
+| `DeathRace` | macOS | executable; `--smoke-test` runs the headless end-to-end check, `--write-icon` draws the iconset, `--render-chrome` (debug builds) pictures every theme |
 
 ## Decisions
 
@@ -185,12 +186,90 @@ it first deadlocks. Linux does not drain on close, so only macOS CI catches this
 
 ### An AppKit shell, SwiftUI inside
 
-The app is an `NSApplication` with a window controller per tab, not SwiftUI's `App`. A
-terminal needs things only AppKit gives: native window tabs with a working + button
-(`newWindowForTab:`), close and quit confirmation sheets (`.terminateLater`), and a responder
-chain that carries Copy, Paste and Bigger/Smaller to the focused terminal view. SwiftUI still
-draws the Legends Never Die pieces (About now, the Pit Lane chrome in Phase 3), hosted in
-AppKit windows.
+The app is an `NSApplication`, not SwiftUI's `App`. A terminal needs things only AppKit gives:
+close and quit confirmation sheets (`.terminateLater`), a responder chain that carries Copy,
+Paste and Bigger/Smaller to the focused terminal view, and full control of the title bar.
+SwiftUI draws what is mostly forms and lists: the Settings window and Hear Me Calling's rows,
+hosted in AppKit, reading the theme as a `LegendsPalette` from the environment.
+
+### The Pit Lane window
+
+**Our own tabs.** Each window holds tabs of split panes. Native window tabs could not hold
+splits or draw gradient pills, so they are off (`allowsAutomaticWindowTabbing = false`), which
+gives up tearing a tab off into a window by dragging and Merge All Windows. Move Tab to New
+Window moves a tab's views and sessions untouched.
+
+**The controllers.**
+- `PitLaneWindowController` owns a `WindowModel` (AppCore: tabs, each a `SplitTree` of panes,
+  the active pane, zoom) and keeps the views in step with it: the title row, a `PaneAreaView`
+  per tab, the status bar.
+- `PaneController` owns one shell: its session, title, directory, exit, clipboard requests
+  and link clicks.
+- `AppDelegate` keeps the windows, the settings file and its watcher, Secure Keyboard Entry
+  and the Settings window.
+
+**The title row.**
+- The content runs under a transparent title bar with no toolbar: an empty toolbar would
+  make the row tall but would take the clicks of the pills under it.
+- The traffic lights are moved to the middle of the 46 pt row after each layout pass, as
+  Electron's `trafficLightPosition` does.
+- A window test checks that a click on a pill reaches the pill.
+
+**Nothing in the chrome draws per frame.**
+- The NeonBorder is gradient strips and arcs, not masks.
+- The glow is a `shadowPath`.
+- Panes not in use are faded by the terminal's shader through a spare uniform word: no
+  overlay layer, no offscreen pass.
+- The tab equalizer is a Core Animation animation, stopped by one check after output ends.
+- The starfield on the ground is drawn once per size. Behind the text, the background
+  shader draws it from the pixel position, in cells FrameBuilder marks.
+- The surface's grid layout does nothing when nothing changed, so a chrome layout pass draws
+  no terminal frame.
+
+**Hear Me Calling** is an overlay over the window, made when it opens and released when it
+closes.
+- AppKit owns its geometry and its keys: the search field's delegate takes ↑ ↓ ⇥ ↵ and esc
+  before the field editor can.
+- SwiftUI draws the rows. `PaletteState` (AppCore) ranks and highlights.
+- Actions are validated as their menu items would be, so the palette never offers what
+  would do nothing.
+
+### Links
+
+1. **VTCore parses OSC 8.** A printed cell carries the hyperlink flag, and its spare 16 bits
+   hold 1 + the index of its link in the row's own table, as styles are kept.
+   - Rows travel whole, so scrolling and history carry their tables. Reflow translates
+     indexes from row to row.
+   - **Limits:** URIs up to 2,048 bytes, ids up to 256, 1,024 links a row. Anything past
+     them, or with control characters, prints without a link.
+2. **The delta carries the tables** (`DeltaCodec` format 3). Decoding rejects what the
+   engine never makes: indexes past the table, a flag without an index, too many links, and
+   control characters.
+3. **In the app, `LinkFinder` answers which link a cell is in:** the program's own (every cell
+   with its id and URI, on any row), else a URL that `URLDetector` finds in the logical line,
+   across soft wraps.
+4. **The view shows and follows links.**
+   - ⌘-hover underlines the link, adding the underline to the frame like composing text, so
+     no row is rebuilt.
+   - ⌘-click goes through `LinkPolicy`, which opens web and mail links, shows local files in
+     Finder and never runs them, asks before other schemes, and refuses scripts.
+   - Mouse reports cannot carry ⌘, so programs never see these clicks.
+   - Every URI is shown through `LinkPolicy.shown`, which spells out invisible and
+     text-reordering characters.
+
+### Frame rate
+
+`FrameRatePolicy` (SurfaceCore) chooses the display link's preferred frame rate range. It is
+set only when the answer changes.
+
+| Situation | At most |
+| --- | --- |
+| Typing, scrolling or selecting in the last second | the display's full rate |
+| Output alone (`output-frame-rate-cap`) | 60 fps |
+| Low Power Mode (`follow-low-power-mode`) | 60 for input, 30 for output |
+| A serious thermal state | 30 fps |
+
+Low Power Mode and the thermal state arrive by notification, and nothing polls.
 
 ### Settings are a file
 
@@ -200,8 +279,15 @@ and write its value, so the parser, the defaults and the commented template Sett
 cannot drift apart; a test reads the template back. A line that cannot be used is reported
 once, with a suggestion for a misspelled name, and leaves that setting at its default: nothing
 in the file can stop the app starting. Reload Configuration applies what changed to open
-windows; the settings under New tabs apply to tabs opened afterwards. The Settings window of
-Phase 3 edits the same file.
+windows; the settings under New tabs apply to tabs opened afterwards.
+
+The Settings window edits the same file, one line per change, through `ConfigEditor`.
+- Every other line stays as it was: comments, order, line endings.
+- Writes are atomic, and a settings file that is a symlink stays one.
+- `ConfigWatcher` re-reads the file after any editor saves it, in place or by rename, using
+  kernel event sources, so nothing runs while nothing changes. Death Race's own writes are
+  not reported back to it.
+- The file stays the one source of truth, and the window always shows what it says.
 
 ### Rendering
 
@@ -278,7 +364,7 @@ shells in the app and keeps sessions alive another way.
 | 0 | Visual spec (design system + canvas), scaffold, CI, cloud session hook |
 | 1 | VTCore, ScreenProtocol, SessionKit, vthost; esctest, fuzzing, corpus, benchmarks |
 | 2 | First pixels: CPTY on Darwin, TerminalSurfaceView, RenderKit v1, tabs; daemon spike |
-| 3 | Pit Lane shell: WRLD sidebar, tab pills, splits, palette, settings, 8 themes, fonts |
+| 3 | Pit Lane shell: tab pills, splits, Hear Me Calling, the Settings window, 8 themes, fonts, links, frame-rate policy (the WRLD sidebar moved to Phase 4, with its content) |
 | 4 | Termius layer: vault, SSH launcher, Secure Enclave keys, tunnels, snippets, broadcast |
 | 5 | Lucid Dreams: the notch quick terminal |
 | 6 | Maze: the SFTP browser |

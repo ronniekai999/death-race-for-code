@@ -116,6 +116,11 @@ jobs:
       - name: Render the corpus screens
         timeout-minutes: 3
         run: DEATHRACE_RENDER_PREVIEW="$PWD/build/render" swift test --package-path Packages/DeathRaceKit --skip-build --filter RenderGoldenTests
+      # The Pit Lane in all eight themes, with Hear Me Calling and Settings, kept for review
+      # beside the mockups; a debug build's own flag, so it needs no bundle.
+      - name: Render the chrome
+        timeout-minutes: 3
+        run: Packages/DeathRaceKit/.build/debug/DeathRace --render-chrome build/chrome
       # With the legendsd spike's helper and agent, so the signature check covers nested code.
       - name: Bundle
         timeout-minutes: 10
@@ -150,5 +155,11 @@ jobs:
         with:
           name: render-preview-${{ github.sha }}
           path: build/render
+          if-no-files-found: ignore
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chrome-preview-${{ github.sha }}
+          path: build/chrome
           if-no-files-found: ignore
           retention-days: 7

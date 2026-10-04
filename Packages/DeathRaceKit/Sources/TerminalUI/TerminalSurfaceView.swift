@@ -635,6 +635,34 @@ public final class TerminalSurfaceView: NSView {
         updateCursor()
     }
 
+    // MARK: - Snapshots
+
+    /// What the view shows, drawn offscreen at its size, as its next frame would be: for
+    /// previews and tests, which cannot ask the window server for a Metal layer's picture.
+    /// Nil before the session's first screen arrives.
+    public func snapshot(using renderer: OffscreenRenderer) throws -> RenderedImage? {
+        guard let model, model.mirror.generation != nil else { return nil }
+        let scale = cell.scale
+        let width = Int((Double(bounds.width) * scale).rounded())
+        let height = Int((Double(bounds.height) * scale).rounded())
+        guard width > 0, height > 0 else { return nil }
+        let glyphs = GlyphCache(rasterizer: GlyphRasterizer(fonts: fonts, cell: cell, thicken: fontThicken))
+        let builder = FrameBuilder()
+        var frame = builder.build(
+            mirror: model.mirror, theme: theme, cell: cell, selection: selectionRange, glyphs: glyphs,
+            starfield: starfield, link: hoveredLink)
+        // Glyphs not ready the first time are the next time.
+        for _ in 0..<3 where !frame.isComplete {
+            frame = builder.build(
+                mirror: model.mirror, theme: theme, cell: cell, selection: selectionRange, glyphs: glyphs,
+                starfield: starfield, link: hoveredLink)
+        }
+        let layout = PixelLayout(
+            width: width, height: height, originX: Int((grid.left * scale).rounded()),
+            originY: Int((grid.top * scale).rounded()))
+        return try renderer.render(frame, cell: cell, layout: layout, glyphs: glyphs, dim: dimming?.packed ?? 0)
+    }
+
     // MARK: - Frame rate
 
     /// A key press, a scroll or a selection drag: the display's full rate for a second.

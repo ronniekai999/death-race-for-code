@@ -57,6 +57,18 @@ everything 25–60% slower, because each use copies a strong reference.
 Still to do: the per-character path retains and releases rows on every cell access. That
 needs restructuring, done when the M5 measurements say it matters.
 
+**After OSC 8 links (Phase 3).** Every print path now looks up the open link once per row
+segment and stamps it on each cell. Three runs in the same container:
+
+| Workload | Runs (MB/s) |
+| --- | --- |
+| ascii | 185, 178, 198 |
+| sgr | 92, 94, 91 |
+| unicode | 27, 32, 31 |
+| cursor | 60, 61, 65 |
+
+All are within run-to-run noise of the numbers above.
+
 ## Measuring on the Mac
 
 The Phase 2 budgets above are checked by hand on the M5, with a debug build
@@ -91,7 +103,28 @@ The Phase 2 budgets above are checked by hand on the M5, with a debug build
   arrives in between.
 - **Output floods coalesce.** The session thread publishes at most one delta per frame and
   never waits on the renderer.
-- **Effects ride existing frames.** Glow and starfield parallax draw only on frames that output,
-  typing or scrolling already caused. Low Power Mode, battery and thermal pressure turn them off.
+- **The chrome draws nothing per frame.**
+  - The NeonBorder and the pills are layers drawn once.
+  - The glow is a shadow with a fixed path.
+  - Panes not in use are dimmed inside the terminal's own shader.
+  - The starfield is drawn once per size on the ground, and by the background shader
+    behind the text.
+  - The equalizer is a Core Animation animation that stops a moment after output does.
+  - Nothing in the chrome runs a timer.
+- **Output draws no faster than it is read.**
+  - Busy output is capped at 60 frames a second (`output-frame-rate-cap`), while typing,
+    scrolling and selecting keep the display's full rate for a second after each.
+  - Low Power Mode lowers output to 30 (`follow-low-power-mode`), and a serious thermal state
+    caps everything at 30.
+  - The display link's range is set only when the answer changes, from notifications rather
+    than polling.
+- **Settings and the palette cost nothing when closed.** Both are made when they open and
+  released when they close.
+  - The settings file is watched with kernel event sources.
+  - The Energy page samples every two seconds only while it is on screen, and leaves its own
+    wakeup out of what it shows.
+- **Phase 9's effects ride existing frames.** Text glow and XDR Neon will draw only on frames
+  that output, typing or scrolling already caused, and Low Power Mode, battery and thermal
+  pressure will turn them off.
 - **XDR Neon is opt-in.** Extended dynamic range uses more bandwidth and power; Apple's guidance
   is to enable it only when the user will see the difference.

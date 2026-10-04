@@ -125,7 +125,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
 
     private func show(_ controller: PitLaneWindowController, near other: NSWindow? = nil) {
         guard let window = controller.window else { return }
-        controller.onSettingsProblemsClick = { [weak self] in self?.openSettingsFile(nil) }
+        // The status bar's "2 settings could not be used": which, and why.
+        controller.onSettingsProblemsClick = { [weak self, weak controller] in
+            self?.configStore.reportProblems(in: controller?.window)
+        }
         controller.settingsProblems = configStore.diagnostics.count
         windows.append(controller)
         if let other {

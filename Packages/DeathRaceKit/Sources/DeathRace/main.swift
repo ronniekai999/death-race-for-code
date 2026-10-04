@@ -20,6 +20,12 @@ if let index = CommandLine.arguments.firstIndex(of: "--write-icon") {
         exit(1)
     }
 }
+#if DEBUG
+    // The Pit Lane in every theme, as pictures: `--render-chrome DIR`.
+    if CommandLine.arguments.contains("--render-chrome") {
+        exit(MainActor.assumeIsolated { ChromePreview.run(arguments: CommandLine.arguments) })
+    }
+#endif
 if CommandLine.arguments.contains("--smoke-test") {
     exit(MainActor.assumeIsolated { DeathRaceSmokeTest.run() })
 }

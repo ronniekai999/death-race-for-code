@@ -17,16 +17,20 @@ public struct RenderedImage: Sendable {
         return (bgra[index + 2], bgra[index + 1], bgra[index], bgra[index + 3])
     }
 
+    /// The image, for drawing into another.
+    public func cgImage() -> CGImage? {
+        guard let provider = CGDataProvider(data: Data(bgra) as CFData) else { return nil }
+        return CGImage(
+            width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(
+                rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue),
+            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+    }
+
     /// The image as PNG bytes.
     public func pngData() -> Data? {
-        guard let provider = CGDataProvider(data: Data(bgra) as CFData),
-            let image = CGImage(
-                width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
-                space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGBitmapInfo(
-                    rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue),
-                provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
-        else { return nil }
+        guard let image = cgImage() else { return nil }
         let data = NSMutableData()
         guard
             let destination = CGImageDestinationCreateWithData(
@@ -55,10 +59,11 @@ public final class OffscreenRenderer {
         renderer = SurfaceRenderer(device: device, pipelines: try RenderPipelines(device: device))
     }
 
-    /// Draws `frame` with its grid at `layout` in a target of `layout`'s size, and waits for it.
-    public func render(_ frame: Frame, cell: CellMetrics, layout: PixelLayout, glyphs: GlyphCache) throws
-        -> RenderedImage
-    {
+    /// Draws `frame` with its grid at `layout` in a target of `layout`'s size, and waits for it;
+    /// `dim` fades it as a pane not in use.
+    public func render(
+        _ frame: Frame, cell: CellMetrics, layout: PixelLayout, glyphs: GlyphCache, dim: PackedColor = 0
+    ) throws -> RenderedImage {
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .bgra8Unorm, width: layout.width, height: layout.height, mipmapped: false)
         descriptor.usage = [.renderTarget, .shaderRead]
@@ -72,7 +77,8 @@ public final class OffscreenRenderer {
         glyphs.beginFrame()
         guard
             renderer.encode(
-                frame, cell: cell, layout: layout, glyphs: glyphs, target: target, commandBuffer: commandBuffer)
+                frame, cell: cell, layout: layout, glyphs: glyphs, target: target, commandBuffer: commandBuffer,
+                dim: dim)
         else { throw RenderError.resources("a frame") }
         guard let blit = commandBuffer.makeBlitCommandEncoder() else { throw RenderError.resources("a blit") }
         blit.copy(

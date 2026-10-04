@@ -4,6 +4,114 @@ What CI cannot check, because it needs a real Mac, a real GPU, a keyboard, input
 your eyes. Run it with a debug build (`CONFIG=debug make run`) before closing a phase, and
 note the macOS build (`sw_vers`) with the results.
 
+Phase 3's checks come first; Phase 2's follow, and still apply.
+
+## Phase 3 exit criteria
+
+Phase 3 is done when all of these hold on the M5:
+
+1. The window matches the mockup boards (Main, Themes, Settings, Hear Me Calling, App icon) in
+   all eight themes, side by side. CI's `chrome-preview` artifact has a picture of each to
+   start from; the traffic lights and the glow's blur are the window server's and only show
+   on the Mac.
+2. Idle with all the chrome showing, four panes and a background tab: 0 frames and at most
+   0.5 wakeups a second.
+3. Phase 2's budgets in [PERF.md](PERF.md) still hold with four panes in one tab.
+4. Every theme passes the contrast tests (Linux CI checks this on every push).
+
+## The window
+
+- [ ] **Each of the eight themes** (Settings › Appearance, or Hear Me Calling): the title row,
+      pills, cards, NeonBorder, status bar and terminal colors follow it.
+  - [ ] Righteous makes the whole window light: menus, sheets and the traffic lights too.
+  - [ ] Stars on the ground in the dark themes, and faint ones in the empty ends of rows
+        (`starfield = true`); none in Righteous.
+- [ ] **The traffic lights** sit in the middle of the 46 pt title row, and stay there after
+      resizing, full screen and back, and moving to another display.
+- [ ] **Tabs:**
+  - [ ] Clicking a pill shows its tab; the × closes it; a middle click closes it.
+  - [ ] Dragging a pill reorders the tabs.
+  - [ ] Window › Move Tab to New Window, and the pill's context menu, move a tab with its
+        panes running.
+  - [ ] A background tab running `yes | head -c 50000000 > /dev/null; seq 1 2000000` shows
+        the equalizer, which stops a moment after the output does. With Reduce Motion it
+        stands still.
+  - [ ] `printf '\a'` in a background tab puts a dot on its pill until it is shown.
+  - [ ] `exit 3` leaves a red dot on the pill and Restart in the pane.
+- [ ] **Closing:** ⌘W closes the pane, then the tab, then the window; ⌥⌘W the tab; ⇧⌘W and
+      the red button the window. With `vim` running each asks once, naming it.
+
+## Panes
+
+- [ ] Four panes (⌘D, ⇧⌘D) running vim, htop, tmux and zsh, all drawing correctly.
+- [ ] The pane in use has the NeonBorder, glowing in the key window; the others are dimmed,
+      their cursors too.
+- [ ] Headers show the program, folder, branch and the ⌥⌘ number; ⌥⌘1–4 focus them.
+- [ ] ⌘⌥ arrows move between panes; ⌘[ and ⌘] step through them.
+- [ ] Dragging a divider resizes the panes, which stop at 10 columns × 3 rows; a double click
+      on it, or ⌃⌘=, evens them out.
+- [ ] ⇧⌘↩ zooms the pane in use to the whole tab and back.
+
+## Hear Me Calling
+
+- [ ] ⇧⌘P, or the title bar's button, dims the window and opens the palette with the keys
+      in its field.
+- [ ] Typing finds actions (with their shortcuts), panes in every window, themes and
+      Settings pages; matched letters are bold.
+- [ ] ↑↓ move, ⇥ and ⇧⇥ narrow to one kind, ↵ chooses, esc closes; so does a click outside.
+- [ ] Moving through themes shows each on this window; esc puts the old one back; ↵ saves it
+      and every window follows.
+- [ ] A pick comes first the next time, with nothing typed.
+
+## Settings and live reload
+
+- [ ] Settings… (⌘,) opens the window in the theme's colors, on Appearance.
+- [ ] Each control changes its one line of the file (watch it in an editor) and applies at
+      once: a theme swatch, the font, the size slider (written when the drag ends), a switch.
+- [ ] An edit saved in an editor (vim, which saves by rename, and TextEdit) shows in the
+      window and applies to every window within a moment.
+- [ ] `font-size = huge` saved in an editor puts "1 setting could not be used" in the status
+      bar; clicking it shows why, with a button to open the file.
+- [ ] With the settings file a symlink into another folder, saving from Settings keeps the
+      link and writes the file it points to.
+- [ ] The Energy page shows CPU, wakeups and frames while it is open, and its numbers settle
+      near zero with the terminal idle.
+
+## Fonts and icons
+
+- [ ] A Starship or Powerlevel10k prompt shows its icons with SF Mono and with the bundled
+      Monaspace Neon, no patched font installed.
+- [ ] `font-family = Monaspace Neon` with `font-family-italic = Monaspace Radon`:
+      `printf '\e[3mitalic\e[0m'` draws in Radon.
+- [ ] About credits the bundled fonts.
+- [ ] The Dock, Finder and ⌘⇥ show icon B with no gray plate around it.
+
+## Links
+
+- [ ] `ls --hyperlink=auto` (GNU ls, `brew install coreutils` as `gls`): with ⌘ held over a
+      name, its cells are underlined, the pointer is a hand and the status bar shows the
+      `file://` address; ⌘-click shows the file in Finder and never opens it.
+- [ ] `echo https://example.com/a-long-path-that-wraps…` in a narrow pane: ⌘-hover
+      underlines the whole URL across the wrap; ⌘-click opens it in the browser.
+- [ ] `printf '\e]8;;ssh://example.com\e\\ssh\e]8;;\e\\\n'`: ⌘-click asks first, naming
+      the app.
+- [ ] `printf '\e]8;;https://example.org\e\\https://apple.com\e]8;;\e\\\n'`: ⌘-click asks,
+      since the text names another site.
+- [ ] A right-click on a link offers Open Link and Copy Link.
+- [ ] In vim with `:set mouse=a`, a ⌘-click on a URL follows it and vim sees no click.
+
+## Phase 3 energy
+
+See [PERF.md](PERF.md#measuring-on-the-mac) for the commands.
+
+- [ ] Idle with all the chrome, four panes and a background tab: 0 frames, at most 0.5
+      wakeups a second.
+- [ ] `cat` of a large file draws at most 60 frames a second (signposts), and typing during
+      it at the display's rate.
+- [ ] In Low Power Mode, busy output draws at most 30 frames a second.
+- [ ] Key to screen p95 with four panes is no worse than with one.
+- [ ] `footprint` with four panes, against Phase 2's per-tab numbers.
+
 ## Phase 2 exit criteria
 
 Phase 2 is done when all of these hold on the M5:
@@ -92,8 +200,8 @@ Phase 2 is done when all of these hold on the M5:
       prompt does not. ⌘Q with `vim` running asks once.
 - [ ] `exit` closes the tab; `exit 3` leaves it open with "The shell exited with status 3."
 - [ ] ⌘+, ⌘− and ⌘0 change this window's font size; the grid keeps the window size.
-- [ ] Settings… opens the config file. After an edit, Reload Configuration (⌘⇧,) applies
-      it to open windows:
+- [ ] Open Settings File opens the config file. After an edit, Reload Configuration (⌘⇧,)
+      applies it to open windows:
   - [ ] font size, padding and cursor style;
   - [ ] `background` and `palette`. A program's own colors (`printf '\e]11;#203040\a'`)
         stay.

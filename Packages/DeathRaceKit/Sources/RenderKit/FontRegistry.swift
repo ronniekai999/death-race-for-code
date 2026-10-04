@@ -24,8 +24,7 @@ public enum FontRegistry {
     /// repository, `build/fonts`, where `scripts/fetch-fonts.sh` puts them. `DEATHRACE_FONTS`
     /// overrides both.
     public static func directory(
-        bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment,
-        source: String = #filePath
+        bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL? {
         let manager = FileManager.default
         if let path = environment["DEATHRACE_FONTS"], !path.isEmpty {
@@ -37,8 +36,9 @@ public enum FontRegistry {
             return resources
         }
         // Sources/RenderKit/FontRegistry.swift in Packages/DeathRaceKit: five levels up is the
-        // repository. Only a build on this machine finds it, which is all it is for.
-        var repository = URL(fileURLWithPath: source)
+        // repository. Only a build on this machine finds it, which is all it is for. (Here
+        // in the body, #filePath is this file; as a default argument it would be the caller's.)
+        var repository = URL(fileURLWithPath: #filePath)
         for _ in 0..<5 { repository.deleteLastPathComponent() }
         let fetched = repository.appendingPathComponent("build/fonts", isDirectory: true)
         return manager.fileExists(atPath: fetched.path) ? fetched : nil

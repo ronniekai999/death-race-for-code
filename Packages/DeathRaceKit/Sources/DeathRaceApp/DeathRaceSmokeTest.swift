@@ -84,8 +84,7 @@ public enum DeathRaceSmokeTest {
     @MainActor
     private static func checkFonts() throws -> String {
         let report = FontRegistry.registerBundledFonts()
-        // Until scripts/bundle.sh fetches the fonts, a bundle may have none.
-        guard let directory = report.directory else { return "skipped, no bundled fonts" }
+        guard let directory = report.directory else { throw Failure("no Fonts directory") }
         guard report.failed.isEmpty else {
             throw Failure("did not register: \(report.failed.joined(separator: "; "))")
         }

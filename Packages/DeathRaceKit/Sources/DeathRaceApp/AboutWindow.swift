@@ -11,7 +11,7 @@ final class AboutWindow {
     func show() {
         if window == nil {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 420, height: 300),
+                contentRect: NSRect(x: 0, y: 0, width: 420, height: 340),
                 styleMask: [.titled, .closable, .fullSizeContentView],
                 backing: .buffered, defer: true)
             window.title = "About Death Race for Code"
@@ -52,10 +52,20 @@ struct AboutView: View {
                     .foregroundStyle(Legends.inkFaint)
                 Tagline()
                     .padding(.top, 14)
+                // The fonts' licenses ask for credit; their texts are in the app's
+                // Resources/Fonts.
+                Text(
+                    "Monaspace © GitHub, under the SIL Open Font License 1.1. Symbols Nerd Font © Nerd Fonts;"
+                        + " its icon sets keep their own licenses, listed with it."
+                )
+                .font(.system(size: 10))
+                .foregroundStyle(Legends.inkFaint)
+                .multilineTextAlignment(.center)
+                .padding(.top, 10)
             }
             .padding(32)
         }
         .ignoresSafeArea()
-        .frame(width: 420, height: 300)
+        .frame(width: 420, height: 340)
     }
 }

@@ -35,6 +35,11 @@ for bundle in "$BIN"/*.bundle; do
   cp -R "$bundle" "$APP/Contents/Resources/"
 done
 shopt -u nullglob
+# The bundled fonts and their licenses (scripts/fetch-fonts.sh pins each download).
+"$ROOT/scripts/fetch-fonts.sh"
+mkdir -p "$APP/Contents/Resources/Fonts"
+cp "$ROOT"/build/fonts/* "$APP/Contents/Resources/Fonts/"
+
 # Icon B, drawn by the app itself (AppIcon.swift) at every size and packed by iconutil.
 ICON="$ROOT/build/icon"
 rm -rf "$ICON"

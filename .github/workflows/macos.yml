@@ -10,6 +10,7 @@ on:
       - "Packages/**"
       - "App/**"
       - "scripts/bundle.sh"
+      - "scripts/fetch-fonts.sh"
       - "Makefile"
       - ".github/workflows/macos.yml"
   push:
@@ -18,6 +19,7 @@ on:
       - "Packages/**"
       - "App/**"
       - "scripts/bundle.sh"
+      - "scripts/fetch-fonts.sh"
       - "Makefile"
       - ".github/workflows/macos.yml"
   workflow_dispatch:
@@ -45,6 +47,14 @@ jobs:
           path: Packages/DeathRaceKit/.build
           key: spm-macos-26-${{ hashFiles('Packages/DeathRaceKit/Package.swift') }}-${{ github.sha }}
           restore-keys: spm-macos-26-${{ hashFiles('Packages/DeathRaceKit/Package.swift') }}-
+      # The fonts the app ships: fetched by a pinned script, kept between runs.
+      - uses: actions/cache@v4
+        with:
+          path: build/fonts-cache
+          key: fonts-${{ hashFiles('scripts/fetch-fonts.sh') }}
+      - name: Fetch the fonts
+        timeout-minutes: 5
+        run: scripts/fetch-fonts.sh
       # Step limits keep a hang from spending the whole job's macOS minutes.
       - name: Build
         timeout-minutes: 15

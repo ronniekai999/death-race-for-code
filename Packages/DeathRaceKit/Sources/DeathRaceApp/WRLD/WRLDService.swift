@@ -523,7 +523,8 @@ final class WRLDService: HostConnecting {
 
     func knownKeys(_ removal: KeyRemoval, for host: HostRef?) async -> [KnownHosts.Entry] {
         guard removal.isConfirmed(by: await knownHostsHops(for: host)) else { return [] }
-        await KnownHosts.find(removal.name, path: removal.file, runner: SystemProcessRunner(), environment: environment)
+        return await KnownHosts.find(
+            removal.name, path: removal.file, runner: SystemProcessRunner(), environment: environment)
     }
 
     func forgetKey(_ removal: KeyRemoval, for host: HostRef?) async -> String? {

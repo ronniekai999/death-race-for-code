@@ -51,10 +51,10 @@ var targets: [Target] = [
     .target(name: "ConfigKit", dependencies: ["VTCore"]),
     // What a terminal view does, apart from AppKit and Metal: cell geometry, colors, the
     // frame to draw, selection, key routing. Tested here so the macOS layer stays thin.
-    .target(name: "SurfaceCore"),
+    .target(name: "SurfaceCore", dependencies: ["VTCore", "ScreenProtocol", "SessionKit", "ConfigKit"]),
     .executableTarget(
         name: "vthost",
-        dependencies: ["VTCore", "PTYKit"],
+        dependencies: ["VTCore", "PTYKit", "SurfaceCore"],
         path: "Tools/vthost"
     ),
     .testTarget(name: "PTYKitTests", dependencies: ["PTYKit"]),
@@ -62,7 +62,8 @@ var targets: [Target] = [
     .testTarget(name: "ScreenProtocolTests", dependencies: ["ScreenProtocol", "VTCore"]),
     .testTarget(name: "SessionKitTests", dependencies: ["SessionKit", "ScreenProtocol", "PTYKit", "VTCore"]),
     .testTarget(name: "ConfigKitTests", dependencies: ["ConfigKit", "VTCore"]),
-    .testTarget(name: "SurfaceCoreTests", dependencies: ["SurfaceCore"]),
+    .testTarget(
+        name: "SurfaceCoreTests", dependencies: ["SurfaceCore", "VTCore", "ScreenProtocol", "SessionKit", "ConfigKit"]),
 ]
 
 #if os(macOS)

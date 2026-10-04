@@ -3,7 +3,8 @@
 # NAME.bin is the program's output, NAME.marks how much of it came before each scripted key
 # press, and NAME.screen the screens VTCore makes of it (80x24): one at every key press, then
 # the last. The corpus tests replay every .bin and compare with its .screen, so a change that
-# alters how real programs look shows up as a failing test.
+# alters how real programs look shows up as a failing test. A few recordings also get a frame
+# golden in Tests/Fixtures/frames/: the colors the app would draw, with the default theme.
 #
 #   scripts/record-corpus.sh             record everything again, then write the goldens
 #   scripts/record-corpus.sh --goldens   rewrite the goldens from the existing recordings,
@@ -17,6 +18,8 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PKG=$ROOT/Packages/DeathRaceKit
 CORPUS=$PKG/Tests/Fixtures/corpus
+FRAMES=$PKG/Tests/Fixtures/frames
+FRAME_GOLDENS="htop vim-syntax tmux-split less-search vttest-colors"
 swift build --package-path "$PKG" --product vthost >/dev/null
 VTHOST="$(swift build --package-path "$PKG" --show-bin-path)/vthost"
 
@@ -26,7 +29,13 @@ goldens() {
     [ -f "${bin%.bin}.marks" ] && marks=(--marks "${bin%.bin}.marks")
     "$VTHOST" replay --columns 80 --rows 24 "${marks[@]}" "$bin" > "${bin%.bin}.screen"
   done
-  echo "wrote $(ls "$CORPUS"/*.screen | wc -l) goldens"
+  mkdir -p "$FRAMES"
+  for name in $FRAME_GOLDENS; do
+    local marks=()
+    [ -f "$CORPUS/$name.marks" ] && marks=(--marks "$CORPUS/$name.marks")
+    "$VTHOST" frame --summary --columns 80 --rows 24 "${marks[@]}" "$CORPUS/$name.bin" > "$FRAMES/$name.frame"
+  done
+  echo "wrote $(ls "$CORPUS"/*.screen | wc -l) screen goldens and $(ls "$FRAMES"/*.frame | wc -l) frame goldens"
 }
 
 if [ "${1:-}" = "--goldens" ]; then goldens; exit 0; fi

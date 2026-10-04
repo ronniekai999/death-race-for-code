@@ -9,7 +9,8 @@ import VTCore
 /// error, so a malformed message cannot make the app allocate or crash.
 public enum DeltaCodec {
     static let magic: [UInt8] = Array("DRSD".utf8)
-    public static let formatVersion: UInt8 = 1
+    /// 2 added `viewportTopLine`.
+    public static let formatVersion: UInt8 = 2
 
     public enum DecodeError: Error, Equatable {
         case truncated
@@ -32,6 +33,7 @@ public enum DeltaCodec {
         w.u32(UInt32(clamping: delta.rows))
         w.u32(UInt32(clamping: delta.viewportOffset))
         w.u32(UInt32(clamping: delta.scrollbackCount))
+        w.u64(delta.viewportTopLine)
 
         w.u32(UInt32(delta.rowIDs.count))
         for id in delta.rowIDs { w.u64(id) }
@@ -187,6 +189,7 @@ public enum DeltaCodec {
         let rows = Int(try r.u32())
         let viewportOffset = Int(try r.u32())
         let scrollbackCount = Int(try r.u32())
+        let viewportTopLine = try r.u64()
 
         let idCount = try r.count(elementSize: 8)
         var rowIDs: [UInt64] = []
@@ -231,7 +234,7 @@ public enum DeltaCodec {
         return ScreenDelta(
             generation: generation, version: deltaVersion, baseVersion: baseVersion, isSnapshot: isSnapshot,
             columns: columns, rows: rows, viewportOffset: viewportOffset, scrollbackCount: scrollbackCount,
-            rowIDs: rowIDs,
+            viewportTopLine: viewportTopLine, rowIDs: rowIDs,
             changedRows: changedRows,
             cursor: CursorSnapshot(
                 x: cursorX, y: cursorY, pendingWrap: pendingWrap, visible: visible, shape: shape, blinks: blinks),

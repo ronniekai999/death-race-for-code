@@ -40,12 +40,15 @@ extension Terminal {
             dynamicColors(startingAt: command, text, terminator: terminator)
         case 110:
             palette.foreground = configuration.palette.foreground
+            paletteOverrides.remove(Self.foregroundSlot)
             emit(.colorsChanged)
         case 111:
             palette.background = configuration.palette.background
+            paletteOverrides.remove(Self.backgroundSlot)
             emit(.colorsChanged)
         case 112:
             palette.cursor = configuration.palette.cursor
+            paletteOverrides.remove(Self.cursorSlot)
             emit(.colorsChanged)
         case 52:
             clipboard(rest)
@@ -77,6 +80,7 @@ extension Terminal {
                     reply("\u{1B}]4;\(index);\(palette.colors[index].x11)\(terminator)")
                 } else if let color = RGB(colorSpec: spec) {
                     palette.colors[index] = color
+                    paletteOverrides.insert(index)
                     changed = true
                 }
             }
@@ -88,10 +92,12 @@ extension Terminal {
     private func resetPaletteColors(_ text: String) {
         if text.isEmpty {
             palette.colors = configuration.palette.colors
+            paletteOverrides = paletteOverrides.filter { $0 >= 256 }
         } else {
             for part in text.split(separator: ";") {
                 if let index = Int(part), (0..<256).contains(index) {
                     palette.colors[index] = configuration.palette.colors[index]
+                    paletteOverrides.remove(index)
                 }
             }
         }
@@ -118,6 +124,7 @@ extension Terminal {
                 case 11: palette.background = color
                 default: palette.cursor = color
                 }
+                paletteOverrides.insert(Self.foregroundSlot + which - 10)
                 changed = true
             }
             which += 1

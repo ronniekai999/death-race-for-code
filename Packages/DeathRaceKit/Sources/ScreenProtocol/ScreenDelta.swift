@@ -92,6 +92,9 @@ public struct ScreenDelta: Sendable, Equatable {
     /// How many lines the viewport is scrolled up into scrollback; 0 follows the output.
     public var viewportOffset: Int
     public var scrollbackCount: Int
+    /// The number of the viewport's top line (`Terminal.linesScrolledOff`): line numbers
+    /// stay with their lines as output scrolls, so selections hold on to text by them.
+    public var viewportTopLine: UInt64
     /// The viewport's rows, top to bottom.
     public var rowIDs: [UInt64]
     /// Rows the app does not have in their current version.
@@ -111,8 +114,8 @@ public struct ScreenDelta: Sendable, Equatable {
 
     public init(
         generation: UInt64, version: UInt64, baseVersion: UInt64 = 0, isSnapshot: Bool, columns: Int, rows: Int,
-        viewportOffset: Int,
-        scrollbackCount: Int, rowIDs: [UInt64], changedRows: [RowSnapshot], cursor: CursorSnapshot,
+        viewportOffset: Int, scrollbackCount: Int, viewportTopLine: UInt64 = 0, rowIDs: [UInt64],
+        changedRows: [RowSnapshot], cursor: CursorSnapshot,
         modes: TerminalModes, kittyFlags: UInt8, isAlternateScreen: Bool, title: String, palette: Palette?,
         events: [TerminalEvent], readingPassword: Bool = false
     ) {
@@ -124,6 +127,7 @@ public struct ScreenDelta: Sendable, Equatable {
         self.rows = rows
         self.viewportOffset = viewportOffset
         self.scrollbackCount = scrollbackCount
+        self.viewportTopLine = viewportTopLine
         self.rowIDs = rowIDs
         self.changedRows = changedRows
         self.cursor = cursor

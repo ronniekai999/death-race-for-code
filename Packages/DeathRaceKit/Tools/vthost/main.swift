@@ -2,11 +2,13 @@
 //
 //   vthost run [options] -- program [args...]   be the terminal for a program (esctest uses this)
 //   vthost replay [options] file                feed a recording to the engine, print the screen
+//   vthost frame [options] file                 the frame the app would draw for a recording
 //   vthost bench [file...]                      measure parser and screen throughput
 //   vthost smoke                                run a shell on a pseudo-terminal and check it works
 //   vthost version
 
 import PTYKit
+import SurfaceCore
 import VTCore
 
 #if canImport(Darwin)
@@ -34,6 +36,10 @@ func usage() -> Never {
               Feeds a recorded byte stream to the engine and prints the screen: its text,
               the cursor and the styled runs, the form the corpus goldens hold. With
               --marks, prints the screen at each mark too, as it was when keys were typed.
+          vthost frame [--columns N] [--rows N] [--summary [--marks FILE]] file
+              Feeds a recording to the engine and builds the frame the app would draw with
+              the default theme: printed in color, or with --summary as the color runs the
+              frame goldens hold (at each mark too, with --marks).
           vthost bench [--seconds S] [--only ascii|sgr|unicode|cursor] [file...]
               Measures throughput on built-in workloads, or on the given recordings.
           vthost smoke
@@ -50,6 +56,7 @@ arguments.removeFirst()
 switch command {
 case "run": exit(runCommand(arguments))
 case "replay": exit(replayCommand(arguments))
+case "frame": exit(frameCommand(arguments))
 case "bench": exit(benchCommand(arguments))
 case "smoke": exit(smokeCommand(arguments))
 case "version":
@@ -66,6 +73,7 @@ struct Options {
     var checksums = false
     var dump = false
     var scrollback = false
+    var summary = false
     var seconds = 1.0
     var only: String?
     var record: String?
@@ -87,6 +95,7 @@ struct Options {
             case "--checksums": checksums = true
             case "--dump": dump = true
             case "--scrollback": scrollback = true
+            case "--summary": summary = true
             case "--seconds": seconds = Double(value()) ?? seconds
             case "--only": only = value()
             case "--record": record = value()
@@ -215,6 +224,22 @@ func resolve(_ program: String) -> String? {
 
 // MARK: - replay
 
+/// The marks in `path` (byte counts, one a line), checked against a recording of `count`
+/// bytes; nil after printing why they cannot be used.
+func readMarks(_ path: String?, recordingCount count: Int, file: String) -> [Int]? {
+    guard let path else { return [] }
+    guard let text = readFile(path) else {
+        printError("vthost: cannot read \(path)")
+        return nil
+    }
+    let marks = String(decoding: text, as: UTF8.self).split(separator: "\n").compactMap { Int($0) }
+    guard marks.allSatisfy({ $0 <= count }), marks == marks.sorted() else {
+        printError("vthost: \(path) does not fit \(file)")
+        return nil
+    }
+    return marks
+}
+
 func replayCommand(_ arguments: [String]) -> Int32 {
     let options = Options(arguments)
     guard let file = options.rest.first else { usage() }
@@ -222,18 +247,7 @@ func replayCommand(_ arguments: [String]) -> Int32 {
         printError("vthost: cannot read \(file)")
         return 1
     }
-    var marks: [Int] = []
-    if let path = options.marks {
-        guard let text = readFile(path) else {
-            printError("vthost: cannot read \(path)")
-            return 1
-        }
-        marks = String(decoding: text, as: UTF8.self).split(separator: "\n").compactMap { Int($0) }
-        guard marks.allSatisfy({ $0 <= bytes.count }), marks == marks.sorted() else {
-            printError("vthost: \(path) does not fit \(file)")
-            return 1
-        }
-    }
+    guard let marks = readMarks(options.marks, recordingCount: bytes.count, file: file) else { return 1 }
     let terminal = Terminal(Terminal.Configuration(columns: options.columns, rows: options.rows))
     var fed = 0
     for (index, mark) in marks.enumerated() {
@@ -245,6 +259,28 @@ func replayCommand(_ arguments: [String]) -> Int32 {
     terminal.feed(Array(bytes[fed...]))
     if !marks.isEmpty { print("==== at the end, after \(bytes.count) bytes ====") }
     print(terminal.dump(scrollback: options.scrollback), terminator: "")
+    return 0
+}
+
+// MARK: - frame
+
+func frameCommand(_ arguments: [String]) -> Int32 {
+    let options = Options(arguments)
+    guard let file = options.rest.first else { usage() }
+    guard let bytes = readFile(file) else {
+        printError("vthost: cannot read \(file)")
+        return 1
+    }
+    guard let marks = readMarks(options.marks, recordingCount: bytes.count, file: file) else { return 1 }
+    if options.summary {
+        print(
+            FrameReplay.summaries(of: bytes, marks: marks, columns: options.columns, rows: options.rows),
+            terminator: "")
+    } else {
+        let replay = FrameReplay(columns: options.columns, rows: options.rows)
+        replay.feed(bytes[...])
+        print(replay.frame().ansi(text: replay.mirror), terminator: "")
+    }
     return 0
 }
 

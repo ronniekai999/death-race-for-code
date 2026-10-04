@@ -10,6 +10,7 @@ How we know `VTCore` behaves like a terminal. Every check runs on Linux in CI.
 | libFuzzer | no crashes or hangs on arbitrary input; deltas replay to the same screen | 1 min per PR, 30 min weekly |
 | SwiftTerm differential | every corpus screen through SwiftTerm too; each divergence reviewed | 165 screens, 5 differ, all SwiftTerm's |
 | Recorded corpus | real programs' output replays to golden screens: text, cursor and styles, at every key press, whole and in pieces | 9 programs; btop and lazygit to come |
+| Frame goldens | five of those recordings built into the frames the app draws: background, text and decoration colors with the default theme | htop, vim, tmux, less, vttest's colors |
 
 ## esctest
 
@@ -111,6 +112,13 @@ before each key press) and its golden, the screens `vthost replay --marks` print
 key press and at the end, every row's text, the cursor, screen-wide reverse video, and each
 run of styled cells as SGR parameters. `CorpusTests` replays every recording whole, a byte
 at a time and in random pieces, and each must match its golden exactly.
+
+Five recordings (htop, vim with syntax colors, tmux, less searching and vttest's color
+tests) also have frame goldens in `Tests/Fixtures/frames/`: `vthost frame --summary` replays
+them through the app's own path (an in-process session, the mirror, the color rules and the
+frame builder) and writes the runs of background, text and decoration colors the GPU would
+draw, at every key press. `FrameGoldenTests` checks them, so a change in how colors resolve
+(inverse, faint, bold, reverse video) shows up on real programs' screens.
 
 Recordings depend on program versions, so they are recorded once and checked in. After a
 deliberate engine change, `scripts/record-corpus.sh --goldens` rewrites the goldens from

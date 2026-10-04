@@ -63,8 +63,9 @@ make lint
 ```
 
 `vthost` hosts the engine headless: `vthost run -- program` is a terminal for any program
-(`--record` saves its output), `vthost replay file` prints the screen a recording leaves, and
-`vthost bench` measures.
+(`--record` saves its output), `vthost replay file` prints the screen a recording leaves,
+`vthost frame file` prints, in color, the frame the app would draw for it, and `vthost bench`
+measures.
 
 To work in Xcode, open `Packages/DeathRaceKit/Package.swift`.
 

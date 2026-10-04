@@ -92,6 +92,30 @@ public final class Session: Sendable {
         channel.send(.close)
     }
 
+    /// Installs a new base palette, the app's theme: colors programs set stay, the rest
+    /// change, and the next delta carries the result.
+    public func setBasePalette(_ palette: Palette) {
+        channel.send(.setBasePalette(palette))
+    }
+
+    // MARK: - Questions
+
+    /// The text of `range`, read on the session thread, so it reaches into history the app
+    /// does not have. Nil when the screen is no longer the one of `generation` (the line
+    /// numbers would point at other text) or the session has ended.
+    public func text(in range: TextRange, generation: UInt64) async -> String? {
+        await withCheckedContinuation { continuation in
+            channel.send(.query(.text(range, generation: generation, continuation)))
+        }
+    }
+
+    /// Who is in the terminal's foreground, or nil once the session has ended.
+    public func foregroundProcess() async -> ForegroundProcess? {
+        await withCheckedContinuation { continuation in
+            channel.send(.query(.foregroundProcess(continuation)))
+        }
+    }
+
     // MARK: - Results
 
     /// The waiting delta, if any. Taking it tells the session the app has it.
@@ -119,7 +143,24 @@ final class SessionChannel: Sendable {
         case scrollToBottom
         case snapshot
         case focus(Bool)
+        case setBasePalette(Palette)
+        case query(Query)
         case close
+    }
+
+    /// A command that answers. Every query is answered exactly once: by the session thread,
+    /// or with nil when the session has ended, so no caller waits forever.
+    enum Query: Sendable {
+        case text(TextRange, generation: UInt64, CheckedContinuation<String?, Never>)
+        case foregroundProcess(CheckedContinuation<ForegroundProcess?, Never>)
+
+        /// Answers nil: there is no session to ask.
+        func cancel() {
+            switch self {
+            case .text(_, _, let reply): reply.resume(returning: nil)
+            case .foregroundProcess(let reply): reply.resume(returning: nil)
+            }
+        }
     }
 
     struct Mailbox: Sendable {
@@ -145,14 +186,18 @@ final class SessionChannel: Sendable {
     }
 
     /// Queues a command for the session thread; once the session has ended there is no one
-    /// to run it, so it is dropped.
+    /// to run it, so it is dropped, and a query is answered with nil.
     func send(_ command: Command) {
         let queued = mailbox.withLock { box in
             guard box.status == .running else { return false }
             box.commands.append(command)
             return true
         }
-        if queued { wake.signal() }
+        if queued {
+            wake.signal()
+        } else if case .query(let query) = command {
+            query.cancel()
+        }
     }
 
     func sendInput(_ bytes: [UInt8]) -> Bool {

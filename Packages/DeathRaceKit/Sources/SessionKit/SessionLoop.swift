@@ -103,6 +103,11 @@ final class SessionLoop {
         }
         var resize: (columns: Int, rows: Int, cellWidth: Int, cellHeight: Int)?
         for command in commands {
+            guard running else {
+                // Hung up earlier in this batch: the rest only needs its questions answered.
+                if case .query(let query) = command { query.cancel() }
+                continue
+            }
             switch command {
             case .input(let bytes):
                 outgoing.appendInput(bytes)
@@ -134,12 +139,16 @@ final class SessionLoop {
                 mustPublish = true
             case .focus(let focused):
                 setPriority(focused: focused)
+            case .setBasePalette(let palette):
+                terminal.setBasePalette(palette)
+            case .query(let query):
+                answer(query)
             case .close:
                 exitStatus = .some(pty.hangUp())
                 running = false
-                return
             }
         }
+        guard running else { return }
         if let resize {
             // The engine first, then the program: its redraw must find the new size.
             terminal.resize(columns: resize.columns, rows: resize.rows)
@@ -149,6 +158,16 @@ final class SessionLoop {
                     pixelWidth: UInt16(clamping: terminal.columns * resize.cellWidth),
                     pixelHeight: UInt16(clamping: terminal.rows * resize.cellHeight)))
             mustPublish = true
+        }
+    }
+
+    private func answer(_ query: SessionChannel.Query) {
+        switch query {
+        case .text(let range, let generation, let reply):
+            guard generation == terminal.generation else { return reply.resume(returning: nil) }
+            reply.resume(returning: TextExtractor.text(in: range) { terminal.line($0) })
+        case .foregroundProcess(let reply):
+            reply.resume(returning: pty.foregroundProcess())
         }
     }
 
@@ -287,10 +306,12 @@ final class SessionLoop {
         pty.close()
         publish()
         if let exitWatch { close(exitWatch) }
-        channel.mailbox.withLock { box in
+        let unanswered = channel.mailbox.withLock { box in
             box.status = .exited(exitStatus ?? nil)
-            box.commands.removeAll()
+            defer { box.commands.removeAll() }
+            return box.commands
         }
+        for case .query(let query) in unanswered { query.cancel() }
         channel.onUpdate()
     }
 

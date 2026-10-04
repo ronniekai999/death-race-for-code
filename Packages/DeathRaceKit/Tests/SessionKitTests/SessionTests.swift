@@ -106,6 +106,51 @@ struct SessionTests {
         #expect(h.waitUntil { $0.text.contains("999") })
     }
 
+    @Test("text comes from the session, history included, for the generation it was asked for")
+    func textFromTheSession() async throws {
+        let h = try Harness(columns: 40, rows: 4)
+        h.type("for i in 1 2 3 4 5 6 7 8; do echo line$i; done\n")
+        #expect(h.waitUntil { $0.text.contains("line8") })
+        let generation = try #require(h.mirror.generation)
+        let everything = TextRange(
+            TextPoint(line: 0, column: 0), TextPoint(line: h.mirror.viewportTopLine + 3, column: 39))
+        let text = await h.session.text(in: everything, generation: generation)
+        #expect(text?.contains("line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8") == true)
+        #expect(h.mirror.text(in: everything) == nil)
+        #expect(await h.session.text(in: everything, generation: generation &+ 1) == nil)
+    }
+
+    @Test("at its prompt the shell is the foreground process")
+    func foregroundIsTheShell() async throws {
+        let h = try Harness()
+        #expect(h.waitUntil { $0.mirror.generation != nil })
+        let process = await h.session.foregroundProcess()
+        #expect(process?.isShell == true)
+        #expect(process?.name.isEmpty == false)
+    }
+
+    @Test("questions to a session that has ended are answered at once, with nil")
+    func questionsAfterTheEnd() async throws {
+        let h = try Harness()
+        h.type("exit\n")
+        #expect(
+            h.waitUntil { harness in
+                if case .exited = harness.session.status { return true }
+                return false
+            })
+        #expect(await h.session.foregroundProcess() == nil)
+        let range = TextRange(TextPoint(line: 0, column: 0), TextPoint(line: 0, column: 9))
+        #expect(await h.session.text(in: range, generation: h.mirror.generation ?? 0) == nil)
+    }
+
+    @Test("a new base palette reaches the mirror")
+    func basePalette() throws {
+        let h = try Harness()
+        #expect(h.waitUntil { $0.mirror.generation != nil })
+        h.session.setBasePalette(.xterm)
+        #expect(h.waitUntil { $0.mirror.palette == .xterm })
+    }
+
     @Test("a resize reaches the engine, the mirror and the program")
     func resizes() throws {
         let h = try Harness()

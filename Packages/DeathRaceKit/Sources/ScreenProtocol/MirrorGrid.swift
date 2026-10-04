@@ -23,6 +23,8 @@ public struct MirrorGrid: Sendable {
     public private(set) var palette = Palette.legendsNeverDie
     public private(set) var viewportOffset = 0
     public private(set) var scrollbackCount = 0
+    /// The line number of `lines[0]`; `lines[y]` is line `viewportTopLine + y`.
+    public private(set) var viewportTopLine: UInt64 = 0
     public private(set) var readingPassword = false
 
     public init() {}
@@ -66,6 +68,7 @@ public struct MirrorGrid: Sendable {
         if let newPalette = delta.palette { palette = newPalette }
         viewportOffset = delta.viewportOffset
         scrollbackCount = delta.scrollbackCount
+        viewportTopLine = delta.viewportTopLine
         readingPassword = delta.readingPassword
         return changed
     }

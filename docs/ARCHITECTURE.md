@@ -45,7 +45,7 @@ UI half needs macOS.
 | `ScreenProtocol` | macOS, Linux | `ScreenDelta`, `DeltaBuilder` (session side), `MirrorGrid` (app side), `DeltaCodec` (bytes for XPC) |
 | `SessionKit` | macOS, Linux | `Session`: one thread per shell owning its PTY and engine, a locked mailbox for deltas and commands |
 | `ConfigKit` | macOS, Linux | the settings file: `ConfigSchema` (one table drives the parser, the defaults and the template), `ConfigParser` with diagnostics, `Config`, `Theme` |
-| `SurfaceCore` | macOS, Linux | what the terminal view does apart from AppKit and Metal: `CellMetrics` and `GridLayout` now; colors, frames, selection and key routing next |
+| `SurfaceCore` | macOS, Linux | what the terminal view does apart from AppKit and Metal: `SurfaceSession` (a `Session`, or `ReplaySession` in process), `SurfaceModel` (the mirror and what changed), `ColorResolver`, `FrameBuilder` (GPU instances, rebuilt per changed row), `SpriteRasterizer` (box drawing), `ShelfAtlas`, `CellMetrics`/`GridLayout`/`CellGeometry`, `Selection`/`WordRules`, `KeyRouting`/`MacKeyCode`, `ScrollAccumulator`, `FramePacer`, `SecureInput`, `PreeditLayout`, `ShellQuoting`, `WorkingDirectoryURL` |
 | `vthost` | macOS, Linux | headless host CLI: `run`, `replay`, `dump`, `bench`, `smoke`; the terminal esctest and vttest drive |
 | `LegendsUI` | macOS | design system: tokens, `Wordmark999`, `NeonBorder`, `Starfield`, `Tagline` |
 | `RenderKit` | macOS | `FontSet` (SF Mono or a named family, with real or slanted italics); the Metal renderer next |
@@ -121,7 +121,13 @@ meanwhile, the session builds again on the one taken. Phases 1–6 pass deltas i
 
 The session owns each client's viewport. Rows travel by id, so scrolling sends only the new
 line, and a viewport scrolled back into history stays on the same lines while output arrives
-below. Scrolling never changes a row's version; only content changes do. A randomized test
+below. Scrolling never changes a row's version; only content changes do. Every delta also
+carries the viewport's line number (`Terminal.linesScrolledOff`, which counts every line
+that ever left the top of the screen, kept or not), so a line keeps its number while output
+scrolls and history is trimmed: selections hold on to text by line number, and
+`Session.text(in:generation:)` reads ranges that reach back into history the app never had.
+Questions to a session (that text, the foreground process) are always answered, with nil
+once the session has ended. A randomized test
 feeds random output in random chunks (with resizes, screen switches and scrollback trimming),
 sends every delta through the codec, and checks that the app's mirror equals a fresh snapshot
 after each one. The decoder is defensive: counts are checked against the bytes that remain
@@ -199,10 +205,20 @@ Phase 3 edits the same file.
 
 ### Rendering
 
-`TerminalSurfaceView` (NSView + CAMetalLayer + NSTextInputClient) draws from `MirrorGrid`: a
-cols×rows background texture, one instanced glyph draw from CoreText-rasterized atlases, and
-decorations in the shader. Shaders compile at runtime from bundled source, because Xcode 26
-ships its Metal toolchain as a separate download and builds can hang silently without it.
+`TerminalSurfaceView` (NSView + CAMetalLayer + NSTextInputClient) draws from `MirrorGrid`
+through `FrameBuilder`, which lives in the portable `SurfaceCore` so the frame is tested on
+Linux: one background color per cell, one instanced glyph draw from CoreText-rasterized
+atlases (shelf-packed, coverage and color), and decorations (five underline styles,
+strikethrough, overline) drawn by the shader from absolute pixel positions so dots, dashes
+and waves continue across cells. Rows are cached by id and version, so output rebuilds only
+the rows it changed and a scroll rebuilds one. Colors are resolved in sRGB, as themes and
+programs mean them. Box drawing, block elements and the powerline arrows are drawn by
+`SpriteRasterizer` at the exact cell size, not taken from the font: lines sit on whole
+pixels at the same place in every cell, and a test checks that every arm meets the arm of
+the same weight in the next cell at six cell sizes. Frame goldens replay real programs'
+recordings through the whole path (engine, deltas, mirror, colors, frame builder) and compare
+the colors drawn. Shaders compile at runtime from source, because Xcode 26 ships its Metal
+toolchain as a separate download and builds can hang silently without it.
 Glow, XDR Neon (EDR), ligature shaping and images are a late polish phase, and they only ever
 draw on frames that are happening anyway.
 

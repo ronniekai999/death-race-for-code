@@ -37,6 +37,19 @@ int cpty_password_mode(int master_fd);
 /// Close-on-exec. Returns -1 with errno set where neither is available.
 int cpty_exit_watch(pid_t pid);
 
+/// The terminal's foreground process group, asked of the master side (TIOCGPGRP, which
+/// both kernels answer for a master without it being anyone's controlling terminal).
+/// Returns the group id, or -1 with errno set.
+pid_t cpty_foreground_group(int master_fd);
+
+/// The short name of process `pid` (what `ps -c` shows), NUL-terminated in `buffer`.
+/// Returns 0, or -1 with errno set.
+int cpty_process_name(pid_t pid, char *buffer, size_t size);
+
+/// The working directory of process `pid`, NUL-terminated in `buffer`. Returns 0, or -1 with
+/// errno set (ERANGE when it does not fit).
+int cpty_process_cwd(pid_t pid, char *buffer, size_t size);
+
 #ifdef __cplusplus
 }
 #endif

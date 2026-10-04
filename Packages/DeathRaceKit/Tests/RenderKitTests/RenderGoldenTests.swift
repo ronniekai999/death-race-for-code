@@ -9,6 +9,10 @@ import VTCore
 
 @testable import RenderKit
 
+// Outside the suite: its traits cannot refer to the type they are attached to.
+private let comparingRenders = ProcessInfo.processInfo.environment["DEATHRACE_RENDER_GOLDENS"] == "1"
+private let renderPreviewDirectory = ProcessInfo.processInfo.environment["DEATHRACE_RENDER_PREVIEW"]
+
 /// `make test-render`: recorded programs' last screens (Tests/Fixtures/corpus) drawn by the
 /// GPU in SF Mono 13 at 2x, compared with the PNGs in Tests/Fixtures/render.
 ///
@@ -20,12 +24,9 @@ import VTCore
 @MainActor
 @Suite(
     .enabled(
-        if: (RenderGoldenTests.comparing || RenderGoldenTests.previewDirectory != nil)
-            && MTLCreateSystemDefaultDevice() != nil,
+        if: (comparingRenders || renderPreviewDirectory != nil) && MTLCreateSystemDefaultDevice() != nil,
         "set DEATHRACE_RENDER_GOLDENS=1 (make test-render) on a Mac with a GPU"))
 struct RenderGoldenTests {
-    nonisolated static let comparing = ProcessInfo.processInfo.environment["DEATHRACE_RENDER_GOLDENS"] == "1"
-    nonisolated static let previewDirectory = ProcessInfo.processInfo.environment["DEATHRACE_RENDER_PREVIEW"]
     nonisolated static let fixtures: String = {
         var path = #filePath
         while let last = path.last, last != "/" { path.removeLast() }
@@ -55,7 +56,7 @@ struct RenderGoldenTests {
             width: 80 * cell.width + 32, height: 24 * cell.height + 24, originX: 16, originY: 12)
         let image = try OffscreenRenderer().render(built.frame, cell: cell, layout: layout, glyphs: glyphs)
         let png = try #require(image.pngData())
-        if let directory = Self.previewDirectory {
+        if let directory = renderPreviewDirectory {
             try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
             try png.write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(name).png"))
             return

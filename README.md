@@ -40,6 +40,7 @@ make test                  # portable targets only
 make esctest               # xterm's conformance suite against the engine (python3)
 make fuzz                  # libFuzzer, FUZZ_SECONDS=60 by default
 make bench                 # engine throughput, release build
+make vtdiff                # next to SwiftTerm: throughput, and every corpus screen
 make lint
 ```
 
@@ -62,6 +63,7 @@ Packages/DeathRaceKit/   one SwiftPM package; macOS-only targets appear only on 
   Sources/DeathRaceApp/  the app (macOS)
   Tools/vthost/          headless host for the engine: run, replay, bench, smoke
 Tools/VTFuzz/            libFuzzer target (a package of its own)
+Tools/VTDiff/            VTCore next to SwiftTerm, the referee (a package of its own)
 App/                     Info.plist and entitlements for the bundle
 scripts/                 bundle.sh, esctest.sh, record-corpus.sh, gen-unicode-tables.py,
                          install-swift-linux.sh
@@ -71,8 +73,8 @@ docs/                    architecture, design, naming, performance, conformance
 ## Principles
 
 - **Idle is free.** No timers, no frames, no polling when nothing happens.
-- **The engine is ours and it is checked.** esctest, fuzzing, differential tests and recorded
-  sessions on every change.
+- **The engine is ours and it is checked.** esctest, vttest, fuzzing and recorded sessions on
+  every change; a comparison with SwiftTerm every week.
 - **SSH crypto is not ours.** The Termius layer drives macOS's OpenSSH, including its native
   Secure Enclave keys.
 - **The theme lives in names and visuals.** Copy stays plain and helpful.

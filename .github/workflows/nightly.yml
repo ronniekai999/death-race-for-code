@@ -1,7 +1,8 @@
 name: nightly
 
 # The long checks that would slow every pull request down: half an hour of fuzzing, with the
-# corpus carried from run to run. Weekly rather than nightly while the repository is private:
+# corpus carried from run to run, and the comparison with SwiftTerm. Weekly rather than
+# nightly while the repository is private:
 # a nightly half hour would spend about 1,000 of the Free plan's 2,000 monthly minutes.
 # Run it any time from the Actions tab.
 
@@ -49,3 +50,18 @@ jobs:
           name: fuzz-artifacts-${{ github.run_id }}
           path: Tools/VTFuzz/.build/artifacts/
           retention-days: 30
+
+  swiftterm:
+    name: compare with SwiftTerm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: swift:6.3.3-noble@sha256:cd45c27b3abc42310c33cfaf3008b18156cbdc9187834c9617e8f43a26d2675c
+    steps:
+      - uses: actions/checkout@v5
+      - name: Tools the image may lack
+        run: command -v make >/dev/null || (apt-get update -qq && apt-get install -y -qq make)
+      # Informational: divergences are reviewed by hand (CONFORMANCE.md lists them). The
+      # corpus goldens are what fail a build.
+      - name: Throughput and every corpus screen, both engines
+        run: make vtdiff

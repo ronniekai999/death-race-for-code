@@ -8,7 +8,7 @@ How we know `VTCore` behaves like a terminal. Every check runs on Linux in CI.
 | esctest | xterm-compatible behavior, through `vthost` answering its queries | 358 pass; ratchet in CI |
 | vttest | the classic VT100/VT220 screens, each checked against what vttest says it should show | 10 suites, 139 screens |
 | libFuzzer | no crashes or hangs on arbitrary input; deltas replay to the same screen | 1 min per PR, 30 min weekly |
-| SwiftTerm differential | same input, same screen, with a reviewed list of known divergences | Phase 1 |
+| SwiftTerm differential | every corpus screen through SwiftTerm too; each divergence reviewed | 165 screens, 5 differ, all SwiftTerm's |
 | Recorded corpus | real programs' output replays to golden screens: text, cursor and styles, at every key press, whole and in pieces | 9 programs; btop and lazygit to come |
 
 ## esctest
@@ -82,6 +82,23 @@ ENQ answerback (empty, as in xterm) and DECREQTPARM (which xterm answers only as
 
 vttest found a bug esctest does not test: REP repeated after another REP. A control sequence,
 REP included, now ends what REP can repeat, as xterm does.
+
+## SwiftTerm differential
+
+`make vtdiff` builds `Tools/VTDiff`, a package of its own that fetches SwiftTerm at a pinned
+commit (v1.20.0), so SwiftTerm never comes near the app. It feeds every corpus recording to
+both engines and compares every screen a golden holds, row by row, and the cursor. SwiftTerm
+is a referee, not the reference: where they disagree, xterm decides, as esctest and vttest
+encode it. The weekly workflow runs it too.
+
+Of 165 screens, 5 differ, and in each SwiftTerm departs from xterm:
+
+| Screen | VTCore | SwiftTerm | Who is right |
+| --- | --- | --- | --- |
+| vttest-charsets, DEC Special Graphics | `_` is a blank (U+00A0) | `_` | DEC's table: 0x5F is blank |
+| vttest-cursor, autowrap (two screens) | the screen clears on DECCOLM under mode 40 | nothing clears | xterm, and vttest's layout |
+| vttest-iso6429, REP | REP after REP repeats nothing | it repeats again (12 +'s) | vttest and xterm: 2 +'s |
+| vttest-vt220, DECSCA | protected cells survive DECSED and DECSEL | erased | vttest: "a solid box" |
 
 ## Recorded corpus
 

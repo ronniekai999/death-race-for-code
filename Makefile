@@ -4,6 +4,7 @@
 #   make esctest     run xterm's conformance suite against the engine (needs python3)
 #   make fuzz        fuzz the engine with libFuzzer for FUZZ_SECONDS (swift.org toolchain)
 #   make bench       measure engine throughput (release build)
+#   make vtdiff      VTCore next to SwiftTerm: throughput, and every corpus screen in both
 #   make lint        swift-format lint
 #   make run         build, bundle, sign and open the app (macOS)
 #   make smoke       bundle, then run the app's headless --smoke-test (macOS)
@@ -13,9 +14,10 @@
 PKG := Packages/DeathRaceKit
 APP := build/Death Race for Code.app
 
-.PHONY: test esctest fuzz bench lint format run smoke bundle clean install-swift-linux
+.PHONY: test esctest fuzz bench vtdiff lint format run smoke bundle clean install-swift-linux
 
 FUZZ := Tools/VTFuzz
+DIFF := Tools/VTDiff
 FUZZ_SECONDS ?= 60
 
 test:
@@ -36,7 +38,14 @@ fuzz:
 bench:
 	swift run --package-path $(PKG) -c release vthost bench
 
-SWIFT_SOURCES := $(PKG)/Sources $(PKG)/Tests $(PKG)/Tools $(PKG)/Package.swift $(FUZZ)/Sources $(FUZZ)/Package.swift
+# SwiftTerm is a referee, fetched at a pinned commit into a package of its own.
+vtdiff:
+	swift build --package-path $(DIFF) -c release
+	$(DIFF)/.build/release/vtdiff bench --seconds 2
+	$(DIFF)/.build/release/vtdiff corpus --verbose $(PKG)/Tests/Fixtures/corpus
+
+SWIFT_SOURCES := $(PKG)/Sources $(PKG)/Tests $(PKG)/Tools $(PKG)/Package.swift $(FUZZ)/Sources $(FUZZ)/Package.swift \
+	$(DIFF)/Sources $(DIFF)/Package.swift
 
 lint:
 	swift format lint --recursive --strict $(SWIFT_SOURCES)
@@ -55,7 +64,7 @@ smoke:
 	"$(APP)/Contents/MacOS/DeathRace" --smoke-test
 
 clean:
-	rm -rf build $(PKG)/.build $(FUZZ)/.build
+	rm -rf build $(PKG)/.build $(FUZZ)/.build $(DIFF)/.build
 
 install-swift-linux:
 	scripts/install-swift-linux.sh

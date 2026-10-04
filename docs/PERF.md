@@ -27,6 +27,16 @@ treat them as relative. The M5 budget above is checked on the Mac.
 | unicode | CJK, accents, skin tones, ZWJ families, flags | 13 MB/s | 31 MB/s |
 | cursor | full-screen redraws: CUP, SGR, short writes, EL | 12.5 MB/s | 54 MB/s |
 
+Against SwiftTerm, the engine most Swift terminals embed (`make vtdiff`: the same workloads,
+both engines, release builds, same container):
+
+| Workload | VTCore | SwiftTerm v1.20.0 | |
+| --- | ---: | ---: | ---: |
+| ascii | 187 MB/s | 35 MB/s | 5.3× |
+| sgr | 101 MB/s | 14 MB/s | 7.2× |
+| unicode | 35 MB/s | 5.2 MB/s | 6.8× |
+| cursor | 64 MB/s | 9.9 MB/s | 6.5× |
+
 What moved the numbers, found with `perf`:
 
 - **Runtime exclusivity checks off in VTCore release builds** (about 2×). They cost a third

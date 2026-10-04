@@ -81,25 +81,6 @@ jobs:
           swift test --package-path Packages/DeathRaceKit --skip-build --skip DeathRaceAppTests 2>&1 | tee build/tests.log
           grep -q "Test run with .* passed" build/tests.log \
             || { echo "::error::The tests ended without their summary: the test process exited early."; exit 1; }
-      # Diagnostic, until understood: run together with the other suites, the window tests
-      # once ended the test process early with status 0. This run may fail; it shows why.
-      - name: All tests in one run (diagnostic)
-        continue-on-error: true
-        timeout-minutes: 5
-        run: |
-          set +e
-          swift test --package-path Packages/DeathRaceKit --skip-build > build/one-run.log 2>&1
-          echo "exit status: $?"
-          grep -E "Test run with|exit\(\) during a window test|window tests:" build/one-run.log || true
-          grep -A 60 "exit() during a window test" build/one-run.log || true
-          grep -q "Test run with .* passed" build/one-run.log || {
-            echo "::warning::One run of every suite ended without its summary."
-            tail -40 build/one-run.log
-            log show --last 3m --style compact \
-              --predicate 'process CONTAINS "swiftpm-testing-helper" OR process CONTAINS "PackageTests"' \
-              | grep -iv "^Filtering" | grep -iE "terminat|exit|quit|stop|crash|exception|kill" | tail -60 || true
-            exit 1
-          }
       - name: What the system logged about the tests
         if: failure()
         run: |

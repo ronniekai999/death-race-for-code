@@ -3,8 +3,10 @@
     import AppKit
     import ConfigKit
     import ImageIO
+    import LegendsUI
     import PTYKit
     import RenderKit
+    import ScreenProtocol
     import SessionKit
     import SurfaceCore
     import TerminalUI

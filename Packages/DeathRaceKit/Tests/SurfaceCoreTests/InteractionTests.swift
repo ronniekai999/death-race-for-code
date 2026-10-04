@@ -379,6 +379,29 @@ private func press(
         #expect(warning?.preview == "echo \u{241B}[31mred\u{2421}\tend")
     }
 
+    @Test func onePasteIntoSeveralPanesAsksOnce() {
+        var marked = TerminalModes()
+        marked.bracketedPaste = true
+        let plain = TerminalModes()
+        #expect(PasteWarning(text: "ls\nexit", panes: [marked, marked]) == nil)
+        let all = PasteWarning(text: "ls\nexit", panes: [plain, plain, plain])
+        #expect(all?.title == "Paste 2 lines into 3 panes?")
+        #expect(
+            all?.message
+                == "In every pane, each line runs as a command as soon as it arrives, as if you typed it and pressed Return."
+        )
+        // Only the panes whose programs didn't ask for marked pastes would run it.
+        let some = PasteWarning(text: "make deploy\n", panes: [marked, plain, plain])
+        #expect(some?.title == "Paste and run this line in 3 panes?")
+        #expect(some?.message.hasPrefix("In 2 of the 3 panes, it runs as a command") == true)
+        #expect(
+            PasteWarning(text: "\u{1B}", panes: [plain, marked])?.title
+                == "Paste text with control characters into 2 panes?")
+        #expect(
+            PasteWarning(text: "ls\nexit", modes: plain)?.message
+                == "Each line runs as a command as soon as it arrives, as if you typed it and pressed Return.")
+    }
+
     @Test func longPastesArePreviewedInPart() {
         let text = String(repeating: "word\n", count: 1_000)
         let warning = PasteWarning(text: text, modes: TerminalModes(), previewLimit: 10)

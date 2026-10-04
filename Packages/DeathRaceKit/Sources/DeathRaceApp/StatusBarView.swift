@@ -17,9 +17,10 @@ final class StatusBarView: NSView {
         }
     }
     private var chrome: Chrome
-    /// A click on "N settings could not be used".
-    var onProblemsClick: (() -> Void)?
-    private var problemsRect: NSRect?
+    /// A click on a run that does something: "N settings could not be used".
+    var onTap: ((StatusLine.Tap) -> Void)?
+    /// Where those runs were drawn.
+    private var tapRects: [(rect: NSRect, tap: StatusLine.Tap)] = []
 
     private static let font = NSFont.systemFont(ofSize: 12, weight: .medium)
     private static let boldFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
@@ -60,17 +61,34 @@ final class StatusBarView: NSView {
             y: ((bounds.height - trailingSize.height) / 2).rounded())
         trailing.draw(at: trailingOrigin)
 
-        let leading = attributed(line.leading, colors: colors)
+        let (leading, ranges) = attributedRuns(line.leading, colors: colors)
         let available = trailingOrigin.x - margin - 24
         let size = leading.size()
         let rect = NSRect(
             x: margin, y: ((bounds.height - size.height) / 2).rounded(), width: max(min(size.width, available), 0),
             height: size.height)
         leading.draw(with: rect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], context: nil)
-        problemsRect = line.leading.last?.style == .warning ? rect : nil
+        // Each run that does something, where it was drawn; a line cut short in the middle
+        // has moved them, so then none.
+        tapRects = []
+        guard size.width <= available else { return }
+        for (run, range) in zip(line.leading, ranges) {
+            guard let tap = run.tap else { continue }
+            let start = leading.attributedSubstring(from: NSRange(location: 0, length: range.location)).size().width
+            let width = leading.attributedSubstring(from: range).size().width
+            tapRects.append((NSRect(x: rect.minX + start, y: rect.minY, width: width, height: rect.height), tap))
+        }
     }
 
     private func attributed(_ runs: [StatusLine.Run], colors: ChromeColors) -> NSAttributedString {
+        attributedRuns(runs, colors: colors).text
+    }
+
+    /// The runs as one string, and where each run is in it, its symbol included.
+    private func attributedRuns(_ runs: [StatusLine.Run], colors: ChromeColors) -> (
+        text: NSAttributedString, ranges: [NSRange]
+    ) {
+        var ranges: [NSRange] = []
         let style = NSMutableParagraphStyle()
         style.lineBreakMode = .byTruncatingMiddle
         let text = NSMutableAttributedString()
@@ -88,6 +106,7 @@ final class StatusBarView: NSView {
                 case .accent: (colors.accent, Self.boldFont)
                 case .warning: (colors.warning, Self.boldFont)
                 }
+            let start = text.length
             if let symbol = run.symbol,
                 let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(
                     NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
@@ -101,13 +120,14 @@ final class StatusBarView: NSView {
             }
             text.append(
                 NSAttributedString(string: run.text, attributes: [.font: font, .foregroundColor: color.nsColor]))
+            ranges.append(NSRange(location: start, length: text.length - start))
         }
         text.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: text.length))
-        return text
+        return (text as NSAttributedString, ranges)
     }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if let problemsRect, problemsRect.contains(point) { onProblemsClick?() }
+        if let hit = tapRects.first(where: { $0.rect.contains(point) }) { onTap?(hit.tap) }
     }
 }

@@ -45,6 +45,16 @@ final class PaneCardView: NSView {
         get { headerView.content }
         set { headerView.content = newValue }
     }
+    /// Armed and Dangerous: typing here goes to the tab's other armed panes too. Every armed
+    /// card has the orange-to-pink border, the active one or not.
+    var isArmed = false {
+        didSet { if isArmed != oldValue { applyColors() } }
+    }
+    /// A click on the header's "receiving input": the pane is left out, or put back.
+    var onToggleArmed: (() -> Void)? {
+        get { headerView.onToggleArmed }
+        set { headerView.onToggleArmed = newValue }
+    }
 
     init(pane: PaneID, surface: TerminalSurfaceView, chrome: Chrome) {
         self.pane = pane
@@ -128,8 +138,8 @@ final class PaneCardView: NSView {
     private func applyColors() {
         layer?.backgroundColor = (reportedFill ?? chrome.terminalBackground).cgColor
         layer?.borderColor = chrome.colors.line.cgColor
-        layer?.shadowColor = chrome.colors.glow.cgColor
-        neon.colors = chrome.colors.neon
+        layer?.shadowColor = (isArmed ? chrome.colors.warning : chrome.colors.glow).cgColor
+        neon.colors = isArmed ? chrome.colors.armed : chrome.colors.neon
         applyState()
         applyDimming()
     }
@@ -141,9 +151,12 @@ final class PaneCardView: NSView {
     private func applyState() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        neon.isHidden = !isActive
-        layer?.borderWidth = isActive ? 0 : 1
-        layer?.shadowOpacity = isActive && isWindowKey ? Float(chrome.colors.glowOpacity) : 0
+        let bordered = isActive || isArmed
+        neon.isHidden = !bordered
+        layer?.borderWidth = bordered ? 0 : 1
+        // Armed cards glow too, more softly, as on the board.
+        let opacity = isArmed ? min(chrome.colors.glowOpacity, 0.28) : chrome.colors.glowOpacity
+        layer?.shadowOpacity = bordered && isWindowKey ? Float(opacity) : 0
         CATransaction.commit()
     }
 }
@@ -324,6 +337,10 @@ final class PaneAreaView: NSView {
         get { !starfield.isHidden }
         set { starfield.isHidden = !newValue }
     }
+    /// Armed and Dangerous's banner, while the tab is armed.
+    private var armedBanner: ArmedBannerView?
+    /// The banner's Stop.
+    var onStopArmed: (() -> Void)?
 
     init(tree: SplitTree) {
         self.tree = tree
@@ -346,6 +363,28 @@ final class PaneAreaView: NSView {
     func setChrome(_ chrome: Chrome) {
         layer?.backgroundColor = chrome.colors.ground.cgColor
         for card in cards.values { card.setChrome(chrome) }
+        armedBanner?.chrome = chrome
+    }
+
+    /// Armed and Dangerous's banner saying `sentence`, or none: the panes move down to make
+    /// room for it, and back up after.
+    func showArmed(_ sentence: String?, chrome: Chrome) {
+        switch (sentence, armedBanner) {
+        case (nil, nil):
+            return
+        case (nil, let banner?):
+            banner.removeFromSuperview()
+            armedBanner = nil
+        case (let sentence?, let banner?):
+            banner.sentence = sentence
+            return
+        case (let sentence?, nil):
+            let banner = ArmedBannerView(sentence: sentence, chrome: chrome)
+            banner.onStop = { [weak self] in self?.onStopArmed?() }
+            addSubview(banner)
+            armedBanner = banner
+        }
+        needsLayout = true
     }
 
     func add(_ card: PaneCardView) {
@@ -359,17 +398,22 @@ final class PaneAreaView: NSView {
         needsLayout = true
     }
 
-    /// Where the panes go: inside the margin, in points.
+    /// Where the panes go: inside the margin, under the banner while there is one, in
+    /// points.
     var paneRect: LayoutRect {
-        LayoutRect(
-            x: Double(Chrome.paneMargin), y: Double(Chrome.paneMargin),
-            width: max(Double(bounds.width - Chrome.paneMargin * 2), 0),
-            height: max(Double(bounds.height - Chrome.paneMargin * 2), 0))
+        let margin = Double(Chrome.paneMargin)
+        let top = margin + (armedBanner == nil ? 0 : Double(ArmedBannerView.height + Chrome.paneGap))
+        return LayoutRect(
+            x: margin, y: top, width: max(Double(bounds.width) - margin * 2, 0),
+            height: max(Double(bounds.height) - top - margin, 0))
     }
 
     override func layout() {
         super.layout()
         if starfield.frame != bounds { starfield.frame = bounds }
+        armedBanner?.frame = NSRect(
+            x: Chrome.paneMargin, y: Chrome.paneMargin, width: max(bounds.width - Chrome.paneMargin * 2, 0),
+            height: ArmedBannerView.height)
         let rect = paneRect
         let scale = Double(window?.backingScaleFactor ?? 2)
         let frames = zoomedPane.map { [$0: rect] } ?? tree.frames(in: rect, gap: Double(Chrome.paneGap), scale: scale)

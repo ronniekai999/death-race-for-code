@@ -49,6 +49,8 @@ enum MainMenu {
         menu.addItem(.separator())
         add([.splitRight, .splitDown], to: menu)
         menu.addItem(.separator())
+        add([.armedAndDangerous], to: menu)
+        menu.addItem(.separator())
         add([.closePane, .closeTab, .closeWindow], to: menu)
         return menu
     }
@@ -177,6 +179,7 @@ enum MainMenu {
         case .bigger: #selector(PitLaneWindowController.increaseFontSize(_:))
         case .smaller: #selector(PitLaneWindowController.decreaseFontSize(_:))
         case .actualSize: #selector(PitLaneWindowController.resetFontSize(_:))
+        case .armedAndDangerous: #selector(PitLaneWindowController.toggleArmed(_:))
         case .zoomPane: #selector(PitLaneWindowController.togglePaneZoom(_:))
         case .equalizePanes: #selector(PitLaneWindowController.equalizePanes(_:))
         case .minimize: #selector(NSWindow.performMiniaturize(_:))

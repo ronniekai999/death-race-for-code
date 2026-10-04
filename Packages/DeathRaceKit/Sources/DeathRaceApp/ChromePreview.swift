@@ -84,6 +84,19 @@
             ("ssh", "\u{1B}]2;prod-api\u{7}prod-api ~ \u{1B}[32m$\u{1B}[0m uptime\r\n 18:42  up 99 days\r\n"),
         ]
 
+        /// The armed picture's panes: three servers taking the same deploy, as on the board.
+        static let armedScripts: [(program: String, output: String)] = (1...3).map { number in
+            let deploy =
+                "\u{1B}[38;5;213m❯\u{1B}[0m ./deploy.sh prod --version 2.4.1\r\n"
+                + "\u{1B}[36m→\u{1B}[0m uploading release 2.4.1\r\n"
+            let end =
+                number == 3
+                ? "\u{1B}[31m✗ health check failed: 502 from :8080\u{1B}[0m\r\n\u{1B}[2m  rolled back to 2.4.0\u{1B}[0m\r\n"
+                : "\u{1B}[36m→\u{1B}[0m linking current → releases/2.4.1\r\n"
+                    + "\u{1B}[32m✓\u{1B}[0m healthy in 3.\(number * 2)s\r\n"
+            return ("prod-api-\(number)", deploy + end + "\u{1B}[38;5;213m❯\u{1B}[0m ")
+        }
+
         public static func run(arguments: [String]) -> Int32 {
             let index = arguments.firstIndex(of: "--render-chrome")!
             let folder = URL(
@@ -105,8 +118,9 @@
                 if renderer == nil { print("no Metal device: the panes are left empty") }
                 for theme in ThemeCatalog.all {
                     try write(window(theme: theme, renderer: renderer), to: folder, name: theme.id)
+                    try write(armedWindow(theme: theme, renderer: renderer), to: folder, name: theme.id + "-armed")
                 }
-                print("wrote \(ThemeCatalog.all.count) pictures to \(folder.path)")
+                print("wrote \(ThemeCatalog.all.count * 2) pictures to \(folder.path)")
                 return 0
             } catch {
                 FileHandle.standardError.write(Data("render-chrome: \(error)\n".utf8))
@@ -152,17 +166,31 @@
             func picked(_ id: String) {}
         }
 
-        /// A window in `theme`: a split tab and two more tabs.
-        private static func window(theme: NamedTheme, renderer: OffscreenRenderer?) throws -> CGImage {
+        /// A window in `theme`, running `scripts`.
+        private static func makeWindow(theme: NamedTheme, scripts: [(program: String, output: String)])
+            -> PitLaneWindowController
+        {
             var config = Config()
             config.themeID = theme.id
             // The pills and headers name the shell the mockups show, whatever the runner's is.
             config.command = "/bin/zsh"
             let host = Host()
+            host.scripts = scripts
             let controller = PitLaneWindowController(config: config, host: host, directory: directory)
-            defer { controller.window?.close() }
+            // The window holds its host weakly: keep it for as long as the window is drawn.
+            hosts.append(host)
             controller.window?.setContentSize(size)
             controller.showWindow(nil)
+            return controller
+        }
+
+        /// Hosts of the windows being drawn.
+        private static var hosts: [Host] = []
+
+        /// A window in `theme`: a split tab and two more tabs.
+        private static func window(theme: NamedTheme, renderer: OffscreenRenderer?) throws -> CGImage {
+            let controller = makeWindow(theme: theme, scripts: scripts)
+            defer { controller.window?.close() }
             controller.splitRight(nil)
             try wait("the split") { controller.panes.count == 2 }
             controller.newTab(nil)
@@ -172,6 +200,24 @@
             // Back to the split tab, its left pane in use.
             _ = controller.selectTab(number: 1)
             _ = controller.selectPane(number: 1)
+            return try picture(of: try ready(controller), renderer: renderer)
+        }
+
+        /// Armed and Dangerous in `theme`: a tab of three panes, typing going to all of them.
+        private static func armedWindow(theme: NamedTheme, renderer: OffscreenRenderer?) throws -> CGImage {
+            let controller = makeWindow(theme: theme, scripts: armedScripts)
+            defer { controller.window?.close() }
+            controller.splitRight(nil)
+            try wait("the first split") { controller.panes.count == 2 }
+            controller.splitDown(nil)
+            try wait("the second split") { controller.panes.count == 3 }
+            _ = controller.selectPane(number: 1)
+            controller.toggleArmed(nil)
+            return try picture(of: try ready(controller), renderer: renderer)
+        }
+
+        /// `controller` once its panes show their screens and name their programs.
+        private static func ready(_ controller: PitLaneWindowController) throws -> PitLaneWindowController {
             for pane in controller.panes.values {
                 pane.surface.sessionDidUpdate()
                 // What runs in it and where: for the pills, headers and status bar.
@@ -185,7 +231,7 @@
             // As the app does when it becomes active, should that have come after the window.
             for pane in controller.panes.values { pane.surface.focusChanged() }
             settle()
-            return try picture(of: controller, renderer: renderer)
+            return controller
         }
 
         // MARK: - Pictures

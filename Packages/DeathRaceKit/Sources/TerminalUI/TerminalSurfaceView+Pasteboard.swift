@@ -17,7 +17,8 @@ extension TerminalSurfaceView {
     /// Sends `text` as a paste, asking first when it could run commands nobody saw.
     func paste(text: String) {
         guard let mirror = model?.mirror else { return }
-        guard pasteProtection, let warning = PasteWarning(text: text, modes: mirror.modes) else {
+        let panes = [mirror.modes] + (pasteAlsoGoesTo?() ?? [])
+        guard pasteProtection, let warning = PasteWarning(text: text, panes: panes) else {
             return sendPaste(text)
         }
         guard let window else { return }
@@ -33,7 +34,9 @@ extension TerminalSurfaceView {
         }
     }
 
+    /// The paste, here and then (Armed and Dangerous) to the other armed panes.
     private func sendPaste(_ text: String) {
+        defer { onTyped?(.paste(text)) }
         guard let mirror = model?.mirror, let session, case .running = session.status else { return }
         guard session.send(InputEncoder.paste(text, modes: mirror.modes)) else {
             // More is waiting for the program than the session holds (16 MB).

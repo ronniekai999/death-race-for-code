@@ -251,6 +251,11 @@ public struct WindowModel: Equatable, Sendable {
         }
     }
 
+    /// The banner's Stop: `tab` is disarmed, whichever tab is active.
+    public mutating func disarm(_ tab: TabID) {
+        update(tab) { $0.disarm() }
+    }
+
     /// A pane header's toggle: `pane` in or out while its tab is armed.
     public mutating func setArmed(_ pane: PaneID, _ armed: Bool) {
         guard let index = tabs.firstIndex(where: { $0.tree.contains(pane) }) else { return }

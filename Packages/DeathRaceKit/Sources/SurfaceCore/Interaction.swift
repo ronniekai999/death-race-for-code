@@ -142,7 +142,14 @@ public struct PasteWarning: Sendable, Equatable {
 
     /// Nil when `text` can be pasted without asking.
     public init?(text: String, modes: TerminalModes, previewLimit: Int = 2_000) {
-        guard InputEncoder.pasteNeedsConfirmation(text, modes: modes) else { return nil }
+        self.init(text: text, panes: [modes], previewLimit: previewLimit)
+    }
+
+    /// One question for a paste going to several panes at once (Armed and Dangerous): asked
+    /// when it could run commands in any of them, saying in how many. Nil when it can't.
+    public init?(text: String, panes: [TerminalModes], previewLimit: Int = 2_000) {
+        let risky = panes.filter { InputEncoder.pasteNeedsConfirmation(text, modes: $0) }.count
+        guard risky > 0 else { return nil }
         var lines = 1
         var endsWithBreak = false
         for character in text {
@@ -150,15 +157,27 @@ public struct PasteWarning: Sendable, Equatable {
             if endsWithBreak { lines += 1 }
         }
         if endsWithBreak { lines -= 1 }
+        let count = panes.count
+        let into = count > 1 ? " into \(count) panes" : ""
+        let what: String
         if text.contains(where: { $0 == "\n" || $0 == "\r" || $0 == "\r\n" }) {
-            title = lines > 1 ? "Paste \(lines) lines?" : "Paste and run this line?"
-            message =
-                lines > 1
-                ? "Each line runs as a command as soon as it arrives, as if you typed it and pressed Return."
-                : "It runs as a command as soon as it arrives, as if you typed it and pressed Return."
+            if lines > 1 {
+                title = "Paste \(lines) lines\(into)?"
+                what = "each line runs as a command as soon as it arrives, as if you typed it and pressed Return."
+            } else {
+                title = count > 1 ? "Paste and run this line in \(count) panes?" : "Paste and run this line?"
+                what = "it runs as a command as soon as it arrives, as if you typed it and pressed Return."
+            }
         } else {
-            title = "Paste text with control characters?"
-            message = "They reach the program as if you typed them, and can act as keys such as Escape or Control-C."
+            title = "Paste text with control characters\(into)?"
+            what = "they reach the program as if you typed them, and can act as keys such as Escape or Control-C."
+        }
+        // Where only some of the panes would run it, which: the others asked for pastes to
+        // be marked.
+        switch (count, risky) {
+        case (1, _): message = what.prefix(1).uppercased() + what.dropFirst()
+        case (_, count): message = "In every pane, " + what
+        default: message = "In \(risky) of the \(count) panes, " + what
         }
         preview = Self.visible(text, limit: previewLimit)
     }

@@ -248,6 +248,9 @@ final class PaneController {
 
     var isRunning: Bool { session?.status == .running }
 
+    /// Nothing typed here reaches a program: the session ended, or the connection failed.
+    var isDone: Bool { end != nil || (session == nil && banner?.isWorking == false) }
+
     /// Where the pane is: where the shell last said, else the directory of the program in
     /// the foreground when last asked. (The zsh that comes with macOS sends OSC 7 only
     /// inside Terminal.) Nil on a host: its directories aren't this Mac's.

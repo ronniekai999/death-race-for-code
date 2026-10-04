@@ -27,6 +27,15 @@ struct ArmedTests {
         #expect(model.activeTab?.broadcastTargets(from: b) == [])
     }
 
+    @Test func stopDisarmsItsTabWhereverTheKeysAre() {
+        var model = window()
+        model.toggleArmed()
+        model.newTab(TabID(2), pane: PaneID(9))
+        model.disarm(TabID(1))
+        #expect(model.tabs.first?.isArmed == false)
+        #expect(model.activeTabID == TabID(2))
+    }
+
     @Test func aPaneLeftOutNeitherSendsNorReceives() throws {
         var model = window()
         model.toggleArmed()
@@ -66,9 +75,31 @@ struct ArmedTests {
         #expect(model.activeTab?.armedPanes.contains(d) == true)
     }
 
+    @Test func theStatusBarLeadsWithIt() {
+        var facts = StatusLine.Facts(columns: 80, rows: 24)
+        facts.directory = "/Users/r/code"
+        facts.home = "/Users/r"
+        facts.armedPanes = 3
+        facts.endedArmedPanes = 1
+        let line = StatusLine(facts)
+        #expect(
+            line.leading.first
+                == .init(
+                    "Armed and Dangerous · 3 panes · 1 ended", .warning, symbol: "exclamationmark.triangle.fill"))
+        #expect(line.leading.map(\.text).last == "~/code")
+        facts.armedPanes = 0
+        #expect(StatusLine(facts).leading.map(\.text) == ["~/code"])
+    }
+
     @Test func theWords() {
         #expect(BroadcastLabel.pill(names: ["prod-api", "prod-api", "prod-api"]) == "prod-api × 3")
         #expect(BroadcastLabel.pill(names: ["prod-api", "zsh"]) == "2 panes")
+        #expect(BroadcastLabel.pill(names: ["prod-api-1", "prod-api-2", "prod-api-3"]) == "prod-api × 3")
+        #expect(BroadcastLabel.pill(names: ["prod-api-10", "prod-api-11"]) == "prod-api × 2")
+        #expect(BroadcastLabel.pill(names: ["prod-api", "prod-api-2"]) == "prod-api × 2")
+        #expect(BroadcastLabel.pill(names: ["db1", "db2"]) == "db × 2")
+        #expect(BroadcastLabel.pill(names: ["web", "website"]) == "2 panes")
+        #expect(BroadcastLabel.pill(names: ["a1", "a2"]) == "2 panes")
         #expect(
             BroadcastLabel.banner(names: ["prod-api-1", "prod-api-2", "prod-api-3"])
                 == "Typing goes to 3 panes: prod-api-1, prod-api-2 and prod-api-3.")

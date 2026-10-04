@@ -104,6 +104,12 @@ public final class TerminalSurfaceView: NSView {
     public var onHoverLink: ((String?) -> Void)?
     /// A ⌘-click or Open Link chose a link; the app decides what that does.
     public var onOpenLink: ((LinkHit) -> Void)?
+    /// Typing here, before it was encoded: keys, composed text and pastes, never the mouse
+    /// or the scroll wheel. Armed and Dangerous hands it to the tab's other armed panes.
+    public var onTyped: ((TypedInput) -> Void)?
+    /// Armed and Dangerous: the modes of the other panes a paste here goes to as well, so
+    /// the paste question asks once, for all of them.
+    public var pasteAlsoGoesTo: (() -> [TerminalModes])?
     /// The link ⌘ is held over, underlined while the pointer is on it.
     public internal(set) var hoveredLink: LinkHit?
     /// How fast the view may draw (`follow-low-power-mode`, `output-frame-rate-cap`).

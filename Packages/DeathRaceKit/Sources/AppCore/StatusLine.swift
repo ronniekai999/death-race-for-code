@@ -65,16 +65,24 @@ public struct StatusLine: Equatable, Sendable {
         case warning
     }
 
+    /// What a click on a run does.
+    public enum Tap: Equatable, Sendable {
+        /// Shows the settings lines that could not be used.
+        case settingsProblems
+    }
+
     public struct Run: Equatable, Sendable {
         public var text: String
         public var style: Style
         /// The lock glyph before Secure input.
         public var symbol: String?
+        public var tap: Tap?
 
-        public init(_ text: String, _ style: Style, symbol: String? = nil) {
+        public init(_ text: String, _ style: Style, symbol: String? = nil, tap: Tap? = nil) {
             self.text = text
             self.style = style
             self.symbol = symbol
+            self.tap = tap
         }
     }
 
@@ -96,6 +104,10 @@ public struct StatusLine: Equatable, Sendable {
         public var settingsProblems = 0
         /// Come & Go's tunnels that are open, in every window.
         public var openTunnels = 0
+        /// Armed and Dangerous: the panes typing in the active tab goes to, none while it's
+        /// off, and how many of them have ended. It leads the bar, in the warning color.
+        public var armedPanes = 0
+        public var endedArmedPanes = 0
 
         public init(columns: Int, rows: Int) {
             self.columns = columns
@@ -108,6 +120,12 @@ public struct StatusLine: Equatable, Sendable {
         if let link = facts.hoveredLink {
             leading.append(Run(link, .ink))
         } else {
+            if facts.armedPanes > 0 {
+                leading.append(
+                    Run(
+                        BroadcastLabel.status(panes: facts.armedPanes, ended: facts.endedArmedPanes), .warning,
+                        symbol: "exclamationmark.triangle.fill"))
+            }
             if let directory = facts.directory {
                 leading.append(Run(abbreviatingHome(directory, home: facts.home), .muted))
             }
@@ -121,7 +139,9 @@ public struct StatusLine: Equatable, Sendable {
             if facts.settingsProblems > 0 {
                 let count = facts.settingsProblems
                 leading.append(
-                    Run(count == 1 ? "1 setting could not be used" : "\(count) settings could not be used", .warning))
+                    Run(
+                        count == 1 ? "1 setting could not be used" : "\(count) settings could not be used", .warning,
+                        tap: .settingsProblems))
             }
         }
         var trailing = [Run("\(facts.columns)×\(facts.rows)", .muted)]

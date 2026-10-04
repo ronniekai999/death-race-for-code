@@ -47,6 +47,11 @@ public struct ChromeColors: Sendable, Equatable {
     public var danger: RGB
     public var warning: RGB
 
+    /// Armed and Dangerous: each armed pane's border, orange to pink, as on the board.
+    public var armed: [RGB] { [warning, danger] }
+    /// Armed and Dangerous's banner: the ground tinted toward each end of the border.
+    public var armedTint: [RGB] { armed.map { ground.mixed(with: $0, by: 0.16) } }
+
     init(
         ground: UInt32, groundDeep: UInt32, surface: UInt32, surfaceHover: UInt32, line: UInt32,
         lineStrong: UInt32, ink: UInt32, inkMuted: UInt32, inkFaint: UInt32, gradient: [UInt32],

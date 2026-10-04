@@ -130,7 +130,11 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         strip.onDetach = { [weak self] id in self?.detach(id) }
         strip.onMove = { [weak self] from, to in self?.moveTab(from: from, to: to) }
         strip.onNewTab = { [weak self] in self?.newTab(nil) }
-        root.statusBar.onProblemsClick = { [weak self] in self?.onSettingsProblemsClick?() }
+        root.statusBar.onTap = { [weak self] tap in
+            switch tap {
+            case .settingsProblems: self?.onSettingsProblemsClick?()
+            }
+        }
         applyChrome()
         tunnelsObserver = NotificationCenter.default.addObserver(
             forName: .tunnelsChanged, object: nil, queue: .main
@@ -182,13 +186,24 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         pane.onLinkHover = { [weak self] in self?.refreshStatus() }
         pane.presentAlert = { [weak self] alert in await self?.present(alert) }
         pane.onBannerChange = { [weak self] in self?.showBanner(of: id) }
+        pane.surface.onTyped = { [weak self] input in self?.typed(input, in: id) }
+        pane.surface.pasteAlsoGoesTo = { [weak self] in self?.armedModes(besides: id) ?? [] }
         panes[id] = pane
+    }
+
+    /// A card's callbacks lead to this window; a tab moving in brings cards whose callbacks
+    /// led to their old one.
+    private func wire(_ card: PaneCardView) {
+        let id = card.pane
+        card.onToggleArmed = { [weak self] in self?.toggleArmed(of: id) }
     }
 
     /// The pane's banner on its card, its buttons answered by the pane.
     private func showBanner(of id: PaneID) {
         guard let pane = panes[id], let tab = model.tab(containing: id) else { return }
         areas[tab.id]?.cards[id]?.showBanner(pane.banner) { [weak self] button in self?.pressed(button, in: id) }
+        // A connection that failed is one fewer pane typing reaches.
+        if tab.isArmed { refreshStatus() }
     }
 
     private func pressed(_ button: PaneBanner.Button, in id: PaneID) {
@@ -210,6 +225,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         if existing == nil {
             for pane in tabPanes { area.add(PaneCardView(pane: pane.id, surface: pane.surface, chrome: chrome)) }
         }
+        for card in area.cards.values { wire(card) }
         for pane in tabPanes where pane.banner != nil {
             area.cards[pane.id]?.showBanner(pane.banner) { [weak self] button in self?.pressed(button, in: pane.id) }
         }
@@ -221,6 +237,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             guard let self, self.model.activeTabID == id else { return }
             self.equalizePanes(nil)
         }
+        area.onStopArmed = { [weak self] in self?.stopArmed(id) }
         areas[tab.id] = area
         root.tabArea.addSubview(area)
         root.needsLayout = true
@@ -322,6 +339,8 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     private func paneChanged(_ id: PaneID) {
         guard let tab = model.tab(containing: id) else { return }
         refreshCards()
+        // An armed tab's pill names every armed pane.
+        if tab.isArmed && tab.activePane != id { return refreshTabs() }
         guard tab.activePane == id else { return }
         refreshTabs()
         if tab.id == model.activeTabID { refreshStatus(rereadBranch: true) }
@@ -367,6 +386,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         if !end.isFailure { return closeNow(id) }
         activity[tab.id]?.failure = end
         refreshTabs()
+        if tab.isArmed { refreshStatus() }
     }
 
     // MARK: - Closing
@@ -640,7 +660,9 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         guard let tabID = model.activeTabID, let area = areas[tabID] else { return }
         wire(pane)
         model.split(axis, newPane: pane.id)
-        area.add(PaneCardView(pane: pane.id, surface: pane.surface, chrome: chrome))
+        let card = PaneCardView(pane: pane.id, surface: pane.surface, chrome: chrome)
+        wire(card)
+        area.add(card)
         if pane.banner != nil { showBanner(of: pane.id) }
         focusActivePane()
     }
@@ -777,6 +799,52 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         }
     #endif
 
+    // MARK: - Armed and Dangerous
+
+    /// ⇧⌘I: typing in any of the active tab's panes goes to all of them, or stops doing so.
+    @objc func toggleArmed(_ sender: Any?) {
+        model.toggleArmed()
+        armedChanged()
+    }
+
+    /// The banner's Stop.
+    private func stopArmed(_ tab: TabID) {
+        model.disarm(tab)
+        armedChanged()
+    }
+
+    /// A header's "receiving input" or "left out": the pane is left out, or put back.
+    private func toggleArmed(of pane: PaneID) {
+        guard let tab = model.tab(containing: pane), tab.isArmed else { return }
+        model.setArmed(pane, tab.unarmed.contains(pane))
+        armedChanged()
+    }
+
+    private func armedChanged() {
+        refreshCards()
+        refreshTabs()
+        refreshStatus()
+    }
+
+    /// Typing in an armed pane goes to the tab's other armed panes too, each encoding it for
+    /// its own program.
+    private func typed(_ input: TypedInput, in pane: PaneID) {
+        guard let tab = model.tab(containing: pane) else { return }
+        for target in tab.broadcastTargets(from: pane) { panes[target]?.surface.receive(input) }
+    }
+
+    /// The modes of the other panes a paste in `pane` goes to, so the paste question asks
+    /// once for all of them.
+    private func armedModes(besides pane: PaneID) -> [TerminalModes] {
+        guard let tab = model.tab(containing: pane) else { return [] }
+        return tab.broadcastTargets(from: pane).compactMap { panes[$0]?.surface.model?.mirror.modes }
+    }
+
+    /// What the pill and the banner call each armed pane: its host, else its program.
+    private func armedNames(_ tab: TabModel) -> [String] {
+        tab.armedPanes.compactMap { id in panes[id].map { $0.programName ?? $0.shellName } }
+    }
+
     // MARK: - Settings and theme
 
     /// Applies reloaded settings to every pane, and the theme to the chrome.
@@ -821,20 +889,27 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
 
     // MARK: - Keeping the chrome in step
 
-    /// The NeonBorder and glow on each tab's active pane, the others dimmed, and the headers.
+    /// The NeonBorder and glow on each tab's active pane, the others dimmed, and the headers;
+    /// in an armed tab, the banner and the armed panes' borders.
     private func refreshCards() {
         let isKey = window?.isKeyWindow ?? false
         for tab in model.tabs {
             guard let area = areas[tab.id] else { continue }
             let headers = showsHeaders(tab)
+            let armed = Set(tab.armedPanes)
+            area.showArmed(tab.isArmed ? BroadcastLabel.banner(names: armedNames(tab)) : nil, chrome: chrome)
             for (index, id) in tab.panes.enumerated() {
                 guard let card = area.cards[id] else { continue }
                 card.isActive = id == tab.activePane
                 card.isWindowKey = isKey
-                card.isDimmed = tab.isSplit && tab.zoomedPane == nil && id != tab.activePane
+                card.isArmed = armed.contains(id)
+                // Typing reaches every armed pane, so none of them fades.
+                card.isDimmed = tab.isSplit && tab.zoomedPane == nil && id != tab.activePane && !armed.contains(id)
                 card.showsHeader = headers
                 if headers, let pane = panes[id] {
-                    card.header = header(for: pane, number: Self.paneNumber(index, of: tab.panes.count))
+                    var content = header(for: pane, number: Self.paneNumber(index, of: tab.panes.count))
+                    if tab.isArmed { content.armed = armed.contains(id) ? .receiving : .leftOut }
+                    card.header = content
                 }
             }
         }
@@ -855,14 +930,17 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             model.tabs.map { tab in
                 let pane = panes[tab.activePane]
                 let state = activity[tab.id] ?? TabActivity()
-                let title = TabLabel.text(
-                    title: pane?.title ?? "", program: pane?.programName ?? pane?.shellName,
-                    directory: pane?.directory, home: Self.home, end: state.failure)
+                let title =
+                    tab.isArmed
+                    ? BroadcastLabel.pill(names: armedNames(tab))
+                    : TabLabel.text(
+                        title: pane?.title ?? "", program: pane?.programName ?? pane?.shellName,
+                        directory: pane?.directory, home: Self.home, end: state.failure)
                 return (
                     id: tab.id,
                     state: PillState(
                         title: title, isActive: tab.id == model.activeTabID, isBusy: state.isBusy(at: now),
-                        rang: state.rang, failed: state.failure != nil)
+                        rang: state.rang, failed: state.failure != nil, armed: tab.isArmed)
                 )
             })
         window?.title =
@@ -886,6 +964,10 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         facts.secureInput = showsSecureInput
         facts.settingsProblems = settingsProblems
         facts.openTunnels = host?.connections?.openTunnelCount ?? 0
+        if let tab = model.activeTab, tab.isArmed {
+            facts.armedPanes = tab.armedPanes.count
+            facts.endedArmedPanes = tab.armedPanes.filter { panes[$0]?.isDone ?? true }.count
+        }
         // Where the link ⌘ is held over goes, in whichever pane it is.
         facts.hoveredLink = panes.values.lazy.compactMap { $0.surface.hoveredLink }.first.map {
             LinkPolicy.shown($0.uri)
@@ -1002,6 +1084,9 @@ extension PitLaneWindowController: NSMenuItemValidation {
         case #selector(showHearMeCalling(_:)):
             menuItem.state = hearMeCalling != nil ? .on : .off
             return true
+        case #selector(toggleArmed(_:)):
+            menuItem.state = model.activeTab?.isArmed == true ? .on : .off
+            return model.activeTab?.isSplit == true
         default:
             return true
         }

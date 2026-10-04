@@ -26,6 +26,7 @@ import Testing
     @Test func shortcutsAreWrittenAsMacOSWritesThem() {
         #expect(ActionCatalog.action(.splitDown).shortcut?.description == "⇧⌘D")
         #expect(ActionCatalog.action(.equalizePanes).shortcut?.description == "⌃⌘=")
+        #expect(ActionCatalog.action(.armedAndDangerous).shortcut?.description == "⇧⌘I")
         #expect(ActionCatalog.action(.closeTab).shortcut?.description == "⌥⌘W")
         #expect(ActionCatalog.action(.zoomPane).shortcut?.description == "⇧⌘↩")
         #expect(ActionCatalog.action(.focusPaneLeft).shortcut?.description == "⌥⌘←")
@@ -41,9 +42,9 @@ import Testing
     @Test func titlesFollowTheirCase() {
         for action in ActionCatalog.all {
             // Sentence case: only the first word starts with a capital, apart from names.
-            let words = action.paletteTitle.split(separator: " ").dropFirst()
+            let words = action.paletteTitle.split { $0 == " " || $0 == ":" }.dropFirst()
             let names: Set<Substring> = [
-                "Death", "Race", "for", "Code", "Secure", "Keyboard", "Entry", "Hear", "Me", "Calling",
+                "Death", "Race", "for", "Code", "Secure", "Keyboard", "Entry", "Hear", "Me", "Calling", "Dangerous",
             ]
             for word in words where word.first?.isUppercase == true {
                 #expect(names.contains(word), "\(action.paletteTitle) is not in sentence case")

@@ -63,7 +63,7 @@ final class PaneController {
     /// The program started or stopped reading a password.
     var onPasswordInputChange: (() -> Void)?
     /// Shows a sheet on the pane's window; nil without one.
-    var presentAlert: ((NSAlert) async -> NSApplication.ModalResponse?)?
+    var presentAlert: (@MainActor (NSAlert) async -> NSApplication.ModalResponse?)?
 
     static let realSession: SessionMaker = { launch, configuration, onUpdate in
         try Session(launch: launch, configuration: configuration, onUpdate: onUpdate)

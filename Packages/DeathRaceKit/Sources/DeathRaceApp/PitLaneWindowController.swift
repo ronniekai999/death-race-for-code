@@ -364,7 +364,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     /// Asks "Goodbye & Good Riddance?" when closing would end programs other than shells at
     /// their prompts (`confirm-close`), naming them; else does `close` at once.
     private func confirmClose(of ids: [PaneID], in place: String, then close: @escaping @MainActor () -> Void) {
-        let candidates = ids.compactMap { panes[$0] }.filter(\.isRunning)
+        let candidates = ids.compactMap { panes[$0] }.filter { $0.isRunning }
         guard config.confirmClose, !candidates.isEmpty else { return close() }
         guard !confirming else { return }
         confirming = true
@@ -492,9 +492,9 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
 
     /// The model's tree and zoom, to the tab's view.
     private func sync(_ tab: TabID) {
-        guard let model = model.tabs.first(where: { $0.id == tab }), let area = areas[tab] else { return }
-        area.tree = model.tree
-        area.zoomedPane = model.zoomedPane
+        guard let tabModel = model.tabs.first(where: { $0.id == tab }), let area = areas[tab] else { return }
+        area.tree = tabModel.tree
+        area.zoomedPane = tabModel.zoomedPane
     }
 
     /// After focus moved between panes: the views follow the model, and the keys go to the
@@ -624,7 +624,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard !closeConfirmed else { return true }
         let all = model.tabs.flatMap(\.panes)
-        let candidates = all.compactMap { panes[$0] }.filter(\.isRunning)
+        let candidates = all.compactMap { panes[$0] }.filter { $0.isRunning }
         guard config.confirmClose, !candidates.isEmpty else { return true }
         confirmClose(of: all, in: "window") { [weak self] in
             self?.closeConfirmed = true

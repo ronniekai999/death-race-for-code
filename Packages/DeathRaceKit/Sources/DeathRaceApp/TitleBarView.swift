@@ -1,5 +1,6 @@
 import AppCore
 import AppKit
+import ConfigKit
 import QuartzCore
 import TerminalUI
 import VTCore
@@ -85,7 +86,7 @@ final class TitleBarView: NSView {
 
     /// What double-clicking a title bar does, from System Settings › Desktop & Dock.
     static func performDoubleClickAction(on window: NSWindow) {
-        switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
+        switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") ?? "" {
         case "Minimize": window.performMiniaturize(nil)
         case "None": break
         default: window.performZoom(nil)

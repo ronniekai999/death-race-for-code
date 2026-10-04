@@ -43,16 +43,6 @@ struct Chrome {
     static let glowRadius: CGFloat = 14
 }
 
-extension RGB {
-    func nsColor(alpha: CGFloat) -> NSColor {
-        nsColor.withAlphaComponent(alpha)
-    }
-
-    func cgColor(alpha: CGFloat) -> CGColor {
-        cgColor.copy(alpha: alpha) ?? cgColor
-    }
-}
-
 /// Text filled with a gradient, drawn once into an image: cheaper than a gradient layer
 /// masked by text, and it shows up in snapshots.
 enum GradientText {
@@ -67,7 +57,7 @@ enum GradientText {
 
     static func render(_ text: String, font: CTFont, colors: [RGB], scale: CGFloat) -> CGImage? {
         let attributed = NSAttributedString(string: text, attributes: [.font: font])
-        let line = CTLineCreateWithAttributedString(attributed)
+        let line = CTLineCreateWithAttributedString(attributed as CFAttributedString)
         let bounds = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
         let margin: CGFloat = 2
         let width = Int(((bounds.width + margin * 2) * scale).rounded(.up))

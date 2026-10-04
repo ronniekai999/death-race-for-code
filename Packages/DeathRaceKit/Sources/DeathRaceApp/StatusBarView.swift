@@ -1,5 +1,6 @@
 import AppCore
 import AppKit
+import ConfigKit
 import TerminalUI
 import VTCore
 
@@ -65,7 +66,7 @@ final class StatusBarView: NSView {
         let rect = NSRect(
             x: margin, y: ((bounds.height - size.height) / 2).rounded(), width: max(min(size.width, available), 0),
             height: size.height)
-        leading.draw(with: rect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+        leading.draw(with: rect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], context: nil)
         problemsRect = line.leading.last?.style == .warning ? rect : nil
     }
 
@@ -80,14 +81,13 @@ final class StatusBarView: NSView {
                         string: StatusLine.separator,
                         attributes: [.font: Self.font, .foregroundColor: colors.inkFaint.nsColor]))
             }
-            let color: RGB
-            let font: NSFont
-            switch run.style {
-            case .muted: (color, font) = (colors.inkMuted, Self.font)
-            case .ink: (color, font) = (colors.ink, Self.boldFont)
-            case .accent: (color, font) = (colors.accent, Self.boldFont)
-            case .warning: (color, font) = (colors.warning, Self.boldFont)
-            }
+            let (color, font): (RGB, NSFont) =
+                switch run.style {
+                case .muted: (colors.inkMuted, Self.font)
+                case .ink: (colors.ink, Self.boldFont)
+                case .accent: (colors.accent, Self.boldFont)
+                case .warning: (colors.warning, Self.boldFont)
+                }
             if let symbol = run.symbol,
                 let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(
                     NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)

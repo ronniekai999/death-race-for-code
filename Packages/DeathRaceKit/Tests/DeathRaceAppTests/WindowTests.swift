@@ -151,7 +151,7 @@ struct WindowTests {
         controller.splitRight(nil)
         await eventually { controller.panes.count == 2 }
         controller.window?.layoutIfNeeded()
-        let surfaces = controller.panes.values.map(\.surface)
+        let surfaces = controller.panes.values.map { $0.surface }
         let frames = surfaces.map { $0.convert($0.bounds, to: nil) }.sorted { $0.minX < $1.minX }
         try #require(frames.count == 2)
         #expect(frames[0].maxX < frames[1].minX)

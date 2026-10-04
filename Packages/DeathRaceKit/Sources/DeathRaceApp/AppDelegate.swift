@@ -66,7 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
 
     /// Quitting with programs running in any pane asks once, for all of them.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let running = allPanes.filter(\.isRunning)
+        let running = allPanes.filter { $0.isRunning }
         guard configStore.config.confirmClose, !running.isEmpty else { return .terminateNow }
         Task {
             var programs: [String] = []

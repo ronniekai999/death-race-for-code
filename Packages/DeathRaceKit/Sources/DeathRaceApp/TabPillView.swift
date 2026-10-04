@@ -25,7 +25,8 @@ final class TabStripView: NSView {
     private let plus = TabPillView(tab: nil)
     private let more = TabPillView(tab: nil)
     private var chrome: Chrome?
-    private var hidden: [TabID] = []
+    /// Tabs that did not fit, in the "more" menu.
+    private var overflow: [TabID] = []
 
     var onSelect: ((TabID) -> Void)?
     var onClose: ((TabID) -> Void)?
@@ -69,7 +70,7 @@ final class TabStripView: NSView {
 
     /// Shows `tabs` in order with their states.
     func update(_ tabs: [(id: TabID, state: PillState)]) {
-        let ids = tabs.map(\.id)
+        let ids = tabs.map { $0.id }
         for (id, pill) in pills where !ids.contains(id) {
             pill.removeFromSuperview()
             pills[id] = nil
@@ -118,14 +119,14 @@ final class TabStripView: NSView {
             }
         }
         // Still too wide: the last pills go into the menu, keeping the active one.
-        hidden = []
+        overflow = []
         var visible = order
         if total(widths) > available {
             available -= height + Self.gap  // the "more" pill
             while visible.count > 1, total(widths) > available {
                 let activeIndex = visible.firstIndex { pills[$0]?.state.isActive == true }
                 let drop = activeIndex == visible.count - 1 ? visible.count - 2 : visible.count - 1
-                hidden.insert(visible.remove(at: drop), at: 0)
+                overflow.insert(visible.remove(at: drop), at: 0)
                 widths.remove(at: drop)
             }
         }
@@ -137,12 +138,12 @@ final class TabStripView: NSView {
             if pill.frame != frame { pill.frame = frame }
             x += width + Self.gap
         }
-        for id in hidden { pills[id]?.isHidden = true }
-        more.isHidden = hidden.isEmpty
-        if !hidden.isEmpty {
+        for id in overflow { pills[id]?.isHidden = true }
+        more.isHidden = overflow.isEmpty
+        if !overflow.isEmpty {
             more.state = PillState(
-                title: "+\(hidden.count)", isActive: false, isBusy: false, rang: false, failed: false)
-            more.toolTip = "\(hidden.count) more tabs"
+                title: "+\(overflow.count)", isActive: false, isBusy: false, rang: false, failed: false)
+            more.toolTip = "\(overflow.count) more tabs"
             more.frame = NSRect(x: x.rounded(), y: y, width: max(more.naturalWidth, height), height: height)
             x += more.frame.width + Self.gap
         }
@@ -151,7 +152,7 @@ final class TabStripView: NSView {
 
     private func showMoreMenu() {
         let menu = NSMenu()
-        for id in hidden {
+        for id in overflow {
             guard let pill = pills[id] else { continue }
             let item = NSMenuItem(title: pill.state.title, action: #selector(selectFromMenu(_:)), keyEquivalent: "")
             item.target = self
@@ -304,7 +305,7 @@ final class TabPillView: NSView {
             x: tab == nil ? ((bounds.width - size.width) / 2).rounded() : x,
             y: ((bounds.height - size.height) / 2).rounded(), width: min(size.width, available),
             height: size.height)
-        title.draw(with: textRect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+        title.draw(with: textRect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], context: nil)
         if tab != nil && hovering {
             let mark = NSAttributedString(
                 string: "×",

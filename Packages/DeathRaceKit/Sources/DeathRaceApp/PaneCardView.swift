@@ -177,20 +177,21 @@ final class NeonBorderView: NSView {
         // Whether this layer's y runs down the screen, as the view's does, decides where
         // "top" is in its coordinates: AppKit does not promise either way.
         let yDown = layer.contentsAreFlipped()
-        func place(_ rect: CGRect) -> CGRect {
+        func placeRect(_ rect: CGRect) -> CGRect {
             yDown ? rect : CGRect(x: rect.minX, y: height - rect.maxY, width: rect.width, height: rect.height)
         }
-        func place(_ point: CGPoint) -> CGPoint {
+        func placePoint(_ point: CGPoint) -> CGPoint {
             yDown ? point : CGPoint(x: point.x, y: height - point.y)
         }
         // CSS's 120°: toward the right and 30° down. The gradient line is as long as it
         // must be for the corners to reach its ends.
-        let direction = (x: 0.866_025_4, y: 0.5)
-        let length = abs(width * direction.x) + abs(height * direction.y)
+        let dx: CGFloat = 0.866_025_4
+        let dy: CGFloat = 0.5
+        let length = width * dx + height * dy
         let ramp = GradientRamp(stops: colors)
         func color(at point: CGPoint) -> RGB {
-            let along = ((point.x - width / 2) * direction.x + (point.y - height / 2) * direction.y) / length
-            return ramp.color(at: along + 0.5)
+            let along: CGFloat = ((point.x - width / 2) * dx + (point.y - height / 2) * dy) / length
+            return ramp.color(at: Double(along) + 0.5)
         }
 
         // The straight edges, in view coordinates (y down): top, bottom, left, right.
@@ -215,13 +216,15 @@ final class NeonBorderView: NSView {
         let samples = 8
         for (strip, edge) in zip(strips, edges) {
             strip.isHidden = false
-            strip.frame = place(edge.rect)
-            strip.colors = (0...samples).map { step in
-                let t = Double(step) / Double(samples)
+            strip.frame = placeRect(edge.rect)
+            var stops: [CGColor] = []
+            for step in 0...samples {
+                let t = CGFloat(step) / CGFloat(samples)
                 let point = CGPoint(
                     x: edge.from.x + (edge.to.x - edge.from.x) * t, y: edge.from.y + (edge.to.y - edge.from.y) * t)
-                return color(at: point).cgColor
+                stops.append(color(at: point).cgColor)
             }
+            strip.colors = stops
             if edge.horizontal {
                 strip.startPoint = CGPoint(x: 0, y: 0.5)
                 strip.endPoint = CGPoint(x: 1, y: 0.5)
@@ -252,9 +255,9 @@ final class NeonBorderView: NSView {
         ]
         for (shape, arc) in zip(corners, arcs) {
             let path = CGMutablePath()
-            path.move(to: place(arc.start))
-            path.addArc(tangent1End: place(arc.corner), tangent2End: place(arc.end), radius: radius - half)
-            path.addLine(to: place(arc.end))
+            path.move(to: placePoint(arc.start))
+            path.addArc(tangent1End: placePoint(arc.corner), tangent2End: placePoint(arc.end), radius: radius - half)
+            path.addLine(to: placePoint(arc.end))
             shape.isHidden = false
             shape.frame = layer.bounds
             shape.path = path
@@ -348,7 +351,7 @@ final class EndBannerView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
-        button.bezelStyle = .rounded
+        button.bezelStyle = .push
         button.controlSize = .small
         button.target = self
         button.action = #selector(restartClicked(_:))

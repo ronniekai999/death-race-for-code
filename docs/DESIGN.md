@@ -101,5 +101,8 @@ the dark themes use the dark appearance. The starfield (`starfield = true`) belo
 night skies, so Righteous has none.
 
 **Pictures of every theme.** `DeathRace --render-chrome DIR` (debug builds) draws the window
-in all eight themes, with Hear Me Calling open and the Settings window, without a screen
-recording permission. CI keeps them as the `chrome-preview` artifact.
+in all eight themes without a screen recording permission, and CI keeps them as the
+`chrome-preview` artifact.
+- The traffic lights and the glow's blur are the window server's, so they are missing.
+- The SwiftUI windows (Settings, Hear Me Calling) are left out. Their text doesn't survive
+  being drawn this way, so they are reviewed on the Mac.

@@ -3,7 +3,6 @@
     import AppKit
     import ConfigKit
     import ImageIO
-    import LegendsUI
     import PTYKit
     import RenderKit
     import ScreenProtocol
@@ -47,11 +46,13 @@
     }
 
     /// `DeathRace --render-chrome DIR` (debug builds): the Pit Lane in each of the eight themes,
-    /// with Hear Me Calling and Settings, as PNGs for review without building the app.
+    /// as PNGs for review without building the app.
     ///
     /// No screen recording is needed. The layer tree draws the chrome; each pane's Metal layer
     /// is not in it, so the pane's own frame is drawn offscreen and put where the layer is. The
-    /// window server's part is missing: the traffic lights and the glow's blur.
+    /// window server's part is missing: the traffic lights and the glow's blur. SwiftUI's
+    /// windows (Settings, Hear Me Calling's rows) are left out: drawn this way their text
+    /// comes out flipped in places, which would mislead more than it shows.
     @MainActor
     public enum ChromePreview {
         static let size = NSSize(width: 1180, height: 720)
@@ -96,13 +97,9 @@
                 let renderer = try? OffscreenRenderer()
                 if renderer == nil { print("no Metal device: the panes are left empty") }
                 for theme in ThemeCatalog.all {
-                    try write(window(theme: theme, renderer: renderer, palette: false), to: folder, name: theme.id)
+                    try write(window(theme: theme, renderer: renderer), to: folder, name: theme.id)
                 }
-                try write(
-                    window(theme: ThemeCatalog.default, renderer: renderer, palette: true), to: folder,
-                    name: "hear-me-calling")
-                try write(settings(), to: folder, name: "settings")
-                print("wrote \(ThemeCatalog.all.count + 2) pictures to \(folder.path)")
+                print("wrote \(ThemeCatalog.all.count) pictures to \(folder.path)")
                 return 0
             } catch {
                 FileHandle.standardError.write(Data("render-chrome: \(error)\n".utf8))
@@ -148,11 +145,12 @@
             func picked(_ id: String) {}
         }
 
-        /// A window in `theme`: a split tab, two more tabs, and with `palette` Hear Me Calling
-        /// open over it.
-        private static func window(theme: NamedTheme, renderer: OffscreenRenderer?, palette: Bool) throws -> CGImage {
+        /// A window in `theme`: a split tab and two more tabs.
+        private static func window(theme: NamedTheme, renderer: OffscreenRenderer?) throws -> CGImage {
             var config = Config()
             config.themeID = theme.id
+            // The pills and headers name the shell the mockups show, whatever the runner's is.
+            config.command = "/bin/zsh"
             let host = Host()
             let controller = PitLaneWindowController(config: config, host: host, directory: directory)
             defer { controller.window?.close() }
@@ -167,44 +165,24 @@
             // Back to the split tab, its left pane in use.
             _ = controller.selectTab(number: 1)
             _ = controller.selectPane(number: 1)
-            for pane in controller.panes.values { pane.surface.sessionDidUpdate() }
-            try wait("the panes' screens") {
-                controller.panes.values.allSatisfy { $0.surface.model?.mirror.generation != nil }
+            for pane in controller.panes.values {
+                pane.surface.sessionDidUpdate()
+                // What runs in it and where: for the pills, headers and status bar.
+                pane.refreshForeground()
             }
-            settle()
-            if palette {
-                controller.showHearMeCalling(nil)
-                if let overlay = controller.hearMeCalling {
-                    overlay.field.stringValue = "theme"
-                    overlay.controlTextDidChange(
-                        Notification(name: NSControl.textDidChangeNotification, object: overlay.field))
+            try wait("the panes' screens and programs") {
+                controller.panes.values.allSatisfy {
+                    $0.surface.model?.mirror.generation != nil && $0.programName != nil
                 }
-                settle()
             }
-            return try picture(of: controller, renderer: renderer)
-        }
-
-        private static func settings() throws -> CGImage {
-            let config = Config()
-            let chrome = Chrome(config.namedTheme)
-            let model = SettingsModel(
-                config: config, palette: LegendsPalette(chrome), filePath: "~/.config/deathrace/config")
-            let controller = SettingsWindowController(model: model, chrome: chrome)
-            defer { controller.window?.close() }
-            controller.show(page: .appearance)
             settle()
-            guard let view = controller.window?.contentView,
-                let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)
-            else { throw Failure(description: "no picture of the Settings window") }
-            view.cacheDisplay(in: view.bounds, to: bitmap)
-            guard let image = bitmap.cgImage else { throw Failure(description: "an empty Settings picture") }
-            return image
+            return try picture(of: controller, renderer: renderer)
         }
 
         // MARK: - Pictures
 
-        /// The window's content: the chrome from the layer tree, each shown pane's own frame
-        /// where its Metal layer is, then Hear Me Calling over both.
+        /// The window's content: the chrome from the layer tree, then each shown pane's own
+        /// frame where its Metal layer is.
         private static func picture(of controller: PitLaneWindowController, renderer: OffscreenRenderer?) throws
             -> CGImage
         {
@@ -222,11 +200,16 @@
             else { throw Failure(description: "no bitmap") }
             context.scaleBy(x: scale, y: scale)
 
-            let overlay = controller.hearMeCalling
-            overlay?.isHidden = true
             content.layoutSubtreeIfNeeded()
             content.displayIfNeeded()
+            // The root view is flipped, so its layer tree runs down the page: turn the context
+            // the same way for it, and back for the panes, which are placed in the window's
+            // own coordinates.
+            context.saveGState()
+            context.translateBy(x: 0, y: content.bounds.height)
+            context.scaleBy(x: 1, y: -1)
             layer.render(in: context)
+            context.restoreGState()
             if let renderer, let tab = controller.model.activeTab {
                 for id in tab.panes {
                     guard let surface = controller.panes[id]?.surface, !surface.isHiddenOrHasHiddenAncestor,
@@ -234,11 +217,6 @@
                     else { continue }
                     context.draw(image, in: surface.convert(surface.bounds, to: nil))
                 }
-            }
-            if let overlay, let overlayLayer = overlay.layer {
-                overlay.isHidden = false
-                overlay.displayIfNeeded()
-                overlayLayer.render(in: context)
             }
             guard let image = context.makeImage() else { throw Failure(description: "no picture") }
             return image

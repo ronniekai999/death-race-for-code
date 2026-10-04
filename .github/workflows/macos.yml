@@ -97,8 +97,8 @@ jobs:
       - name: Render the corpus screens
         timeout-minutes: 3
         run: DEATHRACE_RENDER_PREVIEW="$PWD/build/render" swift test --package-path Packages/DeathRaceKit --skip-build --filter RenderGoldenTests
-      # The Pit Lane in all eight themes, with Hear Me Calling and Settings, kept for review
-      # beside the mockups; a debug build's own flag, so it needs no bundle.
+      # The Pit Lane in all eight themes, kept for review beside the mockups; a debug build's
+      # own flag, so it needs no bundle.
       - name: Render the chrome
         timeout-minutes: 3
         run: Packages/DeathRaceKit/.build/debug/DeathRace --render-chrome build/chrome

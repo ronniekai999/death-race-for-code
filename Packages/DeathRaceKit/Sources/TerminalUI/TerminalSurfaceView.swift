@@ -647,16 +647,10 @@ public final class TerminalSurfaceView: NSView {
         let height = Int((Double(bounds.height) * scale).rounded())
         guard width > 0, height > 0 else { return nil }
         let glyphs = GlyphCache(rasterizer: GlyphRasterizer(fonts: fonts, cell: cell, thicken: fontThicken))
-        let builder = FrameBuilder()
-        var frame = builder.build(
+        // As many frames as the glyph cache's per-frame budget needs to draw every glyph.
+        let (frame, _) = FrameBuilder().buildComplete(
             mirror: model.mirror, theme: theme, cell: cell, selection: selectionRange, glyphs: glyphs,
             starfield: starfield, link: hoveredLink)
-        // Glyphs not ready the first time are the next time.
-        for _ in 0..<3 where !frame.isComplete {
-            frame = builder.build(
-                mirror: model.mirror, theme: theme, cell: cell, selection: selectionRange, glyphs: glyphs,
-                starfield: starfield, link: hoveredLink)
-        }
         let layout = PixelLayout(
             width: width, height: height, originX: Int((grid.left * scale).rounded()),
             originY: Int((grid.top * scale).rounded()))

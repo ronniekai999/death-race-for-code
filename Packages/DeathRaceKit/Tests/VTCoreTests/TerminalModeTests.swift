@@ -31,6 +31,22 @@ import Testing
         #expect(t.lines[0] == "foo")
     }
 
+    @Test func screensShareTheCursorExceptFor1049() {
+        let t = makeTerminal()
+        t.feed("abc\u{1B}[?47h\u{1B}[4;6H\u{1B}[?47l")
+        #expect(t.cursorPosition == [5, 3])
+        t.feed("\u{1B}[1;1H\u{1B}[?1049h\u{1B}[4;6H\u{1B}[?1049l")
+        #expect(t.cursorPosition == [0, 0])
+    }
+
+    @Test func xtsaveAndXtrestoreModes() {
+        let t = makeTerminal()
+        t.feed("\u{1B}[?2004h\u{1B}[?2004;7s\u{1B}[?2004l\u{1B}[?7l")
+        #expect(!t.modes.bracketedPaste && !t.modes.autowrap)
+        t.feed("\u{1B}[?2004;7r")
+        #expect(t.modes.bracketedPaste && t.modes.autowrap)
+    }
+
     @Test func alternateScreen1047ClearsOnTheWayOut() {
         let t = makeTerminal()
         t.feed("\u{1B}[?1047hfoo\u{1B}[?1047l\u{1B}[?47h")
@@ -148,6 +164,8 @@ import Testing
         #expect(t.cursor.visible)
         #expect(t.currentStyle == .default)
         #expect(t.scrollRegion == 0...4)
+        t.feed("\u{1B}[?45h\u{1B}[?1045h\u{1B}[!p")
+        #expect(!t.modes.reverseWraparound && !t.modes.reverseWraparoundExtended)
     }
 
     @Test func fullResetClearsTheScreenButKeepsScrollback() {

@@ -45,10 +45,16 @@ public struct TerminalModes: Sendable, Equatable {
     public var cursorBlink = false
     /// DECTCEM (25)
     public var cursorVisible = true
-    /// 45: backspace at column 0 moves to the end of the previous wrapped line.
+    /// 45: backspace at the left margin moves to the end of the previous line, if that line
+    /// wrapped onto this one (xterm 383 and later).
     public var reverseWraparound = false
+    /// 1045: backspace at the left margin moves to the end of the previous line whatever
+    /// it is, and from the top margin to the bottom one (xterm's original mode 45).
+    public var reverseWraparoundExtended = false
     /// DECNKM (66), also set by DECKPAM.
     public var applicationKeypad = false
+    /// DECBKM (67): the Backspace key sends BS instead of DEL.
+    public var backarrowSendsBackspace = false
     public var mouseTracking = MouseTracking.none
     public var mouseEncoding = MouseEncoding.x10
     /// 1004
@@ -81,7 +87,9 @@ public struct TerminalModes: Sendable, Equatable {
         case 12: cursorBlink = on
         case 25: cursorVisible = on
         case 45: reverseWraparound = on
+        case 1045: reverseWraparoundExtended = on
         case 66: applicationKeypad = on
+        case 67: backarrowSendsBackspace = on
         case 1000: setMouse(.normal, on)
         case 1002: setMouse(.buttonEvent, on)
         case 1003: setMouse(.anyEvent, on)
@@ -112,7 +120,9 @@ public struct TerminalModes: Sendable, Equatable {
         case 12: cursorBlink
         case 25: cursorVisible
         case 45: reverseWraparound
+        case 1045: reverseWraparoundExtended
         case 66: applicationKeypad
+        case 67: backarrowSendsBackspace
         case 1000: mouseTracking == .normal
         case 1002: mouseTracking == .buttonEvent
         case 1003: mouseTracking == .anyEvent

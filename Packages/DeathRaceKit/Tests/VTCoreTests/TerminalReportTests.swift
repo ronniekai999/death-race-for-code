@@ -23,7 +23,28 @@ import Testing
     @Test func deviceStatusReports() {
         #expect(reply(to: "\u{1B}[5n") == "\u{1B}[0n")
         #expect(reply(to: "\u{1B}[6n") { $0.feed("\u{1B}[3;4H") } == "\u{1B}[3;4R")
-        #expect(reply(to: "\u{1B}[?6n") { $0.feed("\u{1B}[3;4H") } == "\u{1B}[?3;4;1R")
+        #expect(reply(to: "\u{1B}[?6n") { $0.feed("\u{1B}[3;4H") } == "\u{1B}[?3;4R")
+    }
+
+    @Test func identificationAndHardwareStatus() {
+        #expect(reply(to: "\u{1B}Z") == "\u{1B}[?62;22c")
+        #expect(reply(to: "\u{1B}[?15n") == "\u{1B}[?13n")
+        #expect(reply(to: "\u{1B}[?26n") == "\u{1B}[?27;1n")
+        #expect(reply(to: "\u{1B}[?55n") == "\u{1B}[?50n")
+        #expect(reply(to: "\u{1B}[?63;9n") == "\u{1B}P9!~0000\u{1B}\\")
+        #expect(reply(to: "\u{1B}[?85n") == "\u{1B}[?83n")
+        #expect(reply(to: "\u{1B}[?99n") == "")
+    }
+
+    @Test func modesWeDoNotOfferReportTheirFixedState() {
+        #expect(reply(to: "\u{1B}[19$p") == "\u{1B}[19;4$y")
+        #expect(reply(to: "\u{1B}[2$p") == "\u{1B}[2;2$y")
+        #expect(reply(to: "\u{1B}[?3$p") == "\u{1B}[?3;2$y")
+        // Inert modes remember what the program set.
+        #expect(reply(to: "\u{1B}[?42h\u{1B}[?42$p") == "\u{1B}[?42;1$y")
+        #expect(reply(to: "\u{1B}[2h\u{1B}[2l\u{1B}[2$p") == "\u{1B}[2;2$y")
+        #expect(reply(to: "\u{1B}[?60$p") == "\u{1B}[?60;4$y")
+        #expect(reply(to: "\u{1B}[?1045$p") == "\u{1B}[?1045;2$y")
     }
 
     @Test func cursorReportAfterAFullLineIsInTheLastColumn() {
@@ -64,11 +85,13 @@ import Testing
     @Test func screenChecksumsOnlyWhenEnabled() {
         #expect(reply(to: "\u{1B}[1;1;1;1;1;1*y") == "")
         let t = makeTerminal { $0.answersChecksumRequests = true }
-        t.feed("\u{1B}[7;1;1;1;1;1*y")
-        let answer = t.takeReplyString()
-        #expect(answer.hasPrefix("\u{1B}P7!~"))
-        #expect(answer.hasSuffix("\u{1B}\\"))
-        #expect(answer.count == 2 + 3 + 4 + 2)
+        // One cell holds its character; erased cells count as spaces; a rectangle sums them.
+        t.feed("AB\u{1B}[7;0;1;1;1;1*y")
+        #expect(t.takeReplyString() == "\u{1B}P7!~0041\u{1B}\\")
+        t.feed("\u{1B}[8;0;1;1;1;10*y")
+        #expect(t.takeReplyString() == "\u{1B}P8!~0183\u{1B}\\")
+        t.feed("\u{1B}[9;0;2;1;2;1*y")
+        #expect(t.takeReplyString() == "\u{1B}P9!~0020\u{1B}\\")
     }
 
     @Test func termcapQueries() {

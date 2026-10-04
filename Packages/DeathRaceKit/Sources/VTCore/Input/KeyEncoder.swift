@@ -37,7 +37,8 @@ public enum KeyEncoder {
         case .tab:
             return escape + (mods.contains(.shift) ? Array("\u{1B}[Z".utf8) : [0x09])
         case .backspace:
-            return escape + [mods.contains(.control) ? 0x08 : 0x7F]
+            // DEL by default; DECBKM swaps it with BS, and Control swaps it back.
+            return escape + [mods.contains(.control) != modes.backarrowSendsBackspace ? 0x08 : 0x7F]
         case .escape:
             return escape + [0x1B]
         case .keypad(let key):

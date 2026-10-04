@@ -50,6 +50,10 @@ private func key(
         #expect(key(.tab, [.shift, .alt]) == "\u{1B}\u{1B}[Z")
         #expect(key(.backspace) == "\u{7F}")
         #expect(key(.backspace, .control) == "\u{8}")
+        var bkm = TerminalModes()
+        bkm.backarrowSendsBackspace = true
+        #expect(key(.backspace, modes: bkm) == "\u{8}")
+        #expect(key(.backspace, .control, modes: bkm) == "\u{7F}")
         #expect(key(.escape) == "\u{1B}")
     }
 

@@ -10,7 +10,7 @@ extension Terminal {
         case (0, 0, 0x41): cursorUp(Int(p.value(at: 0, default: 1)))  // CUU
         case (0, 0, 0x42), (0, 0, 0x65): cursorDown(Int(p.value(at: 0, default: 1)))  // CUD, VPR
         case (0, 0, 0x43), (0, 0, 0x61): cursorForward(Int(p.value(at: 0, default: 1)))  // CUF, HPR
-        case (0, 0, 0x44): cursorBackward(Int(p.value(at: 0, default: 1)))  // CUB
+        case (0, 0, 0x44): cursorBackward(Int(p.value(at: 0, default: 1)))  // CUB, with reverse wrap as BS
         case (0, 0, 0x45):  // CNL
             cursorDown(Int(p.value(at: 0, default: 1)))
             s.cursor.x = 0
@@ -78,19 +78,29 @@ extension Terminal {
             setScrollRegion(
                 top: Int(p.value(at: 0, default: 1)) - 1,
                 bottom: Int(p.value(at: 1, default: UInt16(clamping: s.rows))) - 1)
+        case (0x3F, 0, 0x73):  // XTSAVE: remember DEC private modes
+            for i in 0..<p.count { savedPrivateModes[p[i]] = privateModeState(p[i]) == 1 }
+        case (0x3F, 0, 0x72):  // XTRESTORE
+            for i in 0..<p.count {
+                if let on = savedPrivateModes[p[i]] { setPrivateMode(p[i], on) }
+            }
         case (0, 0, 0x73) where p.isEmpty: saveCursor()  // SCOSC
         case (0, 0, 0x75) where p.isEmpty: restoreCursor()  // SCORC
 
         // MARK: Modes
         case (0, 0, 0x68), (0, 0, 0x6C):  // SM, RM
-            for i in 0..<p.count { _ = modes.setANSI(p[i], csi.final == 0x68) }
+            for i in 0..<p.count where !modes.setANSI(p[i], csi.final == 0x68) {
+                setInert(p[i], dec: false, csi.final == 0x68)
+            }
         case (0x3F, 0, 0x68), (0x3F, 0, 0x6C):  // DECSET, DECRST
             for i in 0..<p.count { setPrivateMode(p[i], csi.final == 0x68) }
         case (0, 1, 0x70) where csi.intermediates.isOnly(0x21):  // DECSTR
             softReset()
         case (0, 1, 0x70) where csi.intermediates.isOnly(0x24):  // DECRQM (ANSI)
             let mode = p[0]
-            let state = modes.ansi(mode).map { $0 ? 1 : 2 } ?? 0
+            let state =
+                modes.ansi(mode).map { $0 ? 1 : 2 } ?? inertState(mode, dec: false)
+                ?? Self.fixedANSIModeStates[mode] ?? 0
             reply("\u{1B}[\(mode);\(state)$y")
         case (0x3F, 1, 0x70) where csi.intermediates.isOnly(0x24):  // DECRQM (DEC private)
             let mode = p[0]
@@ -105,7 +115,7 @@ extension Terminal {
 
         // MARK: Reports
         case (0, 0, 0x63) where p[0] == 0:  // DA1
-            reply("\u{1B}[?62;22c")
+            reply(Self.primaryDeviceAttributes)
         case (0x3E, 0, 0x63) where p[0] == 0:  // DA2
             reply("\u{1B}[>1;10;0c")
         case (0x3D, 0, 0x63) where p[0] == 0:  // DA3
@@ -118,9 +128,8 @@ extension Terminal {
                 reply("\u{1B}[\(row);\(s.cursor.x + 1)R")
             default: break
             }
-        case (0x3F, 0, 0x6E) where p[0] == 6:  // DECXCPR
-            let row = s.cursor.y - (modes.origin ? s.scrollTop : 0) + 1
-            reply("\u{1B}[?\(row);\(s.cursor.x + 1);1R")
+        case (0x3F, 0, 0x6E):  // DSR, DEC form
+            decDeviceStatus(p)
         case (0x3E, 0, 0x71) where p[0] == 0:  // XTVERSION
             reply("\u{1B}P>|DeathRace \(configuration.version)\u{1B}\\")
         case (0, 0, 0x74):  // XTWINOPS
@@ -165,10 +174,40 @@ extension Terminal {
         s.cursor.pendingWrap = false
     }
 
-    func cursorBackward(_ n: Int) {
+    /// BS and CUB. With reverse wraparound (and autowrap) the cursor continues onto the line
+    /// above: in mode 45 only while that line wrapped onto this one; in mode 1045 always,
+    /// and from the top margin round to the bottom. A pending wrap uses up one step.
+    func cursorBackward(_ count: Int) {
         let s = screen
-        s.cursor.x = max(0, s.cursor.x - max(n, 1))
-        s.cursor.pendingWrap = false
+        var n = max(count, 1)
+        let extended = modes.reverseWraparoundExtended
+        guard modes.autowrap && (modes.reverseWraparound || extended) else {
+            s.cursor.x = max(0, s.cursor.x - n)
+            s.cursor.pendingWrap = false
+            return
+        }
+        if s.cursor.pendingWrap {
+            n -= 1
+            s.cursor.pendingWrap = false
+        }
+        let inRegion = s.cursor.y >= s.scrollTop && s.cursor.y <= s.scrollBottom
+        let top = inRegion ? s.scrollTop : 0
+        let bottom = inRegion ? s.scrollBottom : s.rows - 1
+        while true {
+            let step = min(s.cursor.x, n)
+            s.cursor.x -= step
+            n -= step
+            if n == 0 { break }
+            if s.cursor.y == top {
+                guard extended else { break }
+                s.cursor.y = bottom
+            } else {
+                guard extended || s.active[s.cursor.y - 1].isWrapped else { break }
+                s.cursor.y -= 1
+            }
+            s.cursor.x = s.columns - 1
+            n -= 1
+        }
     }
 
     func setCursorColumn(_ x: Int) {
@@ -266,16 +305,69 @@ extension Terminal {
             modes.origin = on
             setCursorPosition(row: 0, column: 0)
         default:
-            _ = modes.setDEC(mode, on)
+            if !modes.setDEC(mode, on) { setInert(mode, dec: true, on) }
         }
     }
 
-    /// DECRQM answer: 1 set, 2 reset, 0 unknown.
+    /// Modes programs may set and query that change nothing here: keyboard lock (KAM, which
+    /// a program must not be able to use against the user), local echo (SRM), smooth
+    /// scrolling, printer form feed and extent, the Hebrew keyboard and national
+    /// replacement characters.
+    static let inertANSIModes: Set<UInt16> = [2, 12]
+    static let inertDECModes: Set<UInt16> = [4, 18, 19, 35, 42]
+
+    private func setInert(_ mode: UInt16, dec: Bool, _ on: Bool) {
+        guard (dec ? Self.inertDECModes : Self.inertANSIModes).contains(mode) else { return }
+        let key = UInt32(mode) | (dec ? 0x10000 : 0)
+        if on { inertModes.insert(key) } else { inertModes.remove(key) }
+    }
+
+    private func inertState(_ mode: UInt16, dec: Bool) -> Int? {
+        guard (dec ? Self.inertDECModes : Self.inertANSIModes).contains(mode) else { return nil }
+        return inertModes.contains(UInt32(mode) | (dec ? 0x10000 : 0)) ? 1 : 2
+    }
+
+    /// DECRQM answer: 1 set, 2 reset, 4 permanently reset, 0 unknown.
     func privateModeState(_ mode: UInt16) -> Int {
         switch mode {
         case 47, 1047, 1049: return isAlternateScreen ? 1 : 2
         case 1048: return 2
-        default: return modes.dec(mode).map { $0 ? 1 : 2 } ?? 0
+        default:
+            return modes.dec(mode).map { $0 ? 1 : 2 } ?? inertState(mode, dec: true) ?? Self.fixedDECModeStates[mode]
+                ?? 0
+        }
+    }
+
+    /// Modes we recognize but do not offer, answered as xterm answers them: 2 reset, 4
+    /// permanently reset. Known modes get an honest answer instead of "unknown".
+    static let fixedANSIModeStates: [UInt16: Int] = [
+        1: 4, 5: 4, 7: 4, 10: 4, 11: 4, 13: 4, 14: 4, 15: 4, 16: 4, 17: 4, 18: 4, 19: 4,
+    ]
+    /// DECCOLM (3) stays reset: the window, not the program, decides the width.
+    static let fixedDECModeStates: [UInt16: Int] = [3: 2, 60: 4]
+
+    /// DA1: a VT220 with ANSI color. Claiming more would invite programs to use features we
+    /// do not have.
+    static let primaryDeviceAttributes = "\u{1B}[?62;22c"
+
+    /// `CSI ? Ps n`. Status reports for hardware a terminal emulator does not have get the
+    /// answer meaning "none" or "ready", as in xterm.
+    func decDeviceStatus(_ p: Params) {
+        let s = screen
+        switch p[0] {
+        case 6:  // DECXCPR; no page number, since we answer DA2 as a VT220
+            let row = s.cursor.y - (modes.origin ? s.scrollTop : 0) + 1
+            reply("\u{1B}[?\(row);\(s.cursor.x + 1)R")
+        case 15: reply("\u{1B}[?13n")  // no printer
+        case 25: reply("\u{1B}[?20n")  // user-defined keys unlocked
+        case 26: reply("\u{1B}[?27;1n")  // North American keyboard
+        case 53, 55: reply("\u{1B}[?50n")  // no locator
+        case 56: reply("\u{1B}[?57;0n")  // locator type unknown
+        case 62: reply("\u{1B}[0*{")  // DECMSR: no macro space
+        case 63: reply("\u{1B}P\(p[1])!~0000\u{1B}\\")  // DECCKSR: checksum of no macros
+        case 75: reply("\u{1B}[?70n")  // data integrity: no errors
+        case 85: reply("\u{1B}[?83n")  // not configured for multiple sessions
+        default: break
         }
     }
 
@@ -365,8 +457,10 @@ extension Terminal {
 
     // MARK: - DECRQCRA
 
-    /// `CSI Pid ; Pp ; Pt ; Pl ; Pb ; Pr * y`: a 16-bit checksum of a rectangle, in xterm's
-    /// form, which esctest reads screens through. Off unless the configuration enables it.
+    /// `CSI Pid ; Pp ; Pt ; Pl ; Pb ; Pr * y`: a checksum of a rectangle, which is how esctest
+    /// reads the screen. Off unless the configuration enables it. This is current xterm's
+    /// form (patch 334 on, esctest's `--xterm-checksum 334`): the 16-bit sum of the
+    /// characters, attributes left out, with erased cells counting as spaces.
     func checksumRectangle(_ p: Params) {
         let s = screen
         let id = p[0]
@@ -379,15 +473,12 @@ extension Terminal {
         if top <= bottom && left <= right {
             for y in max(top, 0)...bottom {
                 let row = s.active[y]
-                for x in max(left, 0)...right {
-                    let cell = row.cells[x]
-                    if cell.width == .spacerTail { continue }
-                    sum &+= cell.isEmpty ? 0x20 : cell.scalar
+                for x in max(left, 0)...right where row.cells[x].width != .spacerTail {
+                    sum &+= row.cells[x].isEmpty ? 0x20 : row.cells[x].scalar
                 }
             }
         }
-        let checksum = UInt16(truncatingIfNeeded: 0 &- sum)
-        let hex = String(checksum, radix: 16, uppercase: true)
+        let hex = String(UInt16(truncatingIfNeeded: sum), radix: 16, uppercase: true)
         reply("\u{1B}P\(id)!~\(String(repeating: "0", count: 4 - hex.count) + hex)\u{1B}\\")
     }
 }

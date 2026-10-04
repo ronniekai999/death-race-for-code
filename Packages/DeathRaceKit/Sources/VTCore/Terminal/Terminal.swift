@@ -68,6 +68,11 @@ public final class Terminal {
 
     /// The last printed character, for REP.
     var lastGraphic: UInt32?
+    /// DEC private modes saved by XTSAVE, for XTRESTORE.
+    var savedPrivateModes: [UInt16: Bool] = [:]
+    /// Inert modes that are set (see `Terminal.inertANSIModes`); DEC modes are offset by
+    /// 0x10000.
+    var inertModes: Set<UInt32> = []
     private var parser = VTParser()
 
     public init(_ configuration: Configuration = Configuration()) {

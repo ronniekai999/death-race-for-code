@@ -207,6 +207,9 @@ extension Terminal {
         case "r": answer = "\(s.scrollTop + 1);\(s.scrollBottom + 1)r"
         case "\"q": answer = "\(s.cursor.protected ? 1 : 0)\"q"
         case "\"p": answer = "62;1\"p"
+        case "*x": answer = "0*x"  // DECSACE: attribute changes run as a stream
+        case "$}": answer = "0$}"  // DECSASD: writing to the main display
+        case "$~": answer = "0$~"  // DECSSDT: no status line
         default: answer = nil
         }
         if let answer {

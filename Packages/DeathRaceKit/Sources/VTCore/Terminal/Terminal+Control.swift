@@ -7,17 +7,7 @@ extension Terminal {
         case 0x07:  // BEL
             emit(.bell)
         case 0x08:  // BS
-            let reverseWrap = modes.reverseWraparound && modes.autowrap
-            if s.cursor.pendingWrap && reverseWrap {
-                // As in xterm: with reverse wraparound, BS first cancels the pending wrap.
-                s.cursor.pendingWrap = false
-            } else if s.cursor.x > 0 {
-                s.cursor.x -= 1
-                s.cursor.pendingWrap = false
-            } else if reverseWrap && s.cursor.y > 0 && s.active[s.cursor.y - 1].isWrapped {
-                s.cursor.y -= 1
-                s.cursor.x = s.columns - 1
-            }
+            cursorBackward(1)
         case 0x09:  // HT
             s.cursor.x = s.nextTabStop(after: s.cursor.x)
             s.cursor.pendingWrap = false
@@ -80,6 +70,7 @@ extension Terminal {
         case 0x3E: modes.applicationKeypad = false  // ESC >: DECKPNM
         case 0x6E: s.cursor.charsets.gl = 2  // ESC n: LS2
         case 0x6F: s.cursor.charsets.gl = 3  // ESC o: LS3
+        case 0x5A: reply(Self.primaryDeviceAttributes)  // ESC Z: DECID, the old DA1
         default: break  // ESC \ (ST) and the rest
         }
     }
@@ -140,6 +131,8 @@ extension Terminal {
         kittyFlagsPrimary = [0]
         kittyFlagsAlternate = [0]
         lastGraphic = nil
+        savedPrivateModes.removeAll()
+        inertModes.removeAll()
         emit(.colorsChanged)
         bumpGeneration()
     }
@@ -153,6 +146,8 @@ extension Terminal {
         modes.cursorVisible = true
         modes.applicationCursorKeys = false
         modes.applicationKeypad = false
+        modes.reverseWraparound = false
+        modes.reverseWraparoundExtended = false
         s.scrollTop = 0
         s.scrollBottom = s.rows - 1
         s.cursor.pen = .default
@@ -197,12 +192,17 @@ extension Terminal {
         bumpGeneration()
     }
 
+    /// Back to the primary screen. As in xterm, both screens share one cursor: it stays where
+    /// the program left it, unless `restore` (mode 1049) brings back the one saved on entry.
     func leaveAlternateScreen(restoreCursor restore: Bool) {
         guard isAlternateScreen else {
             if restore { restoreCursor() }
             return
         }
         isAlternateScreen = false
+        primary.cursor = alternate.cursor
+        primary.cursor.x = min(primary.cursor.x, primary.columns - 1)
+        primary.cursor.y = min(primary.cursor.y, primary.rows - 1)
         if restore { restoreCursor() }
         bumpGeneration()
     }

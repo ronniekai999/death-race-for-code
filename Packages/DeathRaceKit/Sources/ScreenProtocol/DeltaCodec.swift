@@ -101,7 +101,7 @@ public enum DeltaCodec {
             \.insert, \.newline, \.applicationCursorKeys, \.reverseVideo, \.origin, \.autowrap, \.autorepeat,
             \.cursorBlink, \.cursorVisible, \.reverseWraparound, \.applicationKeypad, \.focusEvents,
             \.alternateScroll, \.metaSendsEscape, \.bracketedPaste, \.synchronizedOutput, \.graphemeClustering,
-            \.colorSchemeUpdates,
+            \.colorSchemeUpdates, \.reverseWraparoundExtended, \.backarrowSendsBackspace,
         ]
     }
 

@@ -140,6 +140,25 @@ import Testing
         #expect(!t.cursor.pendingWrap)
     }
 
+    @Test func extendedReverseWraparoundCrossesAnyLineAndTheTop() {
+        let t = makeTerminal()
+        t.feed("abc\r\n\u{1B}[?1045h\u{8}")
+        #expect(t.cursorPosition == [9, 0])
+        t.feed("\u{1B}[2;4r\u{1B}[2;1H\u{8}")
+        #expect(t.cursorPosition == [9, 3])
+        // Without autowrap, nothing wraps.
+        t.feed("\u{1B}[?7l\u{1B}[3;1H\u{8}")
+        #expect(t.cursorPosition == [0, 2])
+    }
+
+    @Test func cursorBackwardWrapsLikeBackspace() {
+        let t = makeTerminal()
+        t.feed("abcdefghijklm\u{1B}[?45h\u{1B}[5D")
+        #expect(t.cursorPosition == [8, 0])
+        t.feed("\u{1B}[99D")
+        #expect(t.cursorPosition == [0, 0])
+    }
+
     @Test func indexAndReverseIndex() {
         let t = makeTerminal(rows: 3)
         t.feed("1\r\n2\r\n3\u{1B}[1;1H\u{1B}M")

@@ -6,9 +6,9 @@ import PackageDescription
 // One package with two halves:
 //
 // * Portable targets (CPTY, PTYKit, VTCore, ScreenProtocol, SessionKit, ConfigKit, SurfaceCore,
-//   vthost) build and test on Linux as well as macOS. The engine and everything a terminal view
-//   does apart from AppKit and Metal is developed test-first in a Linux container with no Mac in
-//   the loop, and the same code runs inside the app on macOS.
+//   AppCore, vthost) build and test on Linux as well as macOS. The engine, and everything the
+//   terminal view and the app do apart from AppKit and Metal, is developed test-first in a
+//   Linux container with no Mac in the loop, and the same code runs inside the app on macOS.
 //
 // * macOS targets (LegendsUI, RenderKit, TerminalUI, DeathRaceApp, DeathRace) exist only when
 //   the manifest is evaluated on macOS, so `swift test` on Linux never tries to compile AppKit,
@@ -23,6 +23,7 @@ var products: [Product] = [
     .library(name: "SessionKit", targets: ["SessionKit"]),
     .library(name: "ConfigKit", targets: ["ConfigKit"]),
     .library(name: "SurfaceCore", targets: ["SurfaceCore"]),
+    .library(name: "AppCore", targets: ["AppCore"]),
     .executable(name: "vthost", targets: ["vthost"]),
 ]
 
@@ -52,6 +53,10 @@ var targets: [Target] = [
     // What a terminal view does, apart from AppKit and Metal: cell geometry, colors, the
     // frame to draw, selection, key routing. Tested here so the macOS layer stays thin.
     .target(name: "SurfaceCore", dependencies: ["VTCore", "ScreenProtocol", "SessionKit", "ConfigKit"]),
+    // What the app does apart from AppKit: windows of tabs of split panes, the actions and
+    // their shortcuts, the palette's matching, the status line. The app's logic, tested
+    // here, as SurfaceCore is the terminal view's.
+    .target(name: "AppCore", dependencies: ["ConfigKit", "PTYKit"]),
     .executableTarget(
         name: "vthost",
         dependencies: ["VTCore", "PTYKit", "SurfaceCore"],
@@ -64,6 +69,7 @@ var targets: [Target] = [
     .testTarget(name: "ConfigKitTests", dependencies: ["ConfigKit", "VTCore"]),
     .testTarget(
         name: "SurfaceCoreTests", dependencies: ["SurfaceCore", "VTCore", "ScreenProtocol", "SessionKit", "ConfigKit"]),
+    .testTarget(name: "AppCoreTests", dependencies: ["AppCore", "ConfigKit", "PTYKit"]),
 ]
 
 #if os(macOS)
@@ -87,14 +93,21 @@ var targets: [Target] = [
         .target(
             name: "DeathRaceApp",
             dependencies: [
-                "LegendsUI", "TerminalUI", "RenderKit", "SurfaceCore", "SessionKit", "ScreenProtocol", "ConfigKit",
-                "PTYKit", "VTCore",
+                "LegendsUI", "TerminalUI", "RenderKit", "SurfaceCore", "AppCore", "SessionKit", "ScreenProtocol",
+                "ConfigKit", "PTYKit", "VTCore",
             ]),
         .executableTarget(name: "DeathRace", dependencies: ["DeathRaceApp", "RenderKit"]),
         // Temporary: the one-day privacy-permission spike for legendsd (docs/SPIKE.md).
         .executableTarget(name: "legendsd-spike", dependencies: ["PTYKit"], path: "Tools/legendsd-spike"),
         .testTarget(
             name: "RenderKitTests", dependencies: ["RenderKit", "SurfaceCore", "ConfigKit", "ScreenProtocol", "VTCore"]),
+        // The window and its tabs and panes, driven headless with stand-in sessions.
+        .testTarget(
+            name: "DeathRaceAppTests",
+            dependencies: [
+                "DeathRaceApp", "AppCore", "TerminalUI", "SurfaceCore", "SessionKit", "ScreenProtocol", "ConfigKit",
+                "PTYKit", "VTCore",
+            ]),
     ]
 #endif
 

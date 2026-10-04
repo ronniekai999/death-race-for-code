@@ -61,3 +61,4 @@ jobs:
         run: >-
           swift test --package-path Packages/DeathRaceKit --sanitize=thread
           --scratch-path Packages/DeathRaceKit/.build/tsan
+

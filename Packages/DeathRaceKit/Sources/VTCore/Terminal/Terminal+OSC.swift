@@ -30,6 +30,8 @@ extension Terminal {
         case 7:
             workingDirectory = text
             emit(.workingDirectoryChanged(text))
+        case 8:
+            hyperlink(rest)
         case 9:
             if text.hasPrefix("4;") || text == "4" {
                 progress(text)
@@ -62,9 +64,40 @@ extension Terminal {
                         title: parts.count > 1 ? String(parts[1]) : "", body: parts.count > 2 ? String(parts[2]) : ""))
             }
         default:
-            break  // OSC 8 hyperlinks arrive in Phase 3; the rest is ignored.
+            break
         }
     }
+
+    // MARK: - Hyperlinks
+
+    /// OSC 8: `params;URI` opens a link the characters printed next belong to, and an empty
+    /// URI closes it. The parameters are `key=value` pairs split by colons, of which only
+    /// `id` means anything. A link past the limits, or with control characters in it, is
+    /// not kept: what follows prints without one.
+    private func hyperlink(_ bytes: [UInt8]) {
+        currentLink = nil
+        guard let separator = bytes.firstIndex(of: 0x3B) else { return }
+        let uri = bytes[(separator + 1)...]
+        guard !uri.isEmpty else { return }
+        var id: ArraySlice<UInt8> = []
+        for parameter in bytes[..<separator].split(separator: 0x3A) where parameter.starts(with: Self.idPrefix) {
+            id = parameter.dropFirst(Self.idPrefix.count)
+        }
+        let name: [UInt8]
+        if id.isEmpty {
+            anonymousLinks += 1
+            name = Array(":\(anonymousLinks)".utf8)
+        } else {
+            name = Array(id)
+        }
+        // The limits hold for the text as kept: decoding turns each byte that is not UTF-8 into
+        // a three-byte U+FFFD, so the bytes as they came cannot be the measure.
+        let link = Hyperlink(id: String(decoding: name, as: UTF8.self), uri: String(decoding: uri, as: UTF8.self))
+        guard Hyperlink.isAcceptable(link) else { return }
+        currentLink = link
+    }
+
+    private static let idPrefix = Array("id=".utf8)
 
     // MARK: - Colors
 

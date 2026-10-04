@@ -10,6 +10,7 @@ public struct ConfigKey: Sendable {
         case window = "Window"
         case colors = "Colors"
         case safety = "Safety"
+        case energy = "Energy"
         case other = "Other"
         case newTabs = "New tabs"
     }
@@ -53,7 +54,7 @@ public struct ConfigValueError: Error, Sendable, Equatable {
 /// Every setting. This one table drives the parser, the defaults the template shows, and
 /// the template itself.
 public enum ConfigSchema {
-    public static let keys: [ConfigKey] = fonts + cursor + input + window + colors + safety + other + newTabs
+    public static let keys: [ConfigKey] = fonts + cursor + input + window + colors + safety + energy + other + newTabs
 
     public static func key(named name: some StringProtocol) -> ConfigKey? {
         keys.first { $0.name == name }
@@ -70,6 +71,15 @@ public enum ConfigSchema {
             help: ["Points, from 6 to 144. ⌘+ and ⌘− change it in one window; ⌘0 returns to this."],
             read: { value, config throws(ConfigValueError) in config.fontSize = try Value.number(value, in: 6...144) },
             write: { Value.format($0.fontSize) }),
+        ConfigKey(
+            "font-family-italic", .fonts,
+            help: [
+                "A family for italic text, like Monaspace Radon beside Monaspace Neon. Unset, italics",
+                "come from the main font.",
+            ],
+            example: "font-family-italic = Monaspace Radon",
+            read: { value, config throws(ConfigValueError) in config.fontFamilyItalic = String(value) },
+            write: { $0.fontFamilyItalic }),
         ConfigKey(
             "font-thicken", .fonts,
             help: ["Draws text with heavier strokes, which some prefer for light text on a dark background."],
@@ -153,47 +163,83 @@ public enum ConfigSchema {
             help: ["The size of new windows, in columns x rows."],
             read: { value, config throws(ConfigValueError) in config.windowSize = try Value.gridSize(value) },
             write: { "\($0.windowSize.columns)x\($0.windowSize.rows)" }),
+        ConfigKey(
+            "pane-headers", .window,
+            help: [
+                "Headers above panes, with the program, directory and branch: split (only while a",
+                "tab is split into panes), always or never.",
+            ],
+            read: { value, config throws(ConfigValueError) in config.paneHeaders = try Value.choice(value) },
+            write: { $0.paneHeaders.rawValue }),
+        ConfigKey(
+            "starfield", .window,
+            help: [
+                "Faint stars behind the panes and in the empty space after each line. The light",
+                "theme, Righteous, has none.",
+            ],
+            read: { value, config throws(ConfigValueError) in config.starfield = try Value.bool(value) },
+            write: { String($0.starfield) }),
     ]
 
     private static let colors: [ConfigKey] = [
         ConfigKey(
-            "background", .colors,
-            help: ["The default background color."],
-            read: { value, config throws(ConfigValueError) in config.theme.palette.background = try Value.color(value)
+            "theme", .colors,
+            help: [
+                "The colors of the terminal and of the window around it: legends-never-die,",
+                "lucid-dreams, goodbye-good-riddance, death-race-for-love, fighting-demons,",
+                "wishing-well, the-party-never-ends or righteous (light). The settings below change",
+                "single colors on top of it, wherever this line is.",
+            ],
+            read: { value, config throws(ConfigValueError) in
+                guard let theme = ThemeCatalog.theme(named: value) else {
+                    throw ConfigValueError(Value.themeHint(for: value))
+                }
+                config.themeID = theme.id
             },
-            write: { Value.format($0.theme.palette.background) }),
+            write: { $0.themeID }),
+        ConfigKey(
+            "background", .colors,
+            help: ["The default background color, instead of the theme's."],
+            example: "background = #100822",
+            read: { value, config throws(ConfigValueError) in config.colorOverrides.background = try Value.color(value)
+            },
+            write: { $0.colorOverrides.background.map(Value.format) }),
         ConfigKey(
             "foreground", .colors,
-            help: ["The default text color."],
-            read: { value, config throws(ConfigValueError) in config.theme.palette.foreground = try Value.color(value)
+            help: ["The default text color, instead of the theme's."],
+            example: "foreground = #EDE7FF",
+            read: { value, config throws(ConfigValueError) in config.colorOverrides.foreground = try Value.color(value)
             },
-            write: { Value.format($0.theme.palette.foreground) }),
+            write: { $0.colorOverrides.foreground.map(Value.format) }),
         ConfigKey(
             "cursor-color", .colors,
-            help: ["The cursor's color."],
-            read: { value, config throws(ConfigValueError) in config.theme.palette.cursor = try Value.color(value) },
-            write: { Value.format($0.theme.palette.cursor) }),
+            help: ["The cursor's color, instead of the theme's."],
+            example: "cursor-color = #EC48C4",
+            read: { value, config throws(ConfigValueError) in config.colorOverrides.cursor = try Value.color(value) },
+            write: { $0.colorOverrides.cursor.map(Value.format) }),
         ConfigKey(
             "cursor-text", .colors,
             help: ["The character under a block cursor. Unset, it takes the background color."],
             example: "cursor-text = #100822",
-            read: { value, config throws(ConfigValueError) in config.theme.cursorText = try Value.color(value) },
-            write: { $0.theme.cursorText.map(Value.format) }),
+            read: { value, config throws(ConfigValueError) in config.colorOverrides.cursorText = try Value.color(value)
+            },
+            write: { $0.colorOverrides.cursorText.map(Value.format) }),
         ConfigKey(
             "selection-background", .colors,
-            help: ["The background of selected text."],
+            help: ["The background of selected text, instead of the theme's."],
+            example: "selection-background = #463279",
             read: { value, config throws(ConfigValueError) in
-                config.theme.selectionBackground = try Value.color(value)
+                config.colorOverrides.selectionBackground = try Value.color(value)
             },
-            write: { Value.format($0.theme.selectionBackground) }),
+            write: { $0.colorOverrides.selectionBackground.map(Value.format) }),
         ConfigKey(
             "selection-foreground", .colors,
             help: ["Selected text. Unset, each character keeps its own color."],
             example: "selection-foreground = #FFFFFF",
             read: { value, config throws(ConfigValueError) in
-                config.theme.selectionForeground = try Value.color(value)
+                config.colorOverrides.selectionForeground = try Value.color(value)
             },
-            write: { $0.theme.selectionForeground.map(Value.format) }),
+            write: { $0.colorOverrides.selectionForeground.map(Value.format) }),
         ConfigKey(
             "palette", .colors,
             help: [
@@ -205,14 +251,16 @@ public enum ConfigSchema {
             example: "palette = 1=#FF5277",
             read: { value, config throws(ConfigValueError) in
                 let (index, color) = try Value.paletteEntry(value)
-                config.theme.palette.colors[index] = color
+                config.colorOverrides.palette[index] = color
             },
             write: { _ in nil }),
         ConfigKey(
             "bold-is-bright", .colors,
             help: ["Bold text in colors 0 to 7 uses their bright versions, 8 to 15, as old terminals did."],
-            read: { value, config throws(ConfigValueError) in config.theme.boldIsBright = try Value.bool(value) },
-            write: { String($0.theme.boldIsBright) }),
+            example: "bold-is-bright = true",
+            read: { value, config throws(ConfigValueError) in config.colorOverrides.boldIsBright = try Value.bool(value)
+            },
+            write: { $0.colorOverrides.boldIsBright.map { String($0) } }),
     ]
 
     private static let safety: [ConfigKey] = [
@@ -242,11 +290,28 @@ public enum ConfigSchema {
             "secure-keyboard-entry", .safety,
             help: [
                 "Secure Keyboard Entry keeps other apps from seeing what you type. auto turns it on",
-                "while a program reads a password (sudo, ssh) and while it is checked in the Edit",
-                "menu; always keeps it on while Death Race is active; manual follows only the menu.",
+                "while a program reads a password (sudo, ssh) and while it is checked in the Death",
+                "Race menu; always keeps it on while Death Race is active; manual follows only the",
+                "menu.",
             ],
             read: { value, config throws(ConfigValueError) in config.secureKeyboardEntry = try Value.choice(value) },
             write: { $0.secureKeyboardEntry.rawValue }),
+    ]
+
+    private static let energy: [ConfigKey] = [
+        ConfigKey(
+            "follow-low-power-mode", .energy,
+            help: ["In Low Power Mode, draw at most 60 frames a second while typing and 30 for output."],
+            read: { value, config throws(ConfigValueError) in config.followLowPowerMode = try Value.bool(value) },
+            write: { String($0.followLowPowerMode) }),
+        ConfigKey(
+            "output-frame-rate-cap", .energy,
+            help: [
+                "Draw busy output at most 60 frames a second. Typing and scrolling keep the",
+                "display's full rate.",
+            ],
+            read: { value, config throws(ConfigValueError) in config.outputFrameRateCap = try Value.bool(value) },
+            write: { String($0.outputFrameRateCap) }),
     ]
 
     private static let other: [ConfigKey] = [
@@ -416,6 +481,22 @@ enum Value {
         if scale > 1 { digits = digits.dropLast() }
         guard let count = Int(digits.trimmingSpaces), count >= 0, count <= (1 << 30) / scale else { throw failure }
         return count * scale
+    }
+
+    /// What to say about a theme name that matches none: the closest, if it looks like a
+    /// typo, else every name.
+    static func themeHint(for text: Substring) -> String {
+        let wanted = ThemeCatalog.folded(text)
+        var best: (id: String, distance: Int)?
+        for theme in ThemeCatalog.all {
+            let distance = min(
+                ConfigParser.editDistance(wanted, ThemeCatalog.folded(theme.id)),
+                ConfigParser.editDistance(wanted, ThemeCatalog.folded(theme.name)))
+            if distance < best?.distance ?? Int.max { best = (theme.id, distance) }
+        }
+        if let best, best.distance <= 3 { return "Did you mean \(best.id)?" }
+        let ids = ThemeCatalog.all.map(\.id)
+        return "Use \(ids.dropLast().joined(separator: ", ")) or \(ids.last ?? "")."
     }
 
     static func format(_ number: Double) -> String {

@@ -196,7 +196,7 @@ public struct PasteWarning: Sendable, Equatable {
 /// also why it is never left on in the background).
 public struct SecureInput: Sendable {
     public var mode: SecureKeyboardEntry
-    /// The Edit menu item is checked.
+    /// Secure Keyboard Entry is checked in the app menu.
     public var menuChecked = false
     public var appIsActive = false
     /// The focused tab's program is reading a password.

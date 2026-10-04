@@ -29,6 +29,11 @@ public struct MirrorGrid: Sendable {
 
     public init() {}
 
+    /// The OSC 8 link at a viewport cell.
+    public func link(column: Int, row: Int) -> Hyperlink? {
+        lines.indices.contains(row) ? lines[row].link(at: column) : nil
+    }
+
     /// Applies `delta` and returns the viewport rows whose content or position changed. On
     /// error the mirror is unchanged.
     @discardableResult

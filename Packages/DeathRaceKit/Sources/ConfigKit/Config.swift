@@ -10,6 +10,9 @@ public struct Config: Sendable, Equatable {
     public var fontSize = 13.0
     /// Heavier strokes for light text on a dark background.
     public var fontThicken = false
+    /// A family for italic text, like Monaspace Radon beside Monaspace Neon; nil uses the
+    /// main family's italic.
+    public var fontFamilyItalic: String?
 
     // Cursor
     public var cursorStyle = CursorShape.block
@@ -30,9 +33,16 @@ public struct Config: Sendable, Equatable {
     public var windowPaddingY = 6.0
     /// The size of new windows, in cells.
     public var windowSize = GridSize(columns: 100, rows: 30)
+    /// Faint stars behind the panes and in the terminal's empty space (dark themes only).
+    public var starfield = true
+    /// When panes show a header with the program, directory and branch.
+    public var paneHeaders = PaneHeaders.split
 
     // Colors
-    public var theme = Theme.legendsNeverDie
+    /// The theme's id in `ThemeCatalog`.
+    public var themeID = ThemeCatalog.default.id
+    /// Colors the file sets on top of the theme.
+    public var colorOverrides = ColorOverrides()
 
     // Safety
     public var confirmClose = true
@@ -40,6 +50,13 @@ public struct Config: Sendable, Equatable {
     public var pasteProtection = true
     public var clipboardWrite = ClipboardWrite.allow
     public var secureKeyboardEntry = SecureKeyboardEntry.auto
+
+    // Energy
+    /// In Low Power Mode, draw at most 60 frames a second for typing and 30 for output.
+    public var followLowPowerMode = true
+    /// Draw busy output at most 60 frames a second; typing and scrolling keep the display's
+    /// full rate.
+    public var outputFrameRateCap = true
 
     // Other
     public var copyOnSelect = false
@@ -53,6 +70,15 @@ public struct Config: Sendable, Equatable {
     public var scrollbackLimit = 50 * 1024 * 1024
 
     public init() {}
+
+    /// The theme `theme` names.
+    public var namedTheme: NamedTheme { ThemeCatalog.theme(id: themeID) ?? ThemeCatalog.default }
+
+    /// The terminal's colors: the theme's, with the file's color settings on top.
+    public var theme: Theme { colorOverrides.applied(to: namedTheme.terminal) }
+
+    /// The window's colors around the terminal.
+    public var chrome: ChromeColors { namedTheme.chrome }
 
     /// The settings in `text`, and what was wrong with it. Every line that could not be used
     /// leaves its setting at the default; nothing in the file can stop the app starting.
@@ -113,6 +139,13 @@ public enum Bell: String, CaseIterable, Sendable {
     case silent = "none"
 }
 
+public enum PaneHeaders: String, CaseIterable, Sendable {
+    /// Only while a tab is split into panes.
+    case split
+    case always
+    case never
+}
+
 public enum WorkingDirectory: Sendable, Hashable {
     /// The focused tab's directory, else home.
     case inherit
@@ -148,4 +181,39 @@ public struct Theme: Sendable, Equatable {
     /// the default text holds 8.7:1 on.
     public static let legendsNeverDie = Theme(
         palette: .legendsNeverDie, selectionBackground: RGB(hex: 0x463279))
+}
+
+/// The color settings in the file, applied on top of whichever theme it names, wherever the
+/// `theme` line is.
+public struct ColorOverrides: Sendable, Equatable {
+    public var background: RGB?
+    public var foreground: RGB?
+    public var cursor: RGB?
+    public var cursorText: RGB?
+    public var selectionBackground: RGB?
+    public var selectionForeground: RGB?
+    /// Palette entries 0–255.
+    public var palette: [Int: RGB] = [:]
+    public var boldIsBright: Bool?
+
+    public init() {}
+
+    /// How many of the theme's colors the file changes.
+    public var count: Int {
+        let single: [RGB?] = [background, foreground, cursor, cursorText, selectionBackground, selectionForeground]
+        return single.count { $0 != nil } + palette.count
+    }
+
+    public func applied(to theme: Theme) -> Theme {
+        var theme = theme
+        if let background { theme.palette.background = background }
+        if let foreground { theme.palette.foreground = foreground }
+        if let cursor { theme.palette.cursor = cursor }
+        if let cursorText { theme.cursorText = cursorText }
+        if let selectionBackground { theme.selectionBackground = selectionBackground }
+        if let selectionForeground { theme.selectionForeground = selectionForeground }
+        for (index, color) in palette { theme.palette.colors[index] = color }
+        if let boldIsBright { theme.boldIsBright = boldIsBright }
+        return theme
+    }
 }

@@ -27,10 +27,13 @@ extension KeyPress {
 extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
     override public func keyDown(with event: NSEvent) {
         guard model != nil else { return }
+        noteInput()
         // The cursor shows at once and blinks again from here.
         restartBlink = true
         updateCursor()
         if pendingKeyTime == nil { pendingKeyTime = CACurrentMediaTime() }
+        // Return or Enter on the keypad, with no input method composing.
+        if (event.keyCode == 0x24 || event.keyCode == 0x4C) && !hasMarkedText() { onReturnKey?() }
         let press = KeyPress(event)
         switch KeyRouting.route(press, optionAsMeta: optionAsMeta, composing: hasMarkedText()) {
         case .encode(let keyEvent):
@@ -58,6 +61,8 @@ extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
 
     /// A modifier key alone, for programs that asked the Kitty protocol for every key.
     override public func flagsChanged(with event: NSEvent) {
+        // ⌘ down over a link shows it; ⌘ up hides it.
+        updateHoveredLink(commandHeld: event.modifierFlags.contains(.command))
         guard model != nil, !hasMarkedText() else { return }
         // A flagsChanged event has no characters: asking for them raises an exception.
         let press = KeyPress(

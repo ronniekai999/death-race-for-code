@@ -20,7 +20,9 @@ public enum CellWidth: UInt8, Sendable {
 ///     bit  24       protected from selective erase (DECSCA)
 ///     bit  25       part of a hyperlink (OSC 8)
 ///
-/// `styleID` indexes the owning row's style table; 0 is always the default style.
+/// `styleID` indexes the owning row's style table; 0 is always the default style. With
+/// the hyperlink bit, `reserved` is 1 + the index of the cell's link in the row's link table;
+/// without it, `reserved` is 0.
 public struct Cell: Equatable, Sendable {
     public var content: UInt32
     public var styleID: UInt16
@@ -34,17 +36,20 @@ public struct Cell: Equatable, Sendable {
     @usableFromInline static let hyperlinkBit: UInt32 = 1 << 25
 
     @inlinable
-    public init(content: UInt32 = 0, styleID: UInt16 = 0) {
+    public init(content: UInt32 = 0, styleID: UInt16 = 0, reserved: UInt16 = 0) {
         self.content = content
         self.styleID = styleID
-        self.reserved = 0
+        self.reserved = reserved
     }
 
     @inlinable
-    public init(scalar: UInt32, width: CellWidth = .narrow, styleID: UInt16, protected: Bool = false) {
+    public init(
+        scalar: UInt32, width: CellWidth = .narrow, styleID: UInt16, protected: Bool = false, link: UInt16 = 0
+    ) {
         var content = scalar & Self.scalarMask | UInt32(width.rawValue) << Self.widthShift
         if protected { content |= Self.protectedBit }
-        self.init(content: content, styleID: styleID)
+        if link != 0 { content |= Self.hyperlinkBit }
+        self.init(content: content, styleID: styleID, reserved: link)
     }
 
     public static let empty = Cell()
@@ -72,6 +77,20 @@ public struct Cell: Equatable, Sendable {
         get { content & Self.protectedBit != 0 }
         set { content = newValue ? content | Self.protectedBit : content & ~Self.protectedBit }
     }
+
+    /// The cell's link: 1 + its index in the row's link table, or 0 for none.
+    @inlinable
+    public var linkIndex: UInt16 {
+        get { content & Self.hyperlinkBit != 0 ? reserved : 0 }
+        set {
+            reserved = newValue
+            content = newValue != 0 ? content | Self.hyperlinkBit : content & ~Self.hyperlinkBit
+        }
+    }
+
+    /// The hyperlink flag, as stored.
+    @inlinable
+    public var isLinked: Bool { content & Self.hyperlinkBit != 0 }
 
     /// No character: what erase leaves behind (it may still carry a background color).
     @inlinable

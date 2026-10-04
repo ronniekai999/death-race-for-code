@@ -11,6 +11,9 @@ public struct FontSet: @unchecked Sendable {
     public let bold: CTFont
     public let italic: CTFont
     public let boldItalic: CTFont
+    /// Symbols Nerd Font Mono at this size, when the bundled fonts are registered: private-use
+    /// characters (a prompt's icons) are drawn from it first.
+    public let symbols: CTFont?
     /// Points.
     public let size: CGFloat
     /// The family the faces came from: the one asked for, or SF Mono when it is not
@@ -19,12 +22,16 @@ public struct FontSet: @unchecked Sendable {
     /// The family asked for was not found.
     public let usedFallback: Bool
 
-    /// The faces of `family` at `size` points. "SF Mono" (or an empty name) is the system's
+    /// The faces of `family` at `size` points, the italics from `italicFamily` when given
+    /// (Neon with Radon's italics, say). "SF Mono" (or an empty name) is the system's
     /// monospaced font, which no name reaches: CTFontCreateWithName quietly returns Helvetica
     /// for names it does not know, so families are looked up through NSFontManager instead,
     /// and a missing one falls back to SF Mono. On the main thread, where NSFontManager lives.
+    ///
+    /// When the bundled Symbols Nerd Font Mono is registered, it comes first in every face's
+    /// fallback list, so prompts' icons (Starship, Powerlevel10k) draw from it.
     @MainActor
-    public init(family: String, size: CGFloat) {
+    public init(family: String, size: CGFloat, italicFamily: String? = nil) {
         let size = max(1, size)
         let wantsSystem = family.isEmpty || family.caseInsensitiveCompare("SF Mono") == .orderedSame
         let manager = NSFontManager.shared
@@ -39,10 +46,23 @@ public struct FontSet: @unchecked Sendable {
             regular = NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
             bold = NSFont.monospacedSystemFont(ofSize: size, weight: .bold)
         }
-        self.regular = regular as CTFont
-        self.bold = bold as CTFont
-        self.italic = Self.italic(of: regular as CTFont)
-        self.boldItalic = Self.italic(of: bold as CTFont)
+        var italic = Self.italic(of: regular as CTFont)
+        var boldItalic = Self.italic(of: bold as CTFont)
+        if let italicFamily, !italicFamily.isEmpty,
+            let named = manager.font(withFamily: italicFamily, traits: .italicFontMask, weight: 5, size: size),
+            CTFontGetSymbolicTraits(named as CTFont).contains(.traitItalic)
+        {
+            italic = named as CTFont
+            let boldNamed = manager.font(
+                withFamily: italicFamily, traits: [.italicFontMask, .boldFontMask], weight: 9, size: size)
+            boldItalic = (boldNamed ?? named) as CTFont
+        }
+        let symbols = FontRegistry.symbolsDescriptor
+        self.symbols = symbols.map { CTFontCreateWithFontDescriptor($0, size, nil) }
+        self.regular = Self.withSymbolsFirst(regular as CTFont, symbols: symbols)
+        self.bold = Self.withSymbolsFirst(bold as CTFont, symbols: symbols)
+        self.italic = Self.withSymbolsFirst(italic, symbols: symbols)
+        self.boldItalic = Self.withSymbolsFirst(boldItalic, symbols: symbols)
         self.size = size
         self.family = usedFallback || wantsSystem ? "SF Mono" : family
         self.usedFallback = usedFallback
@@ -56,6 +76,18 @@ public struct FontSet: @unchecked Sendable {
         case (false, true): italic
         case (true, true): boldItalic
         }
+    }
+
+    /// `font` with `symbols` first in its fallback list, then the system's list for the
+    /// user's languages; `font` itself when there is no symbols font.
+    static func withSymbolsFirst(_ font: CTFont, symbols: CTFontDescriptor?) -> CTFont {
+        guard let symbols else { return font }
+        let languages = Locale.preferredLanguages as CFArray
+        let fallbacks = CTFontCopyDefaultCascadeListForLanguages(font, languages) as? [CTFontDescriptor] ?? []
+        let cascade = CTFontDescriptorCreateWithAttributes(
+            [kCTFontCascadeListAttribute: [symbols] + fallbacks] as CFDictionary)
+        // Size 0 and no matrix keep the font's own: an italic made by slanting stays slanted.
+        return CTFontCreateCopyWithAttributes(font, 0, nil, cascade)
     }
 
     /// The family's italic of `font`, or `font` slanted 12° when the family has none.

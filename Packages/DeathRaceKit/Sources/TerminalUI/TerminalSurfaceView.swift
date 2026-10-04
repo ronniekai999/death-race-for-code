@@ -56,6 +56,19 @@ public final class TerminalSurfaceView: NSView {
             if fontThicken != oldValue { resetGlyphs() }
         }
     }
+    /// A pane that is not its tab's active one fades toward the window's ground; nil draws
+    /// it as it is.
+    public var dimming: Dimming? {
+        didSet {
+            guard dimming != oldValue else { return }
+            cursorKey = nil
+            redraw()
+        }
+    }
+    /// Faint stars in each row's empty end, behind no text.
+    public var starfield = false {
+        didSet { if starfield != oldValue { redraw() } }
+    }
     /// Lines a notch of a mouse wheel scrolls.
     public var mouseScrollMultiplier = 3.0
     /// On the alternate screen (less, man), the wheel sends arrow keys even when the program
@@ -68,6 +81,8 @@ public final class TerminalSurfaceView: NSView {
 
     /// The grid's size in cells changed.
     public var onGridChange: ((GridLayout) -> Void)?
+    /// The terminal's default background changed: the theme's, or a program's (OSC 11).
+    public var onBackgroundChange: ((RGB) -> Void)?
     /// The program set a new title.
     public var onTitleChange: ((String) -> Void)?
     /// Events for the window to act on: bells, notifications, clipboard writes, directories.
@@ -76,6 +91,25 @@ public final class TerminalSurfaceView: NSView {
     public var onExit: ((Session.Status) -> Void)?
     /// `readsPassword` changed.
     public var onPasswordInputChange: (() -> Void)?
+    /// The view became first responder: a click, or focus moved to it. The window marks
+    /// its pane active.
+    public var onFirstResponder: (() -> Void)?
+    /// `isFocused` changed.
+    public var onFocusChange: ((Bool) -> Void)?
+    /// The screen changed: output arrived, even while out of sight. For tab activity.
+    public var onOutput: (() -> Void)?
+    /// Return was pressed: a command may have started, or the directory changed.
+    public var onReturnKey: (() -> Void)?
+    /// The link ⌘ is held over changed: where it goes, or nil.
+    public var onHoverLink: ((String?) -> Void)?
+    /// A ⌘-click or Open Link chose a link; the app decides what that does.
+    public var onOpenLink: ((LinkHit) -> Void)?
+    /// The link ⌘ is held over, underlined while the pointer is on it.
+    public internal(set) var hoveredLink: LinkHit?
+    /// How fast the view may draw (`follow-low-power-mode`, `output-frame-rate-cap`).
+    public var frameRatePolicy = FrameRatePolicy() {
+        didSet { if frameRatePolicy != oldValue { applyFrameRate() } }
+    }
 
     public private(set) var grid: GridLayout
     public private(set) var model: SurfaceModel?
@@ -91,6 +125,7 @@ public final class TerminalSurfaceView: NSView {
     private var needsFrame = true
     private var reportedExit = false
     private var reportedReadsPassword = false
+    private var reportedBackground: RGB?
     /// A drain is scheduled for a view that is out of sight.
     private var hiddenDrainScheduled = false
     let cursorLayer = CALayer()
@@ -117,6 +152,16 @@ public final class TerminalSurfaceView: NSView {
     /// The left button went down as a report to the program, so its drags and release go
     /// there too, whatever Shift does meanwhile.
     var leftButtonReported = false
+    /// Link state kept by the link extension: the cell the hover was last looked for in, the
+    /// link the button went down on with ⌘ held, and the one a context menu is about.
+    var hoverCell: (column: Int, row: Int)?
+    var pressedLink: LinkHit?
+    var menuLink: LinkHit?
+    /// When the last key press, scroll or selection drag happened (CACurrentMediaTime).
+    var lastInputTime: CFTimeInterval = -.infinity
+    /// The display's full rate is on for recent input.
+    private var inputBoosted = false
+    private var appliedFrameRate: FrameRatePolicy.Range?
     /// Selection state kept by the selection extension.
     var selection: Selection?
     var selectionGeneration: UInt64?
@@ -149,10 +194,20 @@ public final class TerminalSurfaceView: NSView {
         cursorLayer.isHidden = true
         // Motion with no button held is reported in any-event mode (1003), which needs
         // mouse-moved events. With `inVisibleRect` the area follows the view's visible rect.
+        // Entering and leaving end a link's hover.
         addTrackingArea(
             NSTrackingArea(
-                rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil))
+                rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                owner: self, userInfo: nil))
         registerForDraggedTypes(Self.droppedTypes)
+        // Low Power Mode and the thermal state change how fast output may draw.
+        let center = NotificationCenter.default
+        center.addObserver(
+            self, selector: #selector(energyConditionsChanged(_:)), name: .NSProcessInfoPowerStateDidChange,
+            object: nil)
+        center.addObserver(
+            self, selector: #selector(energyConditionsChanged(_:)), name: ProcessInfo.thermalStateDidChangeNotification,
+            object: nil)
     }
 
     @available(*, unavailable)
@@ -247,10 +302,15 @@ public final class TerminalSurfaceView: NSView {
         // A new screen (a resize, the alternate screen): the selection's lines are gone.
         if selection != nil, model.mirror.generation != selectionGeneration { clearSelection() }
         if update.titleChanged { onTitleChange?(model.mirror.title) }
+        if !update.rows.isEmpty || update.replaced { onOutput?() }
         if !update.events.isEmpty { onEvents?(update.events) }
         if model.mirror.readingPassword != reportedReadsPassword {
             reportedReadsPassword = model.mirror.readingPassword
             onPasswordInputChange?()
+        }
+        if model.mirror.generation != nil, model.mirror.palette.background != reportedBackground {
+            reportedBackground = model.mirror.palette.background
+            onBackgroundChange?(model.mirror.palette.background)
         }
         if !reportedExit, case .exited = model.session.status {
             reportedExit = true
@@ -261,6 +321,12 @@ public final class TerminalSurfaceView: NSView {
 
     /// The program is reading a password: a line with echo off, as sudo and ssh read them.
     public var readsPassword: Bool { reportedReadsPassword }
+
+    /// Clear to Start (⌘K) or Clear Scrollback (⌥⌘K); the alternate screen is left alone.
+    public func clear(_ kind: Terminal.ClearKind) {
+        clearSelection()
+        session?.clear(kind)
+    }
 
     // MARK: - Drawing
 
@@ -280,11 +346,15 @@ public final class TerminalSurfaceView: NSView {
             let link = displayLink(target: self, selector: #selector(displayLinkFired(_:)))
             link.add(to: .main, forMode: .common)
             self.link = link
+            appliedFrameRate = nil
         }
         link?.isPaused = false
+        applyFrameRate()
     }
 
     @objc private func displayLinkFired(_ link: CADisplayLink) {
+        // Typing stopped a second ago: back to the rate for output.
+        if inputBoosted && CACurrentMediaTime() - lastInputTime >= FrameRatePolicy.inputWindow { applyFrameRate() }
         let changed = drain()
         let drew = (changed || needsFrame) && drawFrame()
         if !pacer.tick(drew: drew) {
@@ -313,9 +383,11 @@ public final class TerminalSurfaceView: NSView {
         defer { Signposts.signposter.endInterval("Frame", signpost) }
 
         glyphs.beginFrame()
+        // The screen may have moved under a hovered link.
+        if hoveredLink != nil { updateHoveredLink(redrawing: false) }
         let frame = builder.build(
             mirror: model.mirror, theme: theme, cell: cell, selection: selectionRange, glyphs: glyphs,
-            preedit: preedit)
+            preedit: preedit, starfield: starfield, link: hoveredLink)
         guard let drawable = metalLayer.nextDrawable(), let commandBuffer = context.queue.makeCommandBuffer() else {
             needsFrame = true
             return true
@@ -326,7 +398,7 @@ public final class TerminalSurfaceView: NSView {
         guard
             renderer.encode(
                 frame, cell: cell, layout: layout, glyphs: glyphs, target: drawable.texture,
-                commandBuffer: commandBuffer)
+                commandBuffer: commandBuffer, dim: dimming?.packed ?? 0)
         else {
             needsFrame = true
             return true
@@ -396,7 +468,8 @@ public final class TerminalSurfaceView: NSView {
         let style = cursor.shape == .block ? cursorStyle : cursor.shape
         let rect = CellGeometry(cell: cell, layout: grid).rect(column: column, row: row, cells: cells)
         var frame = NSRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
-        let color = mirror.palette.cursor
+        // The cursor is a layer of its own, so it fades here as the frame does in the shaders.
+        let color = faded(mirror.palette.cursor)
 
         cursorLayer.isHidden = false
         if !isFocused {
@@ -417,7 +490,7 @@ public final class TerminalSurfaceView: NSView {
                 let key = CursorKey(
                     character: line.scalars(at: column), cells: cells, bold: style.attributes.contains(.bold),
                     italic: style.attributes.contains(.italic), cursor: color,
-                    text: theme.cursorText ?? mirror.palette.background)
+                    text: faded(theme.cursorText ?? mirror.palette.background))
                 if key != cursorKey {
                     let glyph =
                         key.character.isEmpty
@@ -442,6 +515,10 @@ public final class TerminalSurfaceView: NSView {
             }
         }
         cursorLayer.frame = convertToLayer(frame)
+    }
+
+    private func faded(_ color: RGB) -> RGB {
+        dimming?.apply(to: color) ?? color
     }
 
     private func hideCursor() {
@@ -524,7 +601,10 @@ public final class TerminalSurfaceView: NSView {
     override public func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
         // The window records its new first responder only after this returns.
-        if became { focusChanged(firstResponder: true) }
+        if became {
+            focusChanged(firstResponder: true)
+            onFirstResponder?()
+        }
         return became
     }
 
@@ -541,9 +621,11 @@ public final class TerminalSurfaceView: NSView {
     }
 
     private func focusChanged(firstResponder: Bool) {
+        if window?.isKeyWindow != true || !NSApp.isActive { updateHoveredLink(commandHeld: false) }
         let focused = firstResponder && window?.isKeyWindow == true && NSApp.isActive
         guard focused != isFocused else { return }
         isFocused = focused
+        onFocusChange?(focused)
         session?.setFocused(focused)
         if let mirror = model?.mirror {
             let report = InputEncoder.focus(focused, modes: mirror.modes)
@@ -551,6 +633,88 @@ public final class TerminalSurfaceView: NSView {
         }
         if !focused { discardComposition() }
         updateCursor()
+    }
+
+    // MARK: - Snapshots
+
+    /// What the view shows, drawn offscreen at its size, as its next frame would be: for
+    /// previews and tests, which cannot ask the window server for a Metal layer's picture.
+    /// Nil before the session's first screen arrives.
+    public func snapshot(using renderer: OffscreenRenderer) throws -> RenderedImage? {
+        guard let model, model.mirror.generation != nil else { return nil }
+        let scale = cell.scale
+        let width = Int((Double(bounds.width) * scale).rounded())
+        let height = Int((Double(bounds.height) * scale).rounded())
+        guard width > 0, height > 0 else { return nil }
+        let glyphs = GlyphCache(rasterizer: GlyphRasterizer(fonts: fonts, cell: cell, thicken: fontThicken))
+        // As many frames as the glyph cache's per-frame budget needs to draw every glyph.
+        let (frame, _) = FrameBuilder().buildComplete(
+            mirror: model.mirror, theme: theme, cell: cell, selection: selectionRange, glyphs: glyphs,
+            starfield: starfield, link: hoveredLink)
+        let layout = PixelLayout(
+            width: width, height: height, originX: Int((grid.left * scale).rounded()),
+            originY: Int((grid.top * scale).rounded()))
+        return try renderer.render(frame, cell: cell, layout: layout, glyphs: glyphs, dim: dimming?.packed ?? 0)
+    }
+
+    /// Draws the cursor, a layer of its own over the frame, into `context`, whose coordinates
+    /// are the window's: a picture of the pane is `snapshot(using:)`, then this. Like the
+    /// snapshot, it follows the screen as it is now, so the layer is placed first: frames
+    /// place it, and a view out of sight draws none.
+    public func drawCursor(in context: CGContext) {
+        updateCursor()
+        guard cursorLayer.superlayer != nil, !cursorLayer.isHidden else { return }
+        let rect = convert(convertFromLayer(cursorLayer.frame), to: nil)
+        context.saveGState()
+        defer { context.restoreGState() }
+        if let contents = cursorLayer.contents, CFGetTypeID(contents as CFTypeRef) == CGImage.typeID {
+            // A block, with the character under it.
+            context.draw(contents as! CGImage, in: rect)
+        } else if let color = cursorLayer.backgroundColor {
+            context.setFillColor(color)
+            context.fill(rect)
+        }
+        if cursorLayer.borderWidth > 0, let color = cursorLayer.borderColor {
+            // Hollow, while the view is not focused.
+            let width = cursorLayer.borderWidth
+            context.setStrokeColor(color)
+            context.setLineWidth(width)
+            context.stroke(rect.insetBy(dx: width / 2, dy: width / 2))
+        }
+    }
+
+    // MARK: - Frame rate
+
+    /// A key press, a scroll or a selection drag: the display's full rate for a second.
+    func noteInput() {
+        lastInputTime = CACurrentMediaTime()
+        if !inputBoosted { applyFrameRate() }
+    }
+
+    /// Sets the display link's frame rate range from `frameRatePolicy`, only when the answer
+    /// changed.
+    func applyFrameRate() {
+        let recent = CACurrentMediaTime() - lastInputTime < FrameRatePolicy.inputWindow
+        inputBoosted = recent
+        guard let link else { return }
+        var policy = frameRatePolicy
+        if let fastest = window?.screen?.maximumFramesPerSecond, fastest > 0 { policy.displayMaximum = Double(fastest) }
+        let info = ProcessInfo.processInfo
+        let range = policy.range(
+            for: FrameRatePolicy.Conditions(
+                recentInput: recent, lowPowerMode: info.isLowPowerModeEnabled,
+                thermal: FrameRatePolicy.Thermal(rawValue: info.thermalState.rawValue) ?? .nominal))
+        guard range != appliedFrameRate else { return }
+        appliedFrameRate = range
+        link.preferredFrameRateRange = CAFrameRateRange(
+            minimum: Float(range.minimum), maximum: Float(range.maximum), preferred: Float(range.preferred))
+    }
+
+    /// Posted on whatever thread noticed the change: the view hears of it on the main one.
+    @objc nonisolated private func energyConditionsChanged(_ notification: Notification) {
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated { self?.applyFrameRate() }
+        }
     }
 
     // MARK: - Size
@@ -613,14 +777,16 @@ public final class TerminalSurfaceView: NSView {
     }
 
     /// Sizes the drawable to the view and the grid to whole cells, and tells the session
-    /// when the grid changed.
+    /// when the grid changed. When neither changed it does nothing, so a layout pass of the
+    /// window around it (a title or a status change) draws no frame.
     private func layoutGrid(force: Bool = false) {
         let scale = window?.backingScaleFactor ?? CGFloat(cell.scale)
-        metalLayer?.drawableSize = CGSize(
-            width: (bounds.width * scale).rounded(), height: (bounds.height * scale).rounded())
+        let drawableSize = CGSize(width: (bounds.width * scale).rounded(), height: (bounds.height * scale).rounded())
         let layout = GridLayout(
             width: Double(bounds.width), height: Double(bounds.height), cell: cell, paddingX: padding.x,
             paddingY: padding.y)
+        guard force || layout != grid || metalLayer?.drawableSize != drawableSize else { return }
+        metalLayer?.drawableSize = drawableSize
         needsFrame = true
         if force || layout != grid {
             grid = layout

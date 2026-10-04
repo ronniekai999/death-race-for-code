@@ -194,12 +194,15 @@ extension FrameBuilder {
     /// says how many it took: for tools and tests that need the whole frame at once.
     public func buildComplete(
         mirror: MirrorGrid, theme: Theme, cell: CellMetrics, selection: TextRegion?, glyphs: GlyphCache,
-        maxFrames: Int = 1_000
+        preedit: PreeditLayout? = nil, starfield: Bool = false, link: LinkHit? = nil, maxFrames: Int = 1_000
     ) -> (frame: Frame, frames: Int) {
         var frames = 0
         while true {
+            // Each pass is a frame: the glyph cache's rasterizing budget starts again.
             glyphs.beginFrame()
-            let frame = build(mirror: mirror, theme: theme, cell: cell, selection: selection, glyphs: glyphs)
+            let frame = build(
+                mirror: mirror, theme: theme, cell: cell, selection: selection, glyphs: glyphs, preedit: preedit,
+                starfield: starfield, link: link)
             frames += 1
             if frame.isComplete || frames >= maxFrames { return (frame, frames) }
         }

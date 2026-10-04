@@ -9,22 +9,29 @@ L E G E N D S   N E V E R   D I E
 
 ## Status
 
-Phase 2, first pixels, is built and waiting on checks only a Mac can make. Each tab runs
-your shell, drawn by Metal, in an AppKit app with native tabs, menus and a settings file.
+Phase 3, the Pit Lane shell, is built and waiting on the side-by-side review only a Mac can
+make. Each window holds tabs of split panes under chrome drawn in the theme's colors:
 
-- **Keyboard and mouse:** typing, input methods (Japanese, accents, emoji) and Option as
-  Meta; the Kitty keyboard protocol down to key releases; the mouse for programs that ask
-  for it.
-- **Selection and clipboard:** selecting with the mouse, copying from history, and pasting
-  with a warning when lines would run as commands; file drops; OSC 52.
-- **Safety:** Secure Keyboard Entry at password prompts, and a question before closing a
-  tab with a program running.
-- **Idle costs nothing:** the cursor blinks without waking the app, and an idle window
-  draws no frames.
+- **Tabs and panes:** gradient tab pills that reorder, show an equalizer while a background
+  tab prints and a dot for a bell; splits with a NeonBorder on the pane in use, the others
+  dimmed; headers, draggable dividers, zoom and keys for all of it.
+- **Hear Me Calling (⇧⌘P):** every action, pane, theme and Settings page, found by typing;
+  themes preview on the window as you move through them.
+- **Settings:** a window that edits the settings file line by line, and live reload when
+  anything else edits it.
+- **Eight themes,** from Legends Never Die to the light Righteous, with Monaspace and
+  Nerd Font symbols bundled, so prompt icons draw with any font, and a starfield.
+- **Links:** ⌘-hover and ⌘-click on OSC 8 links (`ls --hyperlink=auto`) and on URLs in the
+  text, through a policy that never runs a file and asks before unusual schemes.
+- **Energy:** idle still draws nothing; output is capped at 60 fps, lower in Low Power Mode
+  or when the Mac is hot, while typing keeps the display's full rate.
 
-What is left is the hands-on pass in [docs/MANUAL-TESTS.md](docs/MANUAL-TESTS.md),
-`make test-render`'s goldens, and the [legendsd spike](docs/SPIKE.md), whose verdict
-shapes Phase 7.
+What is left is the hands-on pass in [docs/MANUAL-TESTS.md](docs/MANUAL-TESTS.md). CI keeps
+a picture of the window in every theme (the `chrome-preview` artifact) for the review.
+
+Phase 2 put the engine on screen: Metal drawing, the keyboard, input methods and the Kitty
+protocol, the mouse, selection and the clipboard, Secure Keyboard Entry, and an idle
+window that draws no frames. Its Mac checks are in the same file.
 
 Phase 1 built the engine. It covers the v1 scope and passes 95% of xterm's conformance suite
 on that scope (esctest, ratcheted in CI). It reflows on resize, handles Unicode 18 graphemes,
@@ -37,12 +44,14 @@ thread per shell that publishes screen deltas, and it survives libFuzzer. See
 ## Settings
 
 Settings live in `~/.config/deathrace/config` (or `$XDG_CONFIG_HOME/deathrace/config`), one
-`name = value` per line. **Settings…** (⌘,) creates the file with every setting commented
-out at its default and explained, then opens it in your text editor; **Reload Configuration**
-(⌘⇧,) applies your changes to the open windows. A line Death Race cannot use is reported,
-with a suggestion when a name looks misspelled, and leaves that setting at its default.
+`name = value` per line. **Settings…** (⌘,) opens a window that changes one line of the file
+at a time and leaves the rest as you wrote it; **Open Settings File** opens it in your text
+editor, with every setting commented out at its default and explained. Saved edits apply to
+the open windows at once, from either place. A line Death Race cannot use is reported, with
+a suggestion when a name looks misspelled, and leaves that setting at its default.
 
 ```ini
+theme = lucid-dreams
 font-family = SF Mono
 font-size = 14
 # Comments go on their own line: a # later in a line is part of the value, as in colors.

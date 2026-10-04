@@ -90,7 +90,8 @@ struct Uniforms {
     var columns: UInt32
     var rows: UInt32
     var clearColor: UInt32
-    var padding: UInt32 = 0
+    /// Packed sRGB: what an inactive pane fades toward; its alpha is how far (0, not at all).
+    var dim: UInt32 = 0
 }
 
 /// Encodes frames for one surface: the atlas textures, and per-frame buffers for up to three
@@ -122,12 +123,13 @@ public final class SurfaceRenderer {
         slots = Array(repeating: Slot(), count: Self.framesInFlight)
     }
 
-    /// Encodes `frame` into `commandBuffer`, drawing into `target`. False when every slot is
-    /// still in flight (draw again on the next tick) or a buffer could not be made.
+    /// Encodes `frame` into `commandBuffer`, drawing into `target`, faded toward `dim` by its
+    /// alpha (an inactive pane). False when every slot is still in flight (draw again on the
+    /// next tick) or a buffer could not be made.
     @discardableResult
     public func encode(
         _ frame: Frame, cell: CellMetrics, layout: PixelLayout, glyphs: GlyphCache, target: any MTLTexture,
-        commandBuffer: any MTLCommandBuffer
+        commandBuffer: any MTLCommandBuffer, dim: PackedColor = 0
     ) -> Bool {
         guard available.wait(timeout: .now()) == .success else { return false }
         var encoded = false
@@ -155,7 +157,7 @@ public final class SurfaceRenderer {
             viewportSize: SIMD2(Float(layout.width), Float(layout.height)),
             gridOrigin: SIMD2(Float(layout.originX), Float(layout.originY)),
             cellSize: SIMD2(Float(cell.width), Float(cell.height)),
-            columns: UInt32(frame.columns), rows: UInt32(frame.rows), clearColor: frame.clearColor)
+            columns: UInt32(frame.columns), rows: UInt32(frame.rows), clearColor: frame.clearColor, dim: dim)
 
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = target

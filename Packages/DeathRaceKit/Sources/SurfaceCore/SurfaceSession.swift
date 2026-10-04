@@ -19,6 +19,8 @@ public protocol SurfaceSession: AnyObject, Sendable {
     func requestSnapshot()
     func setFocused(_ focused: Bool)
     func setBasePalette(_ palette: Palette)
+    /// Clear to Start (⌘K) or Clear Scrollback (⌥⌘K).
+    func clear(_ kind: Terminal.ClearKind)
     func text(in range: TextRegion, generation: UInt64) async -> String?
 }
 
@@ -106,6 +108,10 @@ public final class ReplaySession: SurfaceSession, @unchecked Sendable {
 
     public func setBasePalette(_ palette: Palette) {
         terminal.setBasePalette(palette)
+    }
+
+    public func clear(_ kind: Terminal.ClearKind) {
+        if terminal.clear(kind) { mustPublish = true }
     }
 
     public func text(in range: TextRegion, generation: UInt64) async -> String? {

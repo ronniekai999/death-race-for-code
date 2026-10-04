@@ -35,9 +35,17 @@ for bundle in "$BIN"/*.bundle; do
   cp -R "$bundle" "$APP/Contents/Resources/"
 done
 shopt -u nullglob
-if [ -f "$ROOT/App/AppIcon.icns" ]; then
-  cp "$ROOT/App/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
-fi
+# The bundled fonts and their licenses (scripts/fetch-fonts.sh pins each download).
+"$ROOT/scripts/fetch-fonts.sh"
+mkdir -p "$APP/Contents/Resources/Fonts"
+cp "$ROOT"/build/fonts/* "$APP/Contents/Resources/Fonts/"
+
+# Icon B, drawn by the app itself (AppIcon.swift) at every size and packed by iconutil.
+ICON="$ROOT/build/icon"
+rm -rf "$ICON"
+mkdir -p "$ICON"
+"$BIN/DeathRace" --write-icon "$ICON"
+iconutil -c icns -o "$APP/Contents/Resources/AppIcon.icns" "$ICON/AppIcon.iconset"
 if [ "$SPIKE" = "1" ]; then
   cp "$BIN/legendsd-spike" "$APP/Contents/MacOS/legendsd-spike"
   mkdir -p "$APP/Contents/Library/LaunchAgents"

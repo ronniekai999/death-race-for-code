@@ -101,6 +101,10 @@ private struct ReflowWriter {
     private var styleMap: [UInt16] = []
     private var mapSource: Row?
     private var mapTarget: Row?
+    /// The same for link indexes.
+    private var linkMap: [UInt16] = []
+    private var linkSource: Row?
+    private var linkTarget: Row?
 
     init(screen: ScreenBuffer, columns: Int) {
         self.screen = screen
@@ -156,15 +160,18 @@ private struct ReflowWriter {
         }
 
         let styleID = source.map { translate(cell.styleID, from: $0) } ?? 0
+        let link = source.map { translateLink(cell.linkIndex, from: $0) } ?? 0
         var placed = cell
         placed.styleID = styleID
+        placed.linkIndex = link
         if !fits { placed.width = .narrow }  // a one-column screen cannot hold a wide character
         current.cells[x] = placed
         if cell.hasGrapheme, let source, let extra = source.graphemes[sourceColumn] {
             current.graphemes[x] = extra
         }
         if width == 2 && fits {
-            current.cells[x + 1] = Cell(scalar: 0, width: .spacerTail, styleID: styleID, protected: cell.isProtected)
+            current.cells[x + 1] = Cell(
+                scalar: 0, width: .spacerTail, styleID: styleID, protected: cell.isProtected, link: link)
             x += 2
         } else {
             x += 1
@@ -195,5 +202,23 @@ private struct ReflowWriter {
             styleMap[index] = translated
         }
         return styleMap[index]
+    }
+
+    private mutating func translateLink(_ index: UInt16, from source: Row) -> UInt16 {
+        guard index != 0, Int(index) <= source.links.count else { return 0 }
+        if linkSource !== source || linkTarget !== current {
+            linkSource = source
+            linkTarget = current
+            linkMap = [UInt16](repeating: .max, count: source.links.count + 1)
+        }
+        let slot = Int(index)
+        if linkMap[slot] == .max {
+            let before = current.links.count
+            let translated = current.linkIndex(for: source.links[slot - 1])
+            // Compaction renumbers the row's links; earlier translations are then stale.
+            if current.links.count < before { linkMap = [UInt16](repeating: .max, count: source.links.count + 1) }
+            linkMap[slot] = translated
+        }
+        return linkMap[slot]
     }
 }

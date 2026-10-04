@@ -234,6 +234,22 @@ final class ScreenBuffer {
         scrollbackBytes = 0
     }
 
+    /// The top `count` rows leave the screen without entering scrollback, and blank rows
+    /// enter at the bottom; the cursor and the saved cursor move up with their lines.
+    /// Line numbers keep counting, so no number is ever reused.
+    func discardTopRows(_ count: Int, fill: Style) {
+        let n = min(max(count, 0), rows)
+        guard n > 0 else { return }
+        for _ in 0..<n {
+            linesScrolledOff &+= 1
+            recycle(active.removeFirst())
+            active.append(makeRow(fill: fill))
+        }
+        cursor.y = max(cursor.y - n, 0)
+        if let saved = savedCursor { savedCursor?.y = max(saved.y - n, 0) }
+        for row in active { touch(row) }
+    }
+
     /// Replaces scrollback wholesale; used by reflow.
     func replaceScrollback<C: Collection<Row>>(with rows: C) {
         scrollback.removeAll()

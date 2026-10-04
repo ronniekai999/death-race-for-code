@@ -1,4 +1,6 @@
+import AppKit
 import ConfigKit
+import CoreText
 import Dispatch
 import Foundation
 import PTYKit
@@ -16,7 +18,9 @@ import VTCore
 /// 3. CoreText rasterizes those glyphs and the frame builder places them, red;
 /// 4. with a Metal device, the frame is rendered offscreen and its pixels checked: the
 ///    background where nothing is written, red where a 9 is. `--write-frame FILE` saves it as
-///    a PNG to look at.
+///    a PNG to look at;
+/// 5. the bundled fonts register, and a Nerd Font icon draws from Symbols Nerd Font Mono
+///    through SF Mono's fallback list.
 ///
 /// Shells start with `zsh -f`, so no rc file can change the outcome.
 public enum DeathRaceSmokeTest {
@@ -70,8 +74,36 @@ public enum DeathRaceSmokeTest {
         if let frame {
             step("Metal") { try render(frame, cell: cell, glyphs: glyphs, mirror: mirror, arguments: arguments) }
         }
+        step("fonts") { try checkFonts() }
         print(failed ? "smoke test failed" : "smoke test passed")
         return failed ? 1 : 0
+    }
+
+    /// The bundled fonts register for this process, and a prompt's folder icon (nf-fa-folder,
+    /// U+F07B) is drawn from Symbols Nerd Font Mono, not from whatever the system would pick.
+    @MainActor
+    private static func checkFonts() throws -> String {
+        let report = FontRegistry.registerBundledFonts()
+        guard let directory = report.directory else { throw Failure("no Fonts directory") }
+        guard report.failed.isEmpty else {
+            throw Failure("did not register: \(report.failed.joined(separator: "; "))")
+        }
+        let families = Set(NSFontManager.shared.availableFontFamilies)
+        let missing = (FontRegistry.bundledFamilies + [FontRegistry.symbolsFamily]).filter { !families.contains($0) }
+        guard missing.isEmpty else { throw Failure("missing \(missing.joined(separator: ", "))") }
+
+        let fonts = FontSet(family: "SF Mono", size: 13)
+        let folder = GlyphKey(scalar: 0xF07B)
+        let rasterizer = GlyphRasterizer(fonts: fonts, cell: fonts.cellMetrics(scale: 2))
+        let used = CTFontCopyFamilyName(rasterizer.face(for: folder)) as String
+        guard used == FontRegistry.symbolsFamily else {
+            throw Failure("the folder icon came from \(used), not \(FontRegistry.symbolsFamily)")
+        }
+        guard rasterizer.rasterize(folder).pixels.contains(where: { $0 > 128 }) else {
+            throw Failure("the folder icon drew nothing")
+        }
+        return "\(report.registered.count) files from \(directory.lastPathComponent); a prompt's icon draws from"
+            + " \(FontRegistry.symbolsFamily)"
     }
 
     /// Runs `printf` in a real session and returns the mirror once the output is in it.

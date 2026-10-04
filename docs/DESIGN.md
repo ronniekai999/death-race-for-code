@@ -36,7 +36,73 @@ The brand hues are the exact colors of MenuGlance's 999 icon. Every text color h
 
 ## Themes
 
-Eight original terminal palettes named after Juice WRLD titles: Legends Never Die (default),
-Lucid Dreams, Goodbye & Good Riddance, Death Race for Love, Fighting Demons, Wishing Well,
-The Party Never Ends and Righteous (light). Each holds at least 4.5:1 for every text color on
-its own background. No lyrics, album art, photos or official logos ship in the app.
+Eight original themes named after Juice WRLD titles. No lyrics, album art, photos or official
+logos ship in the app. `theme = <id or name>` in the settings file picks one, wherever the
+line is; `background`, `palette` and the other color settings then change single colors on
+top of it.
+
+| Theme | id | Terminal background | Window ground | Neon |
+| --- | --- | --- | --- | --- |
+| Legends Never Die (default) | `legends-never-die` | `#100822` | `#160C2E` | `#EC48C4` → `#9870FC` → `#5CC8FC` |
+| Lucid Dreams | `lucid-dreams` | `#141128` | `#1B1832` | `#FF9AD5` → `#B9A6FF` → `#8FD3FF` |
+| Goodbye & Good Riddance | `goodbye-good-riddance` | `#0A0A0C` | `#121214` | `#FFFFFF` → `#B8B8C0` → `#8A8A94` |
+| Death Race for Love | `death-race-for-love` | `#14060A` | `#1F080C` | `#FF3D3D` → `#FFB02E` → `#FFE066` |
+| Fighting Demons | `fighting-demons` | `#08130E` | `#0C1C16` | `#3DFF8F` → `#59D6B5` → `#9FE870` |
+| Wishing Well | `wishing-well` | `#06172A` | `#0B1E34` | `#3FD0FF` → `#7AA8FF` → `#2EE6C5` |
+| The Party Never Ends | `the-party-never-ends` | `#12031F` | `#1D0527` | `#FF2FD6` → `#2FF3FF` → `#B6FF3A` |
+| Righteous (light) | `righteous` | `#FFFFFF` | `#F9F7FD` | `#B8259B` → `#6440D8` → `#0A6E9E` |
+
+Legends Never Die is exactly the Midnight palette above. The others start from the Themes
+board's anchor colors; `scripts/gen-themes.py` mixed the rest and nudged them until every
+rule below holds. The hex values live in `ThemeCatalog.swift`, which reads like a design file.
+
+**Contrast, checked on every push** (WCAG, on Linux):
+
+| What | On | At least |
+| --- | --- | --- |
+| ink, inkMuted, inkFaint | ground, groundDeep, surface, surfaceHover | 4.5:1 |
+| onAccent | every gradient and neon stop | 4.5:1 |
+| accent | groundDeep and the terminal's background | 4.5:1 |
+| lineStrong; danger and warning | the grounds; groundDeep | 3:1 |
+| the terminal's text | its background | 7:1 |
+| ANSI colors 1–6 and 9–14, with white and bright white (dark themes) or black (light) | the background | 4.5:1 |
+| bright black, the dim gray | the background | 3:1 |
+| selected text; the character under the cursor | the selection; the cursor | 4.5:1 |
+| the cursor | the background | 3:1 |
+
+## Chrome
+
+Each theme carries the window's colors as well as the terminal's (`ChromeColors`):
+
+| Token | Use |
+| --- | --- |
+| ground | the window behind the panes |
+| groundDeep | the title row and the status bar |
+| surface, surfaceHover | cards, Hear Me Calling, Settings' rows |
+| line, lineStrong | borders; key caps and controls |
+| ink, inkMuted, inkFaint | text: primary, secondary, tertiary |
+| gradient (5 stops) | the active tab pill, Settings' switches and sliders |
+| neon (3 stops) | the focused pane's border, the 999, the equalizer |
+| accent | branch names, the palette's highlights |
+| glow, glowOpacity | the halo around the focused pane in the key window |
+| danger, warning | failed tabs; settings that could not be used |
+
+**How it is drawn.**
+- AppKit and Core Animation draw the title row, pills, cards and status bar from these
+  tokens. SwiftUI windows (Settings, Hear Me Calling's rows) read them as a `LegendsPalette`
+  in the environment, so they follow the theme too.
+- The NeonBorder is four gradient strips and four corner arcs sampled from one 120° gradient,
+  with no mask layers.
+- Gradient text (the 999) is drawn once into an image.
+- Panes not in use fade 14% toward the ground in the terminal's shader.
+
+Righteous gives the window a light appearance, so menus, sheets and the traffic lights match;
+the dark themes use the dark appearance. The starfield (`starfield = true`) belongs to the
+night skies, so Righteous has none.
+
+**Pictures of every theme.** `DeathRace --render-chrome DIR` (debug builds) draws the window
+in all eight themes without a screen recording permission, and CI keeps them as the
+`chrome-preview` artifact.
+- The traffic lights and the glow's blur are the window server's, so they are missing.
+- The SwiftUI windows (Settings, Hear Me Calling) are left out. Their text doesn't survive
+  being drawn this way, so they are reviewed on the Mac.

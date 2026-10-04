@@ -77,6 +77,10 @@ public final class Terminal {
 
     /// The last printed character, for REP.
     var lastGraphic: UInt32?
+    /// The OSC 8 link characters print into, until the program closes it.
+    public internal(set) var currentLink: Hyperlink?
+    /// Links opened without an id, numbered so each is its own.
+    var anonymousLinks: UInt64 = 0
     /// DEC private modes saved by XTSAVE, for XTRESTORE.
     var savedPrivateModes: [UInt16: Bool] = [:]
     /// Mode 40 (xterm): the program may switch between 80 and 132 columns. The width never
@@ -152,6 +156,41 @@ public final class Terminal {
         if !paletteOverrides.contains(Self.backgroundSlot) { palette.background = base.background }
         if !paletteOverrides.contains(Self.cursorSlot) { palette.cursor = base.cursor }
         emit(.colorsChanged)
+    }
+
+    // MARK: - Clearing
+
+    public enum ClearKind: Sendable {
+        /// Terminal's Clear to Start (⌘K): the cursor's line, the prompt, moves to the top;
+        /// the lines above it and the history go.
+        case toStart
+        /// Clear Scrollback (⌥⌘K): only the history goes.
+        case scrollback
+    }
+
+    /// Clears for the user (⌘K, ⌥⌘K). The alternate screen is left alone: clearing under a
+    /// full-screen program would leave its idea of the screen wrong until it redraws.
+    /// False when there was nothing to do.
+    @discardableResult
+    public func clear(_ kind: ClearKind) -> Bool {
+        guard !isAlternateScreen else { return false }
+        let s = primary
+        var changed = !s.scrollback.isEmpty
+        s.clearScrollback()
+        if kind == .toStart {
+            // The whole logical line stays: a long command wraps onto the cursor's row from
+            // the rows above it.
+            var top = s.cursor.y
+            while top > 0 && s.active[top - 1].isWrapped { top -= 1 }
+            if top > 0 {
+                s.discardTopRows(top, fill: .default)
+                changed = true
+            }
+        }
+        guard changed else { return false }
+        lastGraphic = nil
+        bumpGeneration()
+        return true
     }
 
     // MARK: - Resize

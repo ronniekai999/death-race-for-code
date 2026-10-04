@@ -53,8 +53,10 @@ private struct Surface {
         return model.drain()
     }
 
-    func frame(selection: TextRegion? = nil) -> Frame {
-        builder.build(mirror: model.mirror, theme: theme, cell: Self.cell, selection: selection, glyphs: glyphs)
+    func frame(selection: TextRegion? = nil, starfield: Bool = false) -> Frame {
+        builder.build(
+            mirror: model.mirror, theme: theme, cell: Self.cell, selection: selection, glyphs: glyphs,
+            starfield: starfield)
     }
 }
 
@@ -200,6 +202,23 @@ private struct Surface {
         #expect(frame.glyphs[0].offsetX == 1 && frame.glyphs[0].offsetY == 3)
         #expect(frame.isComplete)
         #expect(frame.clearColor == palette.background.packed)
+    }
+
+    /// Stars go only in each row's empty end: after the last glyph, line or colored cell.
+    @Test func theStarfieldMarksOnlyEachRowsEmptyEnd() {
+        let surface = Surface(columns: 8, rows: 3)
+        surface.feed("ab  c\r\n\u{1B}[44m  \u{1B}[0m x\u{1B}[4m \u{1B}[0m\r\n中")
+        let plain = Palette.legendsNeverDie.background.packed
+        let starry = (plain & 0x00FF_FFFF) | (FrameBuilder.starryAlpha << 24)
+        #expect(!surface.frame().backgrounds.contains(starry), "off by default")
+        let frame = surface.frame(starfield: true)
+        func row(_ y: Int) -> [Bool] { (0..<8).map { frame.backgrounds[y * 8 + $0] == starry } }
+        // "ab  c": the gap inside the line keeps no stars; the end does.
+        #expect(row(0) == [false, false, false, false, false, true, true, true])
+        // A blue background and an underlined space count as ink.
+        #expect(row(1) == [false, false, false, false, false, true, true, true])
+        // A wide character covers its second column.
+        #expect(row(2) == [false, false, true, true, true, true, true, true])
     }
 
     @Test func wideAndColorGlyphs() {
@@ -356,6 +375,24 @@ private struct Surface {
         let without = surface.frame()
         #expect(Array(without.backgrounds[0..<8]) == Array(repeating: red, count: 6) + [plain, plain])
         #expect(without.decorations.isEmpty)
+    }
+
+    @Test func aHoveredLinkIsUnderlinedWithoutRebuildingRows() {
+        let surface = Surface(columns: 8, rows: 2)
+        surface.feed("ab\u{1B}[32mhttps://x.example")
+        _ = surface.frame()
+        let link = LinkHit(
+            uri: "https://x.example", text: "https://x.example",
+            spans: [LinkHit.Span(row: 0, columns: 2..<8), LinkHit.Span(row: 1, columns: 0..<9)], isExplicit: false)
+        let frame = surface.builder.build(
+            mirror: surface.model.mirror, theme: surface.theme, cell: Surface.cell, selection: nil,
+            glyphs: surface.glyphs, link: link)
+        #expect(surface.builder.rebuiltRows == 0)
+        // Clamped to the screen's width, in the link text's own color.
+        #expect(
+            frame.decorations.map { [Int($0.cellX), Int($0.cellY), Int($0.cellCount)] } == [[2, 0, 6], [0, 1, 8]])
+        #expect(frame.decorations.first?.color == Palette.legendsNeverDie.colors[2].packed)
+        #expect(surface.frame().decorations.isEmpty)
     }
 
     /// The structs the shaders read have the sizes the shaders expect.

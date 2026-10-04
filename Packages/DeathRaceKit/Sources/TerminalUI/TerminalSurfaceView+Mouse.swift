@@ -51,6 +51,13 @@ extension TerminalSurfaceView {
 
     override public func mouseDown(with event: NSEvent) {
         if window?.firstResponder !== self { window?.makeFirstResponder(self) }
+        noteInput()
+        // A ⌘-click on a link follows it when the button comes up. It is never the program's:
+        // mouse reports cannot carry ⌘.
+        if event.modifierFlags.contains(.command), let hit = link(at: convert(event.locationInWindow, from: nil)) {
+            pressedLink = hit
+            return
+        }
         leftButtonReported = reportsMouse(event)
         if leftButtonReported {
             report(.press, .left, event)
@@ -60,6 +67,14 @@ extension TerminalSurfaceView {
     }
 
     override public func mouseUp(with event: NSEvent) {
+        if let pressed = pressedLink {
+            pressedLink = nil
+            // Released on the same link: followed. Moved off it first: nothing.
+            if let hit = link(at: convert(event.locationInWindow, from: nil)), hit.uri == pressed.uri {
+                onOpenLink?(hit)
+            }
+            return
+        }
         if leftButtonReported {
             report(.release, .left, event)
         } else {
@@ -68,9 +83,11 @@ extension TerminalSurfaceView {
     }
 
     override public func mouseDragged(with event: NSEvent) {
+        guard pressedLink == nil else { return }
         if leftButtonReported {
             report(.motion, .left, event)
         } else {
+            noteInput()
             dragSelection(with: event)
         }
     }
@@ -100,7 +117,12 @@ extension TerminalSurfaceView {
     }
 
     override public func mouseMoved(with event: NSEvent) {
+        updateHoveredLink(commandHeld: event.modifierFlags.contains(.command))
         if reportsMouse(event) { report(.motion, .none, event) }
+    }
+
+    override public func mouseExited(with event: NSEvent) {
+        updateHoveredLink(commandHeld: false)
     }
 
     /// The middle button, and the back and forward buttons of five-button mice.
@@ -114,6 +136,7 @@ extension TerminalSurfaceView {
 
     override public func scrollWheel(with event: NSEvent) {
         guard let mirror = model?.mirror else { return }
+        noteInput()
         if event.phase == .began { scrollAccumulator.reset() }
         let lines = scrollAccumulator.lines(
             forDelta: Double(event.scrollingDeltaY), precise: event.hasPreciseScrollingDeltas,

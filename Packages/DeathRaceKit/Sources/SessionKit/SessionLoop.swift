@@ -141,6 +141,8 @@ final class SessionLoop {
                 setPriority(focused: focused)
             case .setBasePalette(let palette):
                 terminal.setBasePalette(palette)
+            case .clear(let kind):
+                if terminal.clear(kind) { mustPublish = true }
             case .query(let query):
                 answer(query)
             case .close:

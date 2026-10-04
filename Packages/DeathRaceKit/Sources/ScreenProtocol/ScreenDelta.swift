@@ -82,6 +82,9 @@ public struct ScreenDelta: Sendable, Equatable {
     public var generation: UInt64
     /// The engine's clock when the delta was made; rows changed after it come next time.
     public var version: UInt64
+    /// The version of the delta this one builds on: only a mirror holding exactly that state
+    /// may apply it. Unused in a snapshot.
+    public var baseVersion: UInt64
     /// Every row of the viewport is included; the app starts over from this delta.
     public var isSnapshot: Bool
     public var columns: Int
@@ -107,13 +110,15 @@ public struct ScreenDelta: Sendable, Equatable {
     public var readingPassword: Bool
 
     public init(
-        generation: UInt64, version: UInt64, isSnapshot: Bool, columns: Int, rows: Int, viewportOffset: Int,
+        generation: UInt64, version: UInt64, baseVersion: UInt64 = 0, isSnapshot: Bool, columns: Int, rows: Int,
+        viewportOffset: Int,
         scrollbackCount: Int, rowIDs: [UInt64], changedRows: [RowSnapshot], cursor: CursorSnapshot,
         modes: TerminalModes, kittyFlags: UInt8, isAlternateScreen: Bool, title: String, palette: Palette?,
         events: [TerminalEvent], readingPassword: Bool = false
     ) {
         self.generation = generation
         self.version = version
+        self.baseVersion = baseVersion
         self.isSnapshot = isSnapshot
         self.columns = columns
         self.rows = rows
@@ -132,10 +137,11 @@ public struct ScreenDelta: Sendable, Equatable {
     }
 
     /// This delta in place of `unsent`, which the app never took: the screen state is this
-    /// one's, and `unsent`'s events come first.
+    /// one's, and `unsent`'s events come first, folded with this one's
+    /// (`TerminalEvent.coalesced`) so an app that stops taking deltas holds a bounded queue.
     public func merging(unsent: ScreenDelta) -> ScreenDelta {
         var merged = self
-        merged.events = unsent.events + events
+        merged.events = TerminalEvent.coalesced(unsent.events + events)
         if merged.palette == nil { merged.palette = unsent.palette }
         return merged
     }

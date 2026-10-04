@@ -26,6 +26,7 @@ public enum DeltaCodec {
         w.u8(formatVersion)
         w.u64(delta.generation)
         w.u64(delta.version)
+        w.u64(delta.baseVersion)
         w.bool(delta.isSnapshot)
         w.u32(UInt32(clamping: delta.columns))
         w.u32(UInt32(clamping: delta.rows))
@@ -180,6 +181,7 @@ public enum DeltaCodec {
 
         let generation = try r.u64()
         let deltaVersion = try r.u64()
+        let baseVersion = try r.u64()
         let isSnapshot = try r.bool()
         let columns = Int(try r.u32())
         let rows = Int(try r.u32())
@@ -227,8 +229,9 @@ public enum DeltaCodec {
         guard r.isAtEnd else { throw .invalid("trailing bytes") }
 
         return ScreenDelta(
-            generation: generation, version: deltaVersion, isSnapshot: isSnapshot, columns: columns, rows: rows,
-            viewportOffset: viewportOffset, scrollbackCount: scrollbackCount, rowIDs: rowIDs,
+            generation: generation, version: deltaVersion, baseVersion: baseVersion, isSnapshot: isSnapshot,
+            columns: columns, rows: rows, viewportOffset: viewportOffset, scrollbackCount: scrollbackCount,
+            rowIDs: rowIDs,
             changedRows: changedRows,
             cursor: CursorSnapshot(
                 x: cursorX, y: cursorY, pendingWrap: pendingWrap, visible: visible, shape: shape, blinks: blinks),

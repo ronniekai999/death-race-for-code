@@ -134,6 +134,37 @@ private func text(_ row: RowSnapshot) -> String {
         #expect(mirror.lines.isEmpty)
     }
 
+    /// The app took a delta and never applied it. The next one builds on it, so applying that
+    /// would leave the skipped rows stale: the mirror must refuse it, and a snapshot recovers.
+    @Test func aMirrorRefusesADeltaBuiltOnOneItSkipped() throws {
+        var link = Link()
+        link.terminal.feed("one")
+        try link.sync()
+        link.terminal.feed("\r\ntwo")
+        let skipped = link.builder.makeDelta(from: link.terminal, events: [])
+        link.builder.didDeliver(skipped)
+        link.terminal.feed("\r\nthree")
+        let next = link.builder.makeDelta(from: link.terminal, events: [])
+        #expect(next.baseVersion == skipped.version)
+        #expect(throws: MirrorGrid.ApplyError.needsSnapshot) { try link.mirror.apply(next) }
+        #expect(link.mirror.lines.map(text) == ["one", "", "", ""])
+        link.builder.reset()
+        #expect(try link.sync().isSnapshot)
+        #expect(link.mirror.lines.map(text) == ["one", "two", "three", ""])
+    }
+
+    @Test func unsentDeltasFoldTheirEvents() throws {
+        var link = Link()
+        try link.sync()
+        var unsent = link.builder.makeDelta(from: link.terminal, events: [])
+        for i in 0..<1_000 {
+            link.terminal.feed("\u{7}\u{1B}]2;lap \(i)\u{7}")
+            unsent = link.builder.makeDelta(from: link.terminal, events: link.terminal.takeEvents())
+                .merging(unsent: unsent)
+        }
+        #expect(unsent.events == [.bell, .titleChanged("lap 999")])
+    }
+
     @Test func colorsTravelWhenTheyChange() throws {
         var link = Link()
         try link.sync()

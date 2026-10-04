@@ -39,6 +39,7 @@ public struct DeltaBuilder {
         return ScreenDelta(
             generation: terminal.generation,
             version: terminal.currentVersion,
+            baseVersion: snapshot ? 0 : delivered!.version,
             isSnapshot: snapshot,
             columns: terminal.columns,
             rows: terminal.rows,

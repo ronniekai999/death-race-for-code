@@ -38,8 +38,9 @@ public final class Session: Sendable {
             rows: UInt16(clamping: configuration.rows), columns: UInt16(clamping: configuration.columns),
             pixelWidth: UInt16(clamping: configuration.columns * configuration.cellPixelWidth),
             pixelHeight: UInt16(clamping: configuration.rows * configuration.cellPixelHeight))
-        let pty = try PseudoTerminal.spawn(launch, size: size)
+        // The pipe first: once the shell runs, a failure here would leave it unreaped.
         channel = SessionChannel(wake: try WakePipe(), onUpdate: onUpdate)
+        let pty = try PseudoTerminal.spawn(launch, size: size)
         let loop = Transfer(SessionLoop(pty: pty, terminal: Terminal(configuration), channel: channel))
         let thread = Thread { loop.value.run() }
         thread.name = "Death Race session"

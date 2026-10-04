@@ -113,6 +113,22 @@ import Testing
         #expect(t.cursorPosition == [2, 0])
     }
 
+    @Test func aCellKeepsALimitedNumberOfMarks() {
+        let t = makeTerminal()
+        t.feed("a" + String(repeating: "\u{301}", count: 1_000) + "b")
+        #expect(t.row(0).scalars(at: 0).count == 1 + Terminal.graphemeScalarLimit)
+        #expect(t.row(0).scalars(at: 1) == [0x62])
+        #expect(t.cursorPosition == [2, 0])
+    }
+
+    @Test func marksCountTowardTheScrollbackBudget() {
+        let one = makeTerminal()
+        one.feed("a\u{301}")
+        let many = makeTerminal()
+        many.feed("a" + String(repeating: "\u{301}", count: 32))
+        #expect(many.row(0).estimatedBytes - one.row(0).estimatedBytes == 31 * 4)
+    }
+
     @Test func combiningMarkAfterAPendingWrapJoinsTheLastColumn() {
         let t = makeTerminal()
         t.feed("abcdefghij\u{301}")
@@ -227,6 +243,28 @@ import Testing
         // After a control, there is nothing to repeat.
         t.feed("\r\n\u{1B}[3b")
         #expect(t.lines[1] == "")
+    }
+
+    /// REP writes in bulk where it can; whatever path it takes, it must leave the screen that
+    /// printing the character that many more times leaves.
+    @Test(arguments: [
+        ("x", "x"), ("中", "中"), ("é", "é"), ("\u{1B}(0q", "q"), ("\u{1B}[4hx", "x"), ("\u{1B}[4h中", "中"),
+        ("\u{1B}[?7lx", "x"), ("\u{1B}[?7l中", "中"), ("\u{1B}[1;31mx", "x"), ("\u{1B}[1\"q中", "中"),
+        ("👍", "👍"), ("👨\u{200D}", "👨"), ("🇺", "🇺"), ("\u{1B}[?2027l🇺", "🇺"), ("👍🏽", "👍"),
+    ])
+    func repeatMatchesPrintingAgain(_ character: String, _ printed: String) {
+        let starts = ["", "\u{1B}[1;9H", "\u{1B}[2;10H", "\u{1B}[5;10H", "\u{1B}[3;4r\u{1B}[4;8H", "ab中\u{1B}[1;2H"]
+        for start in starts {
+            for times in [1, 2, 3, 4, 9, 10, 11, 25, 39, 40] {
+                let repeated = makeTerminal()
+                repeated.feed(start + character + "\u{1B}[\(times)b")
+                let again = makeTerminal()
+                again.feed(start + character + String(repeating: printed, count: times))
+                #expect(
+                    repeated.dump() == again.dump(),
+                    "\(character.debugDescription) at \(start.debugDescription), \(times) times")
+            }
+        }
     }
 
     @Test func tabsStopEveryEightColumns() {

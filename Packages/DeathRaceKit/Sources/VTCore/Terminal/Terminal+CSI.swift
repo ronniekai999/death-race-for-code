@@ -23,11 +23,15 @@ extension Terminal {
             setCursorPosition(row: Int(p.value(at: 0, default: 1)) - 1, column: Int(p.value(at: 1, default: 1)) - 1)
         case (0, 0, 0x64):  // VPA
             setCursorPosition(row: Int(p.value(at: 0, default: 1)) - 1, column: s.cursor.x)
-        case (0, 0, 0x49):  // CHT
-            for _ in 0..<Int(p.value(at: 0, default: 1)) { s.cursor.x = s.nextTabStop(after: s.cursor.x) }
+        case (0, 0, 0x49):  // CHT; no line has more tab stops than columns
+            for _ in 0..<min(Int(p.value(at: 0, default: 1)), s.columns) {
+                s.cursor.x = s.nextTabStop(after: s.cursor.x)
+            }
             s.cursor.pendingWrap = false
         case (0, 0, 0x5A):  // CBT
-            for _ in 0..<Int(p.value(at: 0, default: 1)) { s.cursor.x = s.previousTabStop(before: s.cursor.x) }
+            for _ in 0..<min(Int(p.value(at: 0, default: 1)), s.columns) {
+                s.cursor.x = s.previousTabStop(before: s.cursor.x)
+            }
             s.cursor.pendingWrap = false
 
         // MARK: Erasing and editing
@@ -63,8 +67,7 @@ extension Terminal {
             s.scrollDown(Int(p.value(at: 0, default: 1)), fill: s.cursor.pen.erasing)
         case (0, 0, 0x62):  // REP
             if let character = lastGraphic {
-                let times = min(Int(p.value(at: 0, default: 1)), s.columns * s.rows)
-                for _ in 0..<times { printScalar(character) }
+                repeatCharacter(character, times: min(Int(p.value(at: 0, default: 1)), s.columns * s.rows))
             }
 
         // MARK: Tabs and margins

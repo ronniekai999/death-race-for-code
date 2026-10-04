@@ -20,6 +20,53 @@ public enum TerminalEvent: Equatable, Sendable {
     case screenReplaced
 }
 
+extension TerminalEvent {
+    /// `events` with what a burst repeats folded away, in order: one bell, the latest title,
+    /// icon name, directory, progress and clipboard write, one colors-changed and one
+    /// screen-replaced, and the newest 16 notifications and 64 prompt marks. The app only
+    /// needs the outcome of a burst, and a program that rings the bell in a loop must not grow
+    /// memory while nobody takes the events.
+    public static func coalesced(_ events: [TerminalEvent]) -> [TerminalEvent] {
+        var counts: [Kind: Int] = [:]
+        var kept: [TerminalEvent] = []
+        for event in events.reversed() {
+            let kind = event.kind
+            let count = counts[kind, default: 0]
+            guard count < kind.limit else { continue }
+            counts[kind] = count + 1
+            kept.append(event)
+        }
+        return kept.reversed()
+    }
+
+    private enum Kind: Hashable {
+        case bell, title, iconName, directory, notification, progress, clipboard, promptMark, colors, screen
+
+        var limit: Int {
+            switch self {
+            case .notification: 16
+            case .promptMark: 64
+            default: 1
+            }
+        }
+    }
+
+    private var kind: Kind {
+        switch self {
+        case .bell: .bell
+        case .titleChanged: .title
+        case .iconNameChanged: .iconName
+        case .workingDirectoryChanged: .directory
+        case .notification: .notification
+        case .progress: .progress
+        case .clipboardWrite: .clipboard
+        case .promptMark: .promptMark
+        case .colorsChanged: .colors
+        case .screenReplaced: .screen
+        }
+    }
+}
+
 public enum ProgressReport: Equatable, Sendable {
     case cleared
     case normal(percent: Int)

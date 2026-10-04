@@ -71,6 +71,14 @@ import Testing
         #expect(t.cursorPosition == [0, 2])
     }
 
+    @Test func hugeTabCountsStopAtTheMargins() {
+        let t = makeTerminal(columns: 20)
+        t.feed("\u{1B}[65535I")
+        #expect(t.cursor.x == 19)
+        t.feed("\u{1B}[65535Z")
+        #expect(t.cursor.x == 0)
+    }
+
     @Test func tabStopsCanBeSetClearedAndTraversed() {
         let t = makeTerminal(columns: 20)
         t.feed("\u{1B}[2I")

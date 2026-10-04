@@ -82,8 +82,20 @@ As built: the thread also polls a child-exit descriptor (a kqueue on macOS, a pi
 so a shell's exit is seen even while a background job keeps the terminal open. Resizes
 coalesce to the last one and reach the engine before the program, so its redraw finds the new
 size. Typing returns a scrolled-back view to the bottom. Synchronized output holds a frame for
-at most a second. Queued input is capped at 16 MiB. Debug builds send every delta through
-`DeltaCodec`. The tests run real shells, and CI runs them under Thread Sanitizer.
+at most a second. Debug builds send every delta through `DeltaCodec`. The tests run real
+shells, and CI runs them under Thread Sanitizer.
+
+Nothing a program does can grow memory without bound or starve the app's commands:
+
+| What | Bound |
+| --- | --- |
+| Output read before commands are handled again | 1 MiB or 20 ms, whichever comes first |
+| Output read after the shell exits (a background job can keep a Linux terminal open) | 1 MiB or 100 ms, then hang up |
+| Typed input waiting for the shell | 16 MiB; `send` refuses more |
+| Replies waiting for a program that does not read them | 1 MiB; later batches are dropped whole |
+| Events waiting for the app | folded: one bell, the latest title, directory, progress and clipboard write, the newest 16 notifications and 64 prompt marks |
+| Combining marks on one cell | 32; the scrollback budget counts them |
+| Work per byte | REP and the tab-count sequences cost what the characters they print cost |
 
 `CAMetalDisplayLink` on a background run loop is reported never to fire on macOS, so v1
 renders on main through `NSView.displayLink`. If p95 frame CPU on main exceeds 2 ms, encoding
@@ -94,8 +106,12 @@ moves to a render thread signalled from main.
 A `ScreenDelta` carries generation, version, size, the viewport's row ids, cursor, modes,
 changed rows (each with its own styles and graphemes) and events. It is current state, not a
 log: a newer delta replaces an unsent one, at most one is in flight per client, and a
-generation mismatch triggers a full snapshot. Phases 1–6 pass deltas in-process; `legendsd`
-will send the same encoded bytes over XPC.
+generation mismatch triggers a full snapshot. Each delta names the version it builds on, and a
+mirror applies it only if it holds exactly that state; otherwise it asks for a snapshot, and
+the session forgets everything the app took, so the snapshot cannot build on a delta the app
+dropped. The session builds a delta without holding the mailbox lock; if the app takes one
+meanwhile, the session builds again on the one taken. Phases 1–6 pass deltas in-process;
+`legendsd` will send the same encoded bytes over XPC.
 
 The session owns each client's viewport. Rows travel by id, so scrolling sends only the new
 line, and a viewport scrolled back into history stays on the same lines while output arrives

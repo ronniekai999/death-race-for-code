@@ -143,8 +143,9 @@ public final class Row {
 
     /// Approximate memory use, for the scrollback budget.
     var estimatedBytes: Int {
-        96 + cells.count * MemoryLayout<Cell>.stride + styles.count * MemoryLayout<Style>.stride
-            + graphemes.count * 48
+        var bytes = 96 + cells.count * MemoryLayout<Cell>.stride + styles.count * MemoryLayout<Style>.stride
+        for extra in graphemes.values { bytes += 48 + extra.count * MemoryLayout<UInt32>.stride }
+        return bytes
     }
 
     /// The index one past the last cell that holds a character or a colored background.

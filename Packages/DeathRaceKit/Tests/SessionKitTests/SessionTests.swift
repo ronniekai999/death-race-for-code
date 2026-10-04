@@ -65,6 +65,35 @@ private final class Harness {
     func type(_ text: String) {
         session.send(Array(text.utf8))
     }
+
+    /// Takes deltas and throws them away, as an app whose mirror refused them would, until
+    /// one satisfies `condition`.
+    func dropDeltas(timeout milliseconds: Int = 5_000, until condition: (ScreenDelta) -> Bool) -> Bool {
+        let deadline = PseudoTerminal.monotonicMilliseconds() + milliseconds
+        while true {
+            while let delta = session.takeDelta() {
+                if condition(delta) { return true }
+            }
+            let remaining = deadline - PseudoTerminal.monotonicMilliseconds()
+            if remaining <= 0 { return false }
+            _ = updates.wait(timeout: .now() + .milliseconds(min(remaining, 100)))
+        }
+    }
+
+    /// Takes deltas and throws them away until none has come for `quiet` milliseconds.
+    func dropDeltas(quietFor quiet: Int) {
+        var last = PseudoTerminal.monotonicMilliseconds()
+        while PseudoTerminal.monotonicMilliseconds() - last < quiet {
+            while session.takeDelta() != nil { last = PseudoTerminal.monotonicMilliseconds() }
+            _ = updates.wait(timeout: .now() + .milliseconds(50))
+        }
+    }
+}
+
+private func contains(_ delta: ScreenDelta, _ text: String) -> Bool {
+    delta.changedRows.contains { row in
+        String(decoding: row.cells.map { UInt8(truncatingIfNeeded: $0.scalar) }, as: UTF8.self).contains(text)
+    }
 }
 
 @Suite("Session", .timeLimit(.minutes(1)))
@@ -107,6 +136,38 @@ struct SessionTests {
     @Test("an exit is noticed even while a background job holds the terminal")
     func exitWithBackgroundJob() throws {
         let h = try Harness(arguments: ["sh", "-c", "sleep 30 & exit 3"])
+        #expect(h.waitUntil(timeout: 10_000) { $0.session.status != .running })
+        #expect(h.session.status == .exited(.exited(code: 3)))
+    }
+
+    @Test("a snapshot request recovers a mirror that missed deltas")
+    func snapshotAfterDroppedDeltas() throws {
+        let h = try Harness()
+        #expect(h.waitUntil { $0.text.contains("$") })
+        h.type("echo MARKER-ONE\n")
+        #expect(h.dropDeltas { contains($0, "MARKER-ONE") })
+        // The last delta dropped is the last one taken: the session has nothing newer.
+        h.dropDeltas(quietFor: 300)
+        // The mirror never saw the marker; only a real snapshot can bring it back.
+        h.session.requestSnapshot()
+        #expect(h.waitUntil { $0.text.contains("MARKER-ONE") })
+    }
+
+    @Test("a mirror that missed a delta refuses the next one, and recovers")
+    func refusedDeltaRecovers() throws {
+        let h = try Harness()
+        #expect(h.waitUntil { $0.text.contains("$") })
+        h.type("echo MARKER-TWO\n")
+        #expect(h.dropDeltas { contains($0, "MARKER-TWO") })
+        // The next delta builds on the dropped one: the harness's mirror refuses it and asks for
+        // a snapshot, as the app does.
+        h.type("echo next\n")
+        #expect(h.waitUntil { $0.text.contains("MARKER-TWO") && $0.text.contains("next") })
+    }
+
+    @Test("a job that outlives the shell and floods the terminal does not keep the session alive")
+    func floodAfterExit() throws {
+        let h = try Harness(arguments: ["sh", "-c", "trap '' HUP; yes flood & sleep 0.3; exit 3"])
         #expect(h.waitUntil(timeout: 10_000) { $0.session.status != .running })
         #expect(h.session.status == .exited(.exited(code: 3)))
     }

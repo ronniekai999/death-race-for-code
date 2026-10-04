@@ -4,8 +4,8 @@ import VTCore
 /// and to encode input. The renderer draws from it; it changes only by applying deltas.
 public struct MirrorGrid: Sendable {
     public enum ApplyError: Error, Equatable {
-        /// The delta refers to a screen generation or rows this mirror does not have; ask the
-        /// session for a snapshot.
+        /// The delta builds on a state or rows this mirror does not have (another generation,
+        /// or a delta it never applied); ask the session for a snapshot.
         case needsSnapshot
     }
 
@@ -31,7 +31,9 @@ public struct MirrorGrid: Sendable {
     /// error the mirror is unchanged.
     @discardableResult
     public mutating func apply(_ delta: ScreenDelta) throws(ApplyError) -> [Int] {
-        guard delta.isSnapshot || delta.generation == generation else { throw .needsSnapshot }
+        guard delta.isSnapshot || (delta.generation == generation && delta.baseVersion == version) else {
+            throw .needsSnapshot
+        }
 
         var byID: [UInt64: RowSnapshot] = [:]
         byID.reserveCapacity(lines.count + delta.changedRows.count)

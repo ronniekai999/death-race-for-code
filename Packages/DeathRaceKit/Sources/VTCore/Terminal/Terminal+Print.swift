@@ -56,6 +56,89 @@ extension Terminal {
         lastGraphic = UInt32(base[count - 1])
     }
 
+    /// REP: nine bytes can ask for a screenful, and that should cost a bulk write, not a
+    /// screenful of single characters. The first repetition goes the usual way (it may join
+    /// a sequence before it); the rest are written a row segment at a time, unless the
+    /// character joins its own kind (flags, skin tones), goes through a charset, or inserts.
+    func repeatCharacter(_ scalar: UInt32, times: Int) {
+        guard times > 0 else { return }
+        printScalar(scalar)
+        let s = screen
+        let width = CharacterWidth.of(scalar)
+        let joinsItself =
+            modes.graphemeClustering
+            && (CharacterWidth.isRegionalIndicator(scalar) || CharacterWidth.isEmojiModifier(scalar))
+        let mapped = scalar >= 0x20 && scalar < 0x7F && !s.cursor.charsets.isPlainASCII
+        guard width > 0 && !joinsItself && !mapped && !modes.insert else {
+            for _ in 1..<times { printScalar(scalar) }
+            return
+        }
+        printRepeated(scalar, width: width, count: times - 1)
+    }
+
+    /// `count` more of a character that joins nothing: the cells, wrapping and cursor that
+    /// printing it `count` times leaves, a row segment at a time.
+    private func printRepeated(_ scalar: UInt32, width: Int, count: Int) {
+        let s = screen
+        var remaining = count
+        while remaining > 0 {
+            if s.cursor.pendingWrap {
+                if modes.autowrap {
+                    wrapLine(s)
+                } else {
+                    s.cursor.pendingWrap = false
+                }
+            }
+            if width == 2 && s.cursor.x == s.columns - 1 && s.columns > 1 {
+                if modes.autowrap {
+                    // Too wide for the last column: leave a spacer head and wrap.
+                    let row = s.active[s.cursor.y]
+                    s.splitWideCharacter(in: row, at: s.cursor.x)
+                    s.clearCell(row, s.cursor.x)
+                    row.cells[s.cursor.x].width = .spacerHead
+                    s.touch(row)
+                    wrapLine(s)
+                } else {
+                    s.cursor.x = s.columns - 2
+                }
+            }
+            let row = s.active[s.cursor.y]
+            let x = s.cursor.x
+            let cellWidth = min(width, s.columns - x)
+            let n = min(remaining, max((s.columns - x) / cellWidth, 1))
+            let end = x + n * cellWidth
+            s.splitWideCharacter(in: row, at: x)
+            s.splitWideCharacter(in: row, at: end)
+            if !row.graphemes.isEmpty {
+                for column in x..<end where row.cells[column].hasGrapheme { row.graphemes[column] = nil }
+            }
+            let styleID = row.styleID(for: s.cursor.pen)
+            let protected = s.cursor.protected
+            let head = Cell(
+                scalar: scalar, width: cellWidth == 2 ? .wide : .narrow, styleID: styleID, protected: protected)
+            let tail = Cell(scalar: 0, width: .spacerTail, styleID: styleID, protected: protected)
+            row.cells.withUnsafeMutableBufferPointer { cells in
+                var column = x
+                while column < end {
+                    cells[column] = head
+                    if cellWidth == 2 { cells[column + 1] = tail }
+                    column += cellWidth
+                }
+            }
+            s.touch(row)
+            remaining -= n
+            if end >= s.columns {
+                s.cursor.x = s.columns - 1
+                s.cursor.pendingWrap = modes.autowrap
+                // Without autowrap the rest would only rewrite the last character.
+                if !modes.autowrap { break }
+            } else {
+                s.cursor.x = end
+            }
+        }
+        lastGraphic = scalar
+    }
+
     /// One character, through charsets, grapheme joining, wide-character placement and
     /// insert mode.
     func printScalar(_ input: UInt32) {
@@ -126,6 +209,9 @@ extension Terminal {
 
     // MARK: - Graphemes
 
+    /// The most scalars a cell keeps after its first.
+    static let graphemeScalarLimit = 32
+
     /// The cell a character joins, if it continues the character before the cursor:
     /// combining marks always; with grapheme clustering (mode 2027) also emoji modifiers,
     /// ZWJ sequences and regional-indicator pairs.
@@ -167,6 +253,10 @@ extension Terminal {
     private func attach(_ scalar: UInt32, at target: (y: Int, x: Int), in s: ScreenBuffer) {
         let row = s.active[target.y]
         let x = target.x
+        // Past the limit, marks are dropped: no real character comes close (the longest emoji
+        // sequences have ten scalars; Unicode's stream-safe format allows 30 marks in a row),
+        // and a stream of them must not grow one cell without bound.
+        guard (row.graphemes[x]?.count ?? 0) < Self.graphemeScalarLimit else { return }
         row.graphemes[x, default: []].append(scalar)
         row.cells[x].hasGrapheme = true
 

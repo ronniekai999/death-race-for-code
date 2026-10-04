@@ -188,7 +188,12 @@ public final class Terminal {
 
     func emit(_ event: TerminalEvent) {
         events.append(event)
+        // Programs can emit events far faster than anyone takes them; folding the queue now
+        // and then keeps it small (it never holds more than this plus what folding keeps).
+        if events.count >= Self.eventFoldThreshold { events = TerminalEvent.coalesced(events) }
     }
+
+    static let eventFoldThreshold = 256
 
     func bumpGeneration() {
         generation &+= 1

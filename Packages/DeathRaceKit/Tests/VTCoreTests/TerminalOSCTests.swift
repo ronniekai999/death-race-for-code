@@ -122,3 +122,26 @@ import Testing
         #expect(t.takeEvents().isEmpty)
     }
 }
+
+/// Events wait in the terminal until a host takes them; a burst folds to what it changed.
+@Suite struct TerminalEventFoldingTests {
+    @Test func aBurstFoldsToItsOutcome() {
+        let events: [TerminalEvent] =
+            [.bell, .titleChanged("a"), .bell, .colorsChanged, .titleChanged("b"), .colorsChanged]
+        #expect(TerminalEvent.coalesced(events) == [.bell, .titleChanged("b"), .colorsChanged])
+    }
+
+    @Test func notificationsAndPromptMarksKeepTheNewest() {
+        let notes = (0..<20).map { TerminalEvent.notification(title: "", body: "\($0)") }
+        #expect(TerminalEvent.coalesced(notes) == Array(notes.suffix(16)))
+        let marks = (0..<100).map { TerminalEvent.promptMark(.promptStart, rowID: UInt64($0)) }
+        #expect(TerminalEvent.coalesced(marks) == Array(marks.suffix(64)))
+    }
+
+    @Test func aTerminalNobodyReadsKeepsFewEvents() {
+        let t = makeTerminal()
+        for i in 0..<10_000 { t.feed("\u{7}\u{1B}]2;lap \(i)\u{7}") }
+        #expect(t.events.count < Terminal.eventFoldThreshold)
+        #expect(TerminalEvent.coalesced(t.takeEvents()) == [.bell, .titleChanged("lap 9999")])
+    }
+}

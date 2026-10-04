@@ -15,10 +15,14 @@ final class SessionLoop {
     let channel: SessionChannel
     private var builder = DeltaBuilder()
 
-    /// Bytes for the shell, oldest first: typed input and the terminal's replies, in the
-    /// order they arose. Input chunks count against the channel's input limit until written.
-    private var outgoing: [(bytes: [UInt8], isInput: Bool)] = []
-    private var outgoingOffset = 0
+    /// Typed input and the terminal's replies, waiting for the shell to read them. Input
+    /// counts against the channel's input limit until written.
+    private var outgoing = OutgoingQueue(replyLimit: SessionLoop.replyLimit)
+    static let replyLimit = 1 << 20
+
+    /// Events from a delta the app gave up on (it asked for a snapshot): they go out with the
+    /// next one.
+    private var carriedEvents: [TerminalEvent] = []
 
     private var exitWatch: Int32?
     private var running = true
@@ -38,9 +42,14 @@ final class SessionLoop {
     static let syncWatchdog = 1_000
 
     private var readBuffer = [UInt8](repeating: 0, count: 64 * 1024)
-    /// Read at most this much before looking at commands again, so a flood cannot starve
-    /// typing or a resize.
+    /// Read at most this much, or for this long, before looking at commands again, so a flood
+    /// cannot starve typing or a resize. Time matters too: a few bytes can ask for a lot of
+    /// work (a repeat count, a screen fill).
     static let readBudget = 1 << 20
+    static let readTimeBudget = 20
+    /// After the shell exits, what it left is read within these budgets; a background job can
+    /// keep a Linux terminal open and writing long after.
+    static let drainTimeBudget = 100
 
     init(pty: PseudoTerminal, terminal: Terminal, channel: SessionChannel) {
         self.pty = pty
@@ -96,7 +105,7 @@ final class SessionLoop {
         for command in commands {
             switch command {
             case .input(let bytes):
-                outgoing.append((bytes, true))
+                outgoing.appendInput(bytes)
                 // Typing returns a scrolled-back view to the bottom, at once.
                 if builder.viewportOffset > 0 {
                     builder.scrollToBottom()
@@ -111,7 +120,17 @@ final class SessionLoop {
                 builder.scrollToBottom()
                 mustPublish = true
             case .snapshot:
+                // Whatever the app took or has yet to take is no use to it now: forget it, so
+                // the next delta cannot build on it. Only the events survive.
                 builder.reset()
+                let unsent = channel.mailbox.withLock { box in
+                    defer {
+                        box.pending = nil
+                        box.taken = nil
+                    }
+                    return box.pending?.events ?? []
+                }
+                carriedEvents = TerminalEvent.coalesced(carriedEvents + unsent)
                 mustPublish = true
             case .focus(let focused):
                 setPriority(focused: focused)
@@ -138,12 +157,14 @@ final class SessionLoop {
     private func readAvailable() {
         guard !ptyClosed else { return }
         var budget = Self.readBudget
+        let deadline = PseudoTerminal.monotonicMilliseconds() + Self.readTimeBudget
         reading: while budget > 0 {
             let result = readBuffer.withUnsafeMutableBytes { pty.read(into: $0) }
             switch result {
             case .bytes(let n):
                 readBuffer.withUnsafeBufferPointer { terminal.feed(UnsafeBufferPointer(rebasing: $0[0..<n])) }
                 budget -= n
+                if PseudoTerminal.monotonicMilliseconds() >= deadline { break reading }
             case .wouldBlock:
                 break reading
             case .closed:
@@ -151,8 +172,7 @@ final class SessionLoop {
                 break reading
             }
         }
-        let replies = terminal.takeReplies()
-        if !replies.isEmpty { outgoing.append((replies, false)) }
+        outgoing.appendReplies(terminal.takeReplies())
 
         // A change here is published like any other change: it does not cut through a
         // synchronized frame (and a line editor toggling echo at every prompt is no reason to).
@@ -183,35 +203,18 @@ final class SessionLoop {
     }
 
     private func drainRemainingOutput() {
-        while true {
+        var budget = Self.readBudget
+        let deadline = PseudoTerminal.monotonicMilliseconds() + Self.drainTimeBudget
+        while budget > 0 && PseudoTerminal.monotonicMilliseconds() < deadline {
             let result = readBuffer.withUnsafeMutableBytes { pty.read(into: $0) }
             guard case .bytes(let n) = result else { return }
             readBuffer.withUnsafeBufferPointer { terminal.feed(UnsafeBufferPointer(rebasing: $0[0..<n])) }
+            budget -= n
         }
     }
 
     private func writeOutgoing() {
-        var writtenInput = 0
-        writing: while let (bytes, isInput) = outgoing.first {
-            let result = bytes.withUnsafeBytes { all in
-                pty.write(UnsafeRawBufferPointer(rebasing: all[outgoingOffset...]))
-            }
-            switch result {
-            case .wrote(let n):
-                outgoingOffset += n
-                if outgoingOffset == bytes.count {
-                    outgoing.removeFirst()
-                    outgoingOffset = 0
-                    if isInput { writtenInput += bytes.count }
-                }
-            case .wouldBlock:
-                break writing
-            case .closed:
-                outgoing.removeAll()
-                outgoingOffset = 0
-                break writing
-            }
-        }
+        let writtenInput = outgoing.write { pty.write($0) }
         if writtenInput > 0 { channel.mailbox.withLock { $0.queuedInput -= writtenInput } }
     }
 
@@ -229,7 +232,9 @@ final class SessionLoop {
     }
 
     private func publishIfNeeded() {
-        let changed = terminal.currentVersion != publishedVersion || !terminal.events.isEmpty || passwordStateChanged
+        let changed =
+            terminal.currentVersion != publishedVersion || !terminal.events.isEmpty || !carriedEvents.isEmpty
+            || passwordStateChanged
         guard changed || mustPublish else { return }
         // Synchronized output holds the frame until the program finishes it, unless the
         // app asked for something or the watchdog ran out.
@@ -238,27 +243,37 @@ final class SessionLoop {
     }
 
     private func publish() {
-        if let taken = channel.mailbox.withLock({ box in
-            defer { box.taken = nil }
-            return box.taken
-        }) {
-            builder.didDeliver(taken)
-        }
-        var delta = builder.makeDelta(from: terminal, events: terminal.takeEvents())
-        delta.readingPassword = readingPassword
-        passwordStateChanged = false
-        #if DEBUG
-            // Debug builds send every delta through the codec the daemon will use.
-            delta = try! DeltaCodec.decode(DeltaCodec.encode(delta))
-        #endif
-        let notify = channel.mailbox.withLock { box in
-            if let unsent = box.pending {
-                box.pending = delta.merging(unsent: unsent)
-                return false
+        let events = TerminalEvent.coalesced(carriedEvents + terminal.takeEvents())
+        carriedEvents = []
+        var notify = false
+        // The delta builds on the last one the app took. The app can take another while this
+        // one is being built, without holding the lock; then it is built again on that one.
+        while true {
+            if let taken = channel.mailbox.withLock({ box in
+                defer { box.taken = nil }
+                return box.taken
+            }) {
+                builder.didDeliver(taken)
             }
-            box.pending = delta
-            return true
+            var delta = builder.makeDelta(from: terminal, events: events)
+            delta.readingPassword = readingPassword
+            #if DEBUG
+                // Debug builds send every delta through the codec the daemon will use.
+                delta = try! DeltaCodec.decode(DeltaCodec.encode(delta))
+            #endif
+            let stored = channel.mailbox.withLock { box in
+                guard box.taken == nil else { return false }
+                if let unsent = box.pending {
+                    box.pending = delta.merging(unsent: unsent)
+                } else {
+                    box.pending = delta
+                    notify = true
+                }
+                return true
+            }
+            if stored { break }
         }
+        passwordStateChanged = false
         publishedVersion = terminal.currentVersion
         mustPublish = false
         if notify { channel.onUpdate() }

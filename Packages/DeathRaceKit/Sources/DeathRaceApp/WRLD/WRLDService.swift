@@ -383,12 +383,18 @@ final class WRLDService: HostConnecting {
     func checkLatency(networkChangedAt: Date?) {
         guard checksHosts else { return }
         let now = Date()
+        var started = 0
+        defer {
+            // For the energy check in MANUAL-TESTS: none of these while WRLD is off screen.
+            if started > 0 { log.debug("Checking how quickly \(started) Legends answer") }
+        }
         for host in vault.hosts {
             let facts = state.facts(.vault(host.id))
             guard !checking.contains(host.id), !skippedLocal.contains(host.id), let connection = host.connection,
                 HostChecks.latencyIsDue(
                     host, facts: facts, enabled: true, visible: true, networkChangedAt: networkChangedAt, now: now)
             else { continue }
+            started += 1
             checking.insert(host.id)
             let allowLocal = facts.lastConnected != nil
             Task {

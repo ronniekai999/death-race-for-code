@@ -9,25 +9,33 @@ L E G E N D S   N E V E R   D I E
 
 ## Status
 
-Phase 3, the Pit Lane shell, is built and waiting on the side-by-side review only a Mac can
-make. Each window holds tabs of split panes under chrome drawn in the theme's colors:
+Phase 4, the Termius layer, is written. Its portable half (WRLD's data, the ssh config it
+generates, masters, tunnels and ssh's questions) is tested on Linux against a real `sshd`;
+its Mac half waits for its first build and the hands-on pass in
+[docs/MANUAL-TESTS.md](docs/MANUAL-TESTS.md).
 
-- **Tabs and panes:** gradient tab pills that reorder, show an equalizer while a background
-  tab prints and a dot for a bell; splits with a NeonBorder on the pane in use, the others
-  dimmed; headers, draggable dividers, zoom and keys for all of it.
-- **Hear Me Calling (⇧⌘P):** every action, pane, theme and Settings page, found by typing;
-  themes preview on the window as you move through them.
-- **Settings:** a window that edits the settings file line by line, and live reload when
-  anything else edits it.
-- **Eight themes,** from Legends Never Die to the light Righteous, with Monaspace and
-  Nerd Font symbols bundled, so prompt icons draw with any font, and a starfield.
-- **Links:** ⌘-hover and ⌘-click on OSC 8 links (`ls --hyperlink=auto`) and on URLs in the
-  text, through a policy that never runs a file and asks before unusual schemes.
-- **Energy:** idle still draws nothing; output is capped at 60 fps, lower in Low Power Mode
-  or when the Mac is hot, while typing keeps the display's full rate.
+- **WRLD, your hosts:** kept in `wrld.json` next to the settings file, which never holds a
+  secret. Hosts in your `~/.ssh/config` join with one click and keep using that file, which
+  WRLD never changes. The WRLD window (⌘O) has cards, groups, Legends, keys, known hosts and
+  an inspector; the sidebar (⌃⌘S) keeps them next to your panes.
+- **Connections through macOS's own OpenSSH.** Each host gets one master that the app owns,
+  so a second pane or a split on the same host opens without logging in again, and quitting
+  leaves no ssh behind. Saved passwords stay in your login Keychain and reach ssh only after
+  Touch ID; ssh's questions (passwords, codes, a new host's key) come as sheets.
+- **Secure Enclave keys,** made from the New Host sheet and put on the host over its first
+  connection. macOS asks for Touch ID at each login.
+- **Come & Go:** local, remote and SOCKS tunnels, turned on and off on a live connection,
+  with "⇄ 2 tunnels" in the status bar.
+- **Wishing Well:** snippets with `{{placeholders}}`, inserted or run from the sidebar, Hear
+  Me Calling or WRLD, and a snippet per host that is typed as each session starts.
+- **Armed and Dangerous (⇧⌘I):** typing goes to every pane in the tab, each encoding it for
+  its own program, under an orange-to-pink border. Esc still belongs to the programs.
+- **Hear Me Calling** finds hosts, snippets and tunnels as well.
 
-What is left is the hands-on pass in [docs/MANUAL-TESTS.md](docs/MANUAL-TESTS.md). CI keeps
-a picture of the window in every theme (the `chrome-preview` artifact) for the review.
+Phase 3 built the Pit Lane: tabs of split panes under gradient pills, Hear Me Calling
+(⇧⌘P), a Settings window with live reload, eight themes, bundled fonts, OSC 8 links and a
+frame-rate policy. CI keeps a picture of the window in every theme (the `chrome-preview`
+artifact) for its side-by-side review, which is in the same file.
 
 Phase 2 put the engine on screen: Metal drawing, the keyboard, input methods and the Kitty
 protocol, the mouse, selection and the clipboard, Secure Keyboard Entry, and an idle
@@ -59,6 +67,13 @@ option-as-meta = left
 palette = 1=#FF5277
 ```
 
+WRLD lives beside the settings file, in `wrld.json`: hosts, groups, snippets, tunnels, and
+which key file each host uses (never a key itself), as JSON you can keep in a dotfiles
+repository. Edit it in the WRLD window or by hand; either way the
+open windows follow. What changes on its own (when a host last connected, what it runs, how
+quickly it answers) goes to `~/.deathrace/state.json` instead, so the file you keep doesn't
+churn. Passwords live only in the login Keychain.
+
 - Mockups (12 boards): https://claude.ai/artifact/A7ti39oW56UDr8FyTqguVd
 - Design system, Legends Never Die: https://claude.ai/artifact/SYrFpKuxmKj2m6kTioXe6G
 
@@ -80,6 +95,7 @@ On Linux (the engine, session and pseudo-terminal layers are portable):
 ```sh
 make install-swift-linux   # swift.org toolchain 6.3.3, signature-verified
 make test                  # portable targets only
+eval "$(scripts/ci-sshd.sh)" && make test   # as root in a container: with a loopback sshd
 make esctest               # xterm's conformance suite against the engine (python3)
 make fuzz                  # libFuzzer, FUZZ_SECONDS=60 by default
 make bench                 # engine throughput, release build
@@ -104,17 +120,23 @@ Packages/DeathRaceKit/   one SwiftPM package; macOS-only targets appear only on 
   Sources/ScreenProtocol/ screen deltas, the app's mirror, the byte codec
   Sources/SessionKit/    one thread per shell, publishing deltas
   Sources/ConfigKit/     the settings file: schema, parser, diagnostics, template
+  Sources/Vault/         WRLD's data: hosts, groups, snippets, tunnels, wrld.json
+  Sources/SSHKit/        OpenSSH, driven: generated config, masters, tunnels, askpass broker
+  Sources/deathrace-askpass/ the SSH_ASKPASS helper that asks the app
+  Sources/AppCore/       the app's logic apart from AppKit: windows, actions, palette, WRLD
   Sources/SurfaceCore/   the terminal view's logic, apart from AppKit and Metal
   Sources/LegendsUI/     the design system in SwiftUI (macOS)
   Sources/RenderKit/     fonts and the Metal renderer (macOS)
   Sources/TerminalUI/    the terminal view (macOS)
-  Sources/DeathRaceApp/  the app: windows, tabs, menus, settings (macOS)
+  Sources/DeathRaceApp/  the app: windows, tabs, menus, settings, WRLD (macOS)
+  Sources/DeathRace/     the executable (macOS)
   Tools/vthost/          headless host for the engine: run, replay, bench, smoke
 Tools/VTFuzz/            libFuzzer target (a package of its own)
 Tools/VTDiff/            VTCore next to SwiftTerm, the referee (a package of its own)
 App/                     Info.plist and entitlements for the bundle
 scripts/                 bundle.sh, esctest.sh, record-corpus.sh, gen-unicode-tables.py,
-                         install-swift-linux.sh
+                         install-swift-linux.sh, ci-sshd.sh (a throwaway sshd for the
+                         SSH tests), wrld-homework.sh (Secure Enclave facts from your Mac)
 docs/                    architecture, design, naming, performance, conformance
 ```
 

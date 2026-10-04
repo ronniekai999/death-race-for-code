@@ -86,6 +86,8 @@ Each theme carries the window's colors as well as the terminal's (`ChromeColors`
 | accent | branch names, the palette's highlights |
 | glow, glowOpacity | the halo around the focused pane in the key window |
 | danger, warning | failed tabs; settings that could not be used |
+| armed (warning → danger) | Armed and Dangerous: each armed pane's border, the status bar's warning |
+| armedTint | the armed banner's fill: the ground mixed 16% toward each armed stop |
 
 **How it is drawn.**
 - AppKit and Core Animation draw the title row, pills, cards and status bar from these
@@ -106,3 +108,42 @@ in all eight themes without a screen recording permission, and CI keeps them as 
 - The traffic lights and the glow's blur are the window server's, so they are missing.
 - The SwiftUI windows (Settings, Hear Me Calling) are left out. Their text doesn't survive
   being drawn this way, so they are reviewed on the Mac.
+
+## WRLD and Armed and Dangerous
+
+**The sidebar** (⌃⌘S) is AppKit drawing from `SidebarModel`, so it follows the theme and
+shows in the CI pictures.
+- 220 pt wide, from under the title row to the window's bottom, on `groundDeep` with a
+  1 px `line` at its edge. The status bar starts beside it, as on the Main board.
+- Search WRLD at the top (a 30 pt rounded field on `ground`), then the sections, each under
+  a 24 pt eyebrow, in 28 pt rows with 12 pt margins: Legends, WRLD's groups and loose hosts
+  (a group's hosts indent 14 pt), Wishing Well, Come & Go. Add host and the spaced-out
+  tagline sit in a 76 pt footer.
+- A row leads with its mark (a host's dot, a group's chevron, Wishing Well's », Come & Go's
+  ⇄) and ends with its meta (latency, a count) or, for a tunnel, its dot. A snippet's
+  placeholders follow its name as small chips while they fit. Hover is a `surface` fill.
+
+**Host dots**, the same in the sidebar and the WRLD window:
+
+| Dot | Means |
+| --- | --- |
+| `accent`, filled (glowing in the window) | connected now |
+| `accent`, a little faded | answered its last check |
+| `inkFaint`, filled; the name in `inkMuted` | didn't answer its last check |
+| a `lineStrong` ring | not connected now, and not checked (only Legends are) |
+
+**The WRLD window** (⌘O) is SwiftUI on the theme's `LegendsPalette`, 1,120 × 720 pt to
+start: the list on the left, host cards in the middle and, for the host you pick, a 330 pt
+inspector on the right. Its buttons come in four kinds: primary (on the gradient), plain (on
+`surface`), ghost (text alone) and destructive (`danger` text on `surface`).
+
+**Armed and Dangerous** swaps the focused pane's neon for the armed stops on *every* armed
+pane, so the tab can't be mistaken for an ordinary one:
+- the banner across the tab, on `armedTint`, names where typing goes and how to stop;
+- each armed pane's header says "receiving input", with a toggle to leave it out;
+- armed panes aren't dimmed, since typing reaches them all;
+- the pill names the hosts ("prod-api × 3") and the status bar leads with a `warning` run.
+
+The contrast tests cover it in every theme: the armed stops at 3:1 on the ground and the
+terminal's background, `ink` and `inkMuted` at 4.5:1 on both tints, and `warning` at 4.5:1
+on `groundDeep`.

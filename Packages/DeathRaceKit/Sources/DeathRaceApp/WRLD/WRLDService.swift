@@ -162,8 +162,17 @@ final class WRLDService: HostConnecting {
         guard let pool = await startPool() else {
             return .failed(.other("Death Race couldn't start what answers ssh's questions."))
         }
+        // Reading the login shell can take a moment; if the pane closed meanwhile, don't
+        // register a pool user (and so a master) for a pane that's gone.
+        guard !Task.isCancelled else { return .failed(.cancelled) }
         switch await pool.connect(target, for: Self.user(pane), secrets: savedSecrets) {
         case .ready:
+            // The pane closed while the master came up: let the master idle out rather than
+            // hold it for nobody.
+            guard !Task.isCancelled else {
+                pool.release(Self.user(pane))
+                return .failed(.cancelled)
+            }
             connected(host, alias: target.alias)
             if case .vault(let id) = host, let key = pendingKeys[id] {
                 Task { await install(key, on: id, alias: target.alias) }
@@ -225,6 +234,10 @@ final class WRLDService: HostConnecting {
     }
 
     var openTunnelCount: Int { board?.openCount ?? 0 }
+
+    /// Any ssh master at all, connected or still connecting: quitting ends these, so a master
+    /// a tunnel started and that hasn't come up yet isn't orphaned.
+    var hasMasters: Bool { pool?.hasEntries ?? false }
 
     func paletteTunnels() -> [PaletteItem] {
         PaletteSearch.tunnels(vault: vault, open: Set(board?.all.filter(\.isOpen).map(\.id) ?? []))
@@ -307,7 +320,10 @@ final class WRLDService: HostConnecting {
     /// Takes `host` out of WRLD, closing its open tunnels first.
     func remove(_ host: HostID) async {
         if let board, let tunnels = vault.host(host)?.tunnels {
-            for tunnel in tunnels where board.row(tunnel.id)?.isOpen == true { await board.close(tunnel.id) }
+            for tunnel in tunnels {
+                guard let row = board.row(tunnel.id), row.isOpen || row.state == .opening else { continue }
+                await board.close(tunnel.id)
+            }
             Self.tunnelsChanged()
         }
         edit { $0.removeHost(host) }
@@ -315,7 +331,9 @@ final class WRLDService: HostConnecting {
 
     /// Takes a tunnel out of WRLD, closing it first if it's open.
     func removeTunnel(_ id: TunnelID) async {
-        if let board, board.row(id)?.isOpen == true {
+        // Close an opening tunnel too, not only an open one: otherwise it finishes opening
+        // after the row is gone, and nothing can turn it off or let its master idle out.
+        if let board, let row = board.row(id), row.isOpen || row.state == .opening {
             await board.close(id)
             Self.tunnelsChanged()
         }

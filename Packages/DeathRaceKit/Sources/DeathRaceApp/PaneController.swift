@@ -183,6 +183,9 @@ final class PaneController {
     func press(_ button: PaneBanner.Button) {
         switch button {
         case .cancel:
+            // Stop the pane's own connect task too, not just the pool's startup, so nothing
+            // finishes connecting for a pane you cancelled.
+            connecting?.cancel()
             if let host = launch.host { connections?.cancel(host) }
         case .reconnect, .restart:
             restart()

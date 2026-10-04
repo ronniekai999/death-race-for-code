@@ -116,7 +116,13 @@ final class PaneCardView: NSView {
     /// What the pane says along the card's bottom (connecting, why it couldn't, how its
     /// session ended) with its buttons; nil takes it away.
     func showBanner(_ banner: PaneBanner?, onButton: @escaping (PaneBanner.Button) -> Void) {
-        guard banner != self.banner?.banner else { return }
+        // Even when the banner's words are unchanged, take the new handler: after Move Tab to
+        // New Window the old one points at a controller that no longer owns this pane, so its
+        // Reconnect, Cancel and Forget would do nothing.
+        if banner == self.banner?.banner {
+            self.banner?.onButton = onButton
+            return
+        }
         self.banner?.removeFromSuperview()
         self.banner = nil
         if let banner {
@@ -489,7 +495,8 @@ final class PaneBannerView: NSView {
     }
     private var buttons: [NSButton] = []
     private let spinner: NSProgressIndicator?
-    private let onButton: (PaneBanner.Button) -> Void
+    /// Replaced, not just set once: Move Tab to New Window hands the pane a new controller.
+    var onButton: (PaneBanner.Button) -> Void
 
     init(banner: PaneBanner, chrome: Chrome, onButton: @escaping (PaneBanner.Button) -> Void) {
         self.banner = banner

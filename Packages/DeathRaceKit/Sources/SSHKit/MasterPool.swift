@@ -115,6 +115,10 @@ public final class MasterPool: Sendable {
         }
     }
 
+    /// Whether any master exists at all, connected or still connecting: quitting must clean
+    /// these up, even a master that only a tunnel started and that hasn't come up yet.
+    public var hasEntries: Bool { state.withLock { !$0.entries.isEmpty } }
+
     /// A host's master, if it has one.
     public func master(for key: String) -> MasterSupervisor? {
         state.withLock { $0.entries[key]?.master }

@@ -920,6 +920,10 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             sidebar = nil
             root.sidebar = nil
             root.leadingColumnWidth = 0
+            // Don't carry a stale search into the next time the sidebar opens, and give the
+            // keys back to the pane (the search field had them, and it's gone now).
+            sidebarQuery = ""
+            focusActivePane()
         }
         root.titleBar.sidebarButton.isOn = sidebar != nil
         root.titleBar.needsLayout = true

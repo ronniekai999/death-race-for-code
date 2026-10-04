@@ -102,7 +102,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let running = configStore.config.confirmClose ? allPanes.filter { $0.isRunning } : []
         let connected = !(wrld?.openConnections.isEmpty ?? true)
-        guard !running.isEmpty || connected else { return .terminateNow }
+        // Any master, even one still connecting, means there's something to shut down; quit
+        // through the Task below (which may skip the question) rather than leaving an orphan.
+        guard !running.isEmpty || connected || (wrld?.hasMasters ?? false) else { return .terminateNow }
         let tunnels = configStore.config.confirmClose ? (wrld?.openTunnelCount ?? 0) : 0
         Task {
             var programs: [String] = []
@@ -231,9 +233,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
             finished: { [weak self] id in
                 self?.newHostSheet = nil
                 guard let id else { return }
-                let controller =
-                    self?.windows.first { $0.window === parent } ?? self?.windows.first
+                // The sheet's parent may be the WRLD window or Settings, not a Pit Lane
+                // window; open the host in the frontmost one and bring it forward, so the new
+                // tab isn't hidden behind a background window.
+                let controller = self?.windows.first { $0.window === parent } ?? self?.frontWindow
                 controller?.open(.vault(id), beside: false)
+                controller?.window?.makeKeyAndOrderFront(nil)
             })
         newHostSheet = sheet
         sheet.show()

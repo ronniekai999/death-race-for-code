@@ -217,6 +217,9 @@ struct SnippetRow: View {
                 }
             }
         }
+        // The fill is seeded once per row; after the snippet's command is edited, rebuild it
+        // so Insert and Run use the new text and show the new fields.
+        .onChange(of: snippet.text) { _, text in fill = SnippetFill(text) }
     }
 
     private func value(_ name: String) -> Binding<String> {

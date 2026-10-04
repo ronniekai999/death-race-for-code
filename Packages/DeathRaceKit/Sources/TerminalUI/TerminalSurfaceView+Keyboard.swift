@@ -26,6 +26,9 @@ extension KeyPress {
 extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
     override public func keyDown(with event: NSEvent) {
         guard model != nil else { return }
+        // The cursor shows at once and blinks again from here.
+        restartBlink = true
+        updateCursor()
         let press = KeyPress(event)
         switch KeyRouting.route(press, optionAsMeta: optionAsMeta, composing: hasMarkedText()) {
         case .encode(let keyEvent):

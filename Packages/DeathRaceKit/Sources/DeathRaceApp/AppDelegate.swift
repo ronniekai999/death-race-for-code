@@ -1,5 +1,6 @@
 import AppKit
 import ConfigKit
+import PTYKit
 import SessionKit
 
 /// Opens windows and tabs, owns their controllers, and answers the app-wide menu items.
@@ -48,6 +49,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateSecureInput()
     }
 
+    /// Quitting with programs running in any tab asks once, for all of them.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let sessions = controllers.compactMap(\.session).filter { $0.status == .running }
+        guard configStore.config.confirmClose, !sessions.isEmpty else { return .terminateNow }
+        Task {
+            var running: [String] = []
+            for session in sessions {
+                if let process = await session.foregroundProcess(), !process.isShell {
+                    running.append(process.name.isEmpty ? "a program" : process.name)
+                }
+            }
+            guard !running.isEmpty else { return NSApp.reply(toApplicationShouldTerminate: true) }
+            let alert = NSAlert()
+            alert.messageText = "Goodbye & Good Riddance?"
+            alert.informativeText =
+                running.count == 1
+                ? "\(running[0]) is still running. Quit anyway?"
+                : "\(ListFormatter.localizedString(byJoining: running)) are still running. Quit anyway?"
+            alert.addButton(withTitle: "Quit")
+            alert.addButton(withTitle: "Cancel")
+            NSApp.reply(toApplicationShouldTerminate: alert.runModal() == .alertFirstButtonReturn)
+        }
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         secureInput.update(appIsActive: false, focusedTabReadsPassword: false)
         for controller in controllers { controller.session?.close() }
@@ -76,12 +102,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openTab(beside existing: TerminalWindowController) {
-        guard let existingWindow = existing.window else { return newWindow(nil) }
-        // A new tab starts where the current one is (with `working-directory = inherit`).
-        let controller = makeController(directory: existing.workingDirectory)
-        guard let window = controller.window else { return }
-        existingWindow.addTabbedWindow(window, ordered: .above)
-        window.makeKeyAndOrderFront(nil)
+        // A new tab starts where the current one is (with `working-directory = inherit`),
+        // which takes a question to its session.
+        Task {
+            let directory = await existing.currentDirectory()
+            guard let existingWindow = existing.window, existingWindow.isVisible else { return newWindow(nil) }
+            let controller = makeController(directory: directory)
+            guard let window = controller.window else { return }
+            existingWindow.addTabbedWindow(window, ordered: .above)
+            window.makeKeyAndOrderFront(nil)
+        }
     }
 
     private func makeController(directory: String?) -> TerminalWindowController {

@@ -41,6 +41,13 @@ public final class TerminalSurfaceView: NSView {
             updateCursor()
         }
     }
+    /// The cursor blinks unless a program says otherwise (DECSCUSR).
+    public var cursorBlink = true {
+        didSet {
+            blinkOrigin = nil
+            updateCursor()
+        }
+    }
     /// Heavier strokes, for light text on dark backgrounds.
     public var fontThicken = false {
         didSet {
@@ -87,6 +94,12 @@ public final class TerminalSurfaceView: NSView {
     let cursorLayer = CALayer()
     /// What the cursor image shows, so it is drawn again only when that changes.
     private var cursorKey: CursorKey?
+    /// Where the cursor was when its blink last started; nil while it does not blink.
+    private var blinkOrigin: TextPoint?
+    /// A key was pressed: the blink starts over, with the cursor shown.
+    var restartBlink = false
+    /// The visual bell's flash, over everything.
+    private let flashLayer = CALayer()
     /// Keyboard state kept by the input extension.
     var currentPress: KeyPress?
     var markedText = NSMutableAttributedString()
@@ -313,16 +326,11 @@ public final class TerminalSurfaceView: NSView {
     /// cursor's text color, a bar or an underline; hollow while the view is not focused.
     func updateCursor() {
         if cursorLayer.superlayer == nil, let layer { layer.addSublayer(cursorLayer) }
-        guard let mirror = model?.mirror, mirror.generation != nil else {
-            cursorLayer.isHidden = true
-            return
-        }
+        guard let mirror = model?.mirror, mirror.generation != nil else { return hideCursor() }
         if let preedit {
             // While an input method composes, a bar marks its caret in the composing text.
-            guard preedit.row >= 0, preedit.row < mirror.lines.count else {
-                cursorLayer.isHidden = true
-                return
-            }
+            guard preedit.row >= 0, preedit.row < mirror.lines.count else { return hideCursor() }
+            setBlinking(from: nil)
             let rect = CellGeometry(cell: cell, layout: grid).rect(column: preedit.caretColumn, row: preedit.row)
             cursorLayer.isHidden = false
             cursorLayer.contents = nil
@@ -336,14 +344,10 @@ public final class TerminalSurfaceView: NSView {
         let cursor = mirror.cursor
         let row = cursor.y + mirror.viewportOffset
         guard cursor.visible, row >= 0, row < mirror.lines.count, cursor.x >= 0, cursor.x < mirror.columns else {
-            cursorLayer.isHidden = true
-            return
+            return hideCursor()
         }
         let line = mirror.lines[row]
-        guard cursor.x < line.cells.count else {
-            cursorLayer.isHidden = true
-            return
-        }
+        guard cursor.x < line.cells.count else { return hideCursor() }
         var column = cursor.x
         if column > 0, line.cells[column].width == .spacerTail { column -= 1 }
         let cells = line.cells[column].width == .wide ? 2 : 1
@@ -360,7 +364,10 @@ public final class TerminalSurfaceView: NSView {
             cursorLayer.borderColor = color.cgColor
             cursorLayer.borderWidth = 1
             cursorKey = nil
+            setBlinking(from: nil)
         } else {
+            let blinks = cursor.blinks ?? cursorBlink
+            setBlinking(from: blinks ? TextPoint(line: mirror.viewportTopLine + UInt64(row), column: column) : nil)
             cursorLayer.borderWidth = 0
             cursorLayer.backgroundColor = color.cgColor
             switch style {
@@ -396,6 +403,55 @@ public final class TerminalSurfaceView: NSView {
         cursorLayer.frame = convertToLayer(frame)
     }
 
+    private func hideCursor() {
+        cursorLayer.isHidden = true
+        setBlinking(from: nil)
+    }
+
+    /// Blinks the cursor, starting from `origin`, or stops it (nil). Core Animation runs the
+    /// blink in the window server, 25 times (30 seconds) from the last key press or cursor
+    /// move, and then leaves the cursor shown, so an idle terminal never wakes the app.
+    private func setBlinking(from origin: TextPoint?) {
+        guard let origin else {
+            if blinkOrigin != nil {
+                cursorLayer.removeAnimation(forKey: "blink")
+                blinkOrigin = nil
+            }
+            return
+        }
+        guard origin != blinkOrigin || restartBlink else { return }
+        blinkOrigin = origin
+        restartBlink = false
+        let blink = CAKeyframeAnimation(keyPath: "opacity")
+        blink.values = [1.0, 0.0]
+        // Discrete keyframes take one more key time than values.
+        blink.keyTimes = [0, 0.5, 1]
+        blink.calculationMode = .discrete
+        blink.duration = 1.2
+        blink.repeatCount = 25
+        // Replaces the running blink, so it starts over shown.
+        cursorLayer.add(blink, forKey: "blink")
+    }
+
+    /// The visual bell: the terminal flashes once.
+    public func flash() {
+        guard let layer else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if flashLayer.superlayer == nil {
+            flashLayer.opacity = 0
+            layer.addSublayer(flashLayer)
+        }
+        flashLayer.frame = layer.bounds
+        flashLayer.backgroundColor = theme.palette.foreground.cgColor
+        CATransaction.commit()
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0.25
+        fade.toValue = 0.0
+        fade.duration = 0.25
+        flashLayer.add(fade, forKey: "flash")
+    }
+
     /// A bar cursor's width in points: an eighth of a cell, at least a pixel.
     private var barWidth: Double {
         max(1, (Double(cell.width) / 8).rounded()) / cell.scale
@@ -421,7 +477,7 @@ public final class TerminalSurfaceView: NSView {
     // MARK: - Focus
 
     /// Keys go here: this view is the key window's first responder and the app is active.
-    private(set) var isFocused = false
+    public private(set) var isFocused = false
 
     override public func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()

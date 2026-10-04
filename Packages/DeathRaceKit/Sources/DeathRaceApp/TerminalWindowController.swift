@@ -23,6 +23,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
     private var fontSizeOverride: Double?
     /// Where the shell said it is (OSC 7), for new tabs and the title bar's proxy icon.
     private(set) var workingDirectory: String?
+    /// The user agreed to close this tab with a program running in it.
+    private var closeConfirmed = false
     private let shellName: String
     private let onClose: (TerminalWindowController) -> Void
     private let onNewTab: (TerminalWindowController) -> Void
@@ -161,7 +163,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         for event in events {
             switch event {
             case .bell:
-                if config.bell != .silent { NSSound.beep() }
+                ring()
+            case .clipboardWrite(_, let contents):
+                writeClipboard(String(decoding: contents, as: UTF8.self))
             case .workingDirectoryChanged(let report):
                 guard
                     let path = WorkingDirectoryURL.path(
@@ -173,6 +177,48 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
                 break
             }
         }
+    }
+
+    /// Where a tab opened beside this one starts: where the shell last said it is (OSC 7),
+    /// else the directory of the program in the foreground. (The zsh that comes with macOS
+    /// reports OSC 7 only inside Terminal.)
+    func currentDirectory() async -> String? {
+        if let workingDirectory { return workingDirectory }
+        return await session?.foregroundProcess()?.workingDirectory
+    }
+
+    /// The bell: a sound, a flash or nothing, as the settings say; when the app is in the
+    /// background, its Dock icon bounces once too.
+    private func ring() {
+        switch config.bell {
+        case .system: NSSound.beep()
+        case .visual: surface.flash()
+        case .silent: return
+        }
+        if !NSApp.isActive { NSApp.requestUserAttention(.informationalRequest) }
+    }
+
+    /// A program set the clipboard (OSC 52, as tmux and Neovim do, also over ssh). Only the
+    /// focused tab of the active app may, as `clipboard-write` allows; with `ask`, a sheet
+    /// shows the text first.
+    private func writeClipboard(_ text: String) {
+        guard !text.isEmpty, surface.isFocused, config.clipboardWrite != .deny else { return }
+        guard config.clipboardWrite == .ask else { return Self.setClipboard(text) }
+        guard let window, window.attachedSheet == nil else { return }
+        let alert = NSAlert()
+        alert.messageText = "Let the program in this tab copy text to the clipboard?"
+        alert.informativeText = PasteWarning.visible(text, limit: 300)
+        alert.addButton(withTitle: "Copy")
+        alert.addButton(withTitle: "Don’t Copy")
+        Task {
+            guard await alert.beginSheetModal(for: window) == .alertFirstButtonReturn else { return }
+            Self.setClipboard(text)
+        }
+    }
+
+    private static func setClipboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     /// The shell ended: a clean exit closes the tab; anything else stays, with why.
@@ -207,6 +253,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         surface.padding = (config.windowPaddingX, config.windowPaddingY)
         surface.fontThicken = config.fontThicken
         surface.cursorStyle = config.cursorStyle
+        surface.cursorBlink = config.cursorStyleBlink
         surface.optionAsMeta = config.optionAsMeta
         surface.mouseScrollMultiplier = config.mouseScrollMultiplier
         surface.mouseScrollAlternate = config.mouseScrollAlternate
@@ -256,6 +303,32 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
     }
 
     // MARK: - NSWindowDelegate
+
+    /// Closing a tab with a program running in it, anything but the shell at its prompt,
+    /// asks first (`confirm-close`). Finding out takes a moment, so the window says no for
+    /// now and closes itself once it knows.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard config.confirmClose, !closeConfirmed, let session, session.status == .running else { return true }
+        Task { await confirmClose() }
+        return false
+    }
+
+    private func confirmClose() async {
+        guard let window, window.attachedSheet == nil else { return }
+        guard let process = await session?.foregroundProcess(), !process.isShell else { return closeNow() }
+        let alert = NSAlert()
+        alert.messageText = "Goodbye & Good Riddance?"
+        alert.informativeText =
+            "\(process.name.isEmpty ? "A program" : process.name) is still running in this tab. Close it anyway?"
+        alert.addButton(withTitle: "Close")
+        alert.addButton(withTitle: "Cancel")
+        if await alert.beginSheetModal(for: window) == .alertFirstButtonReturn { closeNow() }
+    }
+
+    private func closeNow() {
+        closeConfirmed = true
+        window?.close()
+    }
 
     func windowDidBecomeKey(_ notification: Notification) {
         surface.focusChanged()

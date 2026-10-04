@@ -164,7 +164,7 @@ public struct PasteWarning: Sendable, Equatable {
 
     /// `text` up to `limit` characters, line breaks kept and other control characters
     /// replaced by their Control Pictures symbols.
-    static func visible(_ text: String, limit: Int) -> String {
+    public static func visible(_ text: String, limit: Int) -> String {
         var out = ""
         var count = 0
         for character in text {

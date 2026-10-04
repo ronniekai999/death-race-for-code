@@ -294,6 +294,25 @@ final class WindowTests {
         #expect(abs(moved.rect.x - (divider.rect.x - 100)) <= 1)
     }
 
+    @Test func starsShowOnNightSkiesOnly() throws {
+        let host = TestHost()
+        let controller = makeWindow(host)
+        defer { controller.window?.close() }
+        controller.window?.layoutIfNeeded()
+        let area = try area(of: controller)
+        #expect(area.showsStars)
+        #expect(controller.activePane?.surface.starfield == true)
+        var config = Config()
+        config.themeID = "righteous"
+        controller.apply(config)
+        #expect(!area.showsStars)
+        #expect(controller.activePane?.surface.starfield == false)
+        config = Config()
+        config.starfield = false
+        controller.apply(config)
+        #expect(!area.showsStars)
+    }
+
     @Test func paneNumbersRunToEightThenNineIsTheLast() {
         #expect(PitLaneWindowController.paneNumber(0, of: 2) == 1)
         #expect(PitLaneWindowController.paneNumber(7, of: 12) == 8)

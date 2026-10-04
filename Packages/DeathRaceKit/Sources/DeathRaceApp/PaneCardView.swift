@@ -315,12 +315,20 @@ final class PaneAreaView: NSView {
     var onDividerDoubleClick: (() -> Void)?
     /// The divider being dragged, and how far into it the pointer took hold.
     private var dragging: (divider: SplitTree.Divider, grip: Double)?
+    private let starfield = StarfieldView()
+    /// The stars on the ground: `starfield = true`, and a theme with a night sky.
+    var showsStars: Bool {
+        get { !starfield.isHidden }
+        set { starfield.isHidden = !newValue }
+    }
 
     init(tree: SplitTree) {
         self.tree = tree
         super.init(frame: .zero)
         wantsLayer = true
         layerContentsRedrawPolicy = .never
+        // First, so every card is above it.
+        addSubview(starfield)
     }
 
     @available(*, unavailable)
@@ -358,6 +366,7 @@ final class PaneAreaView: NSView {
 
     override func layout() {
         super.layout()
+        if starfield.frame != bounds { starfield.frame = bounds }
         let rect = paneRect
         let scale = Double(window?.backingScaleFactor ?? 2)
         let frames = zoomedPane.map { [$0: rect] } ?? tree.frames(in: rect, gap: Double(Chrome.paneGap), scale: scale)

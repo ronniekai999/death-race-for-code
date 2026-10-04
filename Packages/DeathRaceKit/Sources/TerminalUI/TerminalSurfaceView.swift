@@ -65,6 +65,10 @@ public final class TerminalSurfaceView: NSView {
             redraw()
         }
     }
+    /// Faint stars in each row's empty end, behind no text.
+    public var starfield = false {
+        didSet { if starfield != oldValue { redraw() } }
+    }
     /// Lines a notch of a mouse wheel scrolls.
     public var mouseScrollMultiplier = 3.0
     /// On the alternate screen (less, man), the wheel sends arrow keys even when the program
@@ -347,7 +351,7 @@ public final class TerminalSurfaceView: NSView {
         glyphs.beginFrame()
         let frame = builder.build(
             mirror: model.mirror, theme: theme, cell: cell, selection: selectionRange, glyphs: glyphs,
-            preedit: preedit)
+            preedit: preedit, starfield: starfield)
         guard let drawable = metalLayer.nextDrawable(), let commandBuffer = context.queue.makeCommandBuffer() else {
             needsFrame = true
             return true

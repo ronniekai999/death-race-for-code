@@ -53,8 +53,10 @@ private struct Surface {
         return model.drain()
     }
 
-    func frame(selection: TextRegion? = nil) -> Frame {
-        builder.build(mirror: model.mirror, theme: theme, cell: Self.cell, selection: selection, glyphs: glyphs)
+    func frame(selection: TextRegion? = nil, starfield: Bool = false) -> Frame {
+        builder.build(
+            mirror: model.mirror, theme: theme, cell: Self.cell, selection: selection, glyphs: glyphs,
+            starfield: starfield)
     }
 }
 
@@ -200,6 +202,23 @@ private struct Surface {
         #expect(frame.glyphs[0].offsetX == 1 && frame.glyphs[0].offsetY == 3)
         #expect(frame.isComplete)
         #expect(frame.clearColor == palette.background.packed)
+    }
+
+    /// Stars go only in each row's empty end: after the last glyph, line or colored cell.
+    @Test func theStarfieldMarksOnlyEachRowsEmptyEnd() {
+        let surface = Surface(columns: 8, rows: 3)
+        surface.feed("ab  c\r\n\u{1B}[44m  \u{1B}[0m x\u{1B}[4m \u{1B}[0m\r\n中")
+        let plain = Palette.legendsNeverDie.background.packed
+        let starry = (plain & 0x00FF_FFFF) | (FrameBuilder.starryAlpha << 24)
+        #expect(!surface.frame().backgrounds.contains(starry), "off by default")
+        let frame = surface.frame(starfield: true)
+        func row(_ y: Int) -> [Bool] { (0..<8).map { frame.backgrounds[y * 8 + $0] == starry } }
+        // "ab  c": the gap inside the line keeps no stars; the end does.
+        #expect(row(0) == [false, false, false, false, false, true, true, true])
+        // A blue background and an underlined space count as ink.
+        #expect(row(1) == [false, false, false, false, false, true, true, true])
+        // A wide character covers its second column.
+        #expect(row(2) == [false, false, true, true, true, true, true, true])
     }
 
     @Test func wideAndColorGlyphs() {

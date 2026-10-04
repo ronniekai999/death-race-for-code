@@ -285,6 +285,7 @@ final class PaneController {
         surface.mouseScrollAlternate = config.mouseScrollAlternate
         surface.pasteProtection = config.pasteProtection
         surface.copyOnSelect = config.copyOnSelect
+        surface.starfield = config.starfield && config.namedTheme.hasStars
     }
 
     private func applyFonts() {

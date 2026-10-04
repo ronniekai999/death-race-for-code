@@ -153,6 +153,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             for pane in tabPanes { area.add(PaneCardView(pane: pane.id, surface: pane.surface, chrome: chrome)) }
         }
         area.setChrome(chrome)
+        area.showsStars = showsStars
         let id = tab.id
         area.onDividerDrag = { [weak self] path, position in self?.dragDivider(in: id, at: path, to: position) }
         area.onDividerDoubleClick = { [weak self] in
@@ -570,6 +571,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             chrome = Chrome(newConfig.namedTheme)
             applyChrome()
         }
+        for area in areas.values { area.showsStars = showsStars }
         refreshCards()
         refreshStatus()
     }
@@ -580,9 +582,16 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         root.titleBar.setChrome(chrome)
         root.statusBar.setChrome(chrome)
         root.layer?.backgroundColor = chrome.colors.ground.cgColor
-        for area in areas.values { area.setChrome(chrome) }
+        for area in areas.values {
+            area.setChrome(chrome)
+            area.showsStars = showsStars
+        }
         refreshTabs()
     }
+
+    /// Stars on the ground and behind the text: `starfield = true`, and a theme with a night
+    /// sky (not Righteous).
+    private var showsStars: Bool { config.starfield && chrome.theme.hasStars }
 
     // MARK: - Keeping the chrome in step
 

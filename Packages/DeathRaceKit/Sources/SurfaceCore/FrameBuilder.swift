@@ -75,7 +75,12 @@ public final class FrameBuilder {
         var reverseVideo: Bool
         var cell: CellMetrics
         var epoch: UInt64
+        var starfield: Bool
     }
+
+    /// The alpha byte that marks a background as starry: a row's empty end, where the
+    /// background shader may draw a faint star. Everything else is opaque (0xFF).
+    public static let starryAlpha: UInt32 = 0xFE
 
     private struct CachedRow {
         var version: UInt64
@@ -96,13 +101,14 @@ public final class FrameBuilder {
 
     /// The frame for `mirror` drawn with `theme` at `cell`, with `selection` highlighted and
     /// an input method's composing text (`preedit`) drawn over the cells it covers, underlined.
+    /// With `starfield`, each row's empty end is marked for the shader's stars.
     public func build(
         mirror: MirrorGrid, theme: Theme, cell: CellMetrics, selection: TextRegion?, glyphs: any GlyphSource,
-        preedit: PreeditLayout? = nil
+        preedit: PreeditLayout? = nil, starfield: Bool = false
     ) -> Frame {
         let current = Inputs(
             palette: mirror.palette, theme: theme, reverseVideo: mirror.modes.reverseVideo, cell: cell,
-            epoch: glyphs.epoch)
+            epoch: glyphs.epoch, starfield: starfield)
         if current != inputs {
             cache.removeAll(keepingCapacity: true)
             inputs = current
@@ -123,7 +129,8 @@ public final class FrameBuilder {
             var cached = cache[row.id]
             if cached == nil || cached!.version != row.version || cached!.selection != selected || !cached!.complete {
                 cached = buildRow(
-                    row, columns: columns, selected: selected, resolver: resolver, cell: cell, glyphs: glyphs)
+                    row, columns: columns, selected: selected, resolver: resolver, cell: cell, glyphs: glyphs,
+                    starfield: starfield)
                 cache[row.id] = cached
                 rebuiltRows += 1
             }
@@ -200,7 +207,7 @@ public final class FrameBuilder {
 
     private func buildRow(
         _ row: RowSnapshot, columns: Int, selected: ClosedRange<Int>?, resolver: ColorResolver, cell: CellMetrics,
-        glyphs: any GlyphSource
+        glyphs: any GlyphSource, starfield: Bool
     ) -> CachedRow {
         var plain: [ResolvedStyle?] = Array(repeating: nil, count: row.styles.count)
         var highlighted: [ResolvedStyle?] = Array(repeating: nil, count: row.styles.count)
@@ -223,10 +230,13 @@ public final class FrameBuilder {
         out.backgrounds.reserveCapacity(columns)
         var shelves = Set<UInt16>()
         var decorations = DecorationRuns(cell: cell)
+        let clear = resolver.clearColor.packed
+        /// The last column with anything on it: a glyph, a line, a background of its own.
+        var lastInk = -1
 
         for x in 0..<columns {
             guard x < row.cells.count else {
-                out.backgrounds.append(resolver.clearColor.packed)
+                out.backgrounds.append(clear)
                 continue
             }
             let cellValue = row.cells[x]
@@ -234,13 +244,18 @@ public final class FrameBuilder {
             let isSelected = selected?.contains(x) ?? false
             let resolved = style(styleID, selected: isSelected)
             out.backgrounds.append(resolved.background.packed)
+            if resolved.background.packed != clear { lastInk = x }
             guard cellValue.width != .spacerTail, cellValue.width != .spacerHead else { continue }
 
             if !resolved.invisible {
                 let span = cellValue.width == .wide ? 2 : 1
                 decorations.add(resolved, column: x, cells: span)
+                if resolved.underline != .none || resolved.strikethrough || resolved.overline {
+                    lastInk = max(lastInk, x + span - 1)
+                }
                 let scalars = row.scalars(at: x)
                 if !scalars.isEmpty && !(scalars.count == 1 && scalars[0] == 0x20) {
+                    lastInk = max(lastInk, x + span - 1)
                     let key = GlyphKey(
                         scalars: scalars, bold: resolved.bold, italic: resolved.italic, wide: cellValue.width == .wide)
                     if let placement = glyphs.placement(for: key) {
@@ -263,6 +278,14 @@ public final class FrameBuilder {
         }
         out.decorations = decorations.finish()
         out.shelves = Array(shelves)
+        // Past the last ink, the row's plain background may hold a star: never under text,
+        // so a star cannot pass for punctuation.
+        if starfield, lastInk + 1 < columns {
+            let starry = (clear & 0x00FF_FFFF) | (Self.starryAlpha << 24)
+            for x in (lastInk + 1)..<columns where out.backgrounds[x] == clear {
+                out.backgrounds[x] = starry
+            }
+        }
         return out
     }
 }

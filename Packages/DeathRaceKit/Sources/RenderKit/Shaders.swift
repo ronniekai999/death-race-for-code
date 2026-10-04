@@ -57,6 +57,24 @@ public enum Shaders {
             return float4(mix(color.rgb, dim.rgb, dim.a), color.a);
         }
 
+        // A faint star, maybe, in a row's empty end (FrameBuilder marks those cells with alpha
+        // 0xFE): from the pixel's position alone, so there is no texture, the stars stay put
+        // while text scrolls past, and a fifth of them are brighter, as on the ground.
+        static float4 starry(float2 pixel, float4 background) {
+            uint2 p = uint2(pixel);
+            uint h = (p.x * 0x8DA6B343u) ^ (p.y * 0xD8163841u);
+            h ^= h >> 16;
+            h *= 0x7FEB352Du;
+            h ^= h >> 15;
+            h *= 0x846CA68Bu;
+            h ^= h >> 16;
+            if (h % 40000u != 0u) {
+                return float4(background.rgb, 1.0);
+            }
+            float strength = (h >> 28) < 3u ? 0.55 : 0.22;
+            return float4(mix(background.rgb, float3(1.0), strength), 1.0);
+        }
+
         static float4 clipPosition(float2 pixel, float2 viewport) {
             float2 ndc = pixel / viewport * 2.0 - 1.0;
             return float4(ndc.x, -ndc.y, 0.0, 1.0);
@@ -88,7 +106,12 @@ public enum Shaders {
             if (cell.x >= u.columns || cell.y >= u.rows) {
                 return dimmed(unpackColor(u.clearColor), dim);
             }
-            return dimmed(unpackColor(colors[cell.y * u.columns + cell.x]), dim);
+            uint packed = colors[cell.y * u.columns + cell.x];
+            float4 color = unpackColor(packed);
+            if ((packed >> 24) == 0xFEu) {
+                color = starry(in.position.xy, color);
+            }
+            return dimmed(color, dim);
         }
 
         // Glyphs: one quad per instance, read texel for texel from an atlas: coverage tinted

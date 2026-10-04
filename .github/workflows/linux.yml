@@ -82,10 +82,18 @@ jobs:
                   headers["Authorization"] = "Bearer " + os.environ["GH_TOKEN"]
               return urllib.request.urlopen(urllib.request.Request(url, headers=headers)).read()
           wanted = {
-              "githubnext/monaspace": lambda n: n.endswith(".zip") and "monaspace" in n.lower()
-                  and "nerd" not in n.lower() and "variable" not in n.lower(),
+              "githubnext/monaspace": lambda n: n == "monaspace-static-v1.400.zip",
               "ryanoasis/nerd-fonts": lambda n: n == "NerdFontsSymbolsOnly.zip",
           }
+          for url in ("https://raw.githubusercontent.com/githubnext/monaspace/v1.400/LICENSE",
+                      "https://raw.githubusercontent.com/ryanoasis/nerd-fonts/v3.5.1/license-audit.md"):
+              try:
+                  data = get(url, token=False)
+                  print("== raw", url)
+                  print("  sha256", hashlib.sha256(data).hexdigest(), len(data), "bytes")
+                  print("  " + data.decode("utf-8", "replace")[:600].replace("\n", "\n  "))
+              except Exception as error:
+                  print("== raw", url, "failed:", error)
           for repo, pick in wanted.items():
               releases = json.loads(get(f"https://api.github.com/repos/{repo}/releases?per_page=4"))
               print("==", repo)

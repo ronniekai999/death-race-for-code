@@ -331,6 +331,34 @@ private func press(
     }
 }
 
+@Suite struct PasteWarningTests {
+    @Test func linesAskFirstUnlessThePasteIsMarked() {
+        var modes = TerminalModes()
+        #expect(PasteWarning(text: "ls -la", modes: modes) == nil)
+        let one = PasteWarning(text: "rm -rf build\n", modes: modes)
+        #expect(one?.title == "Paste and run this line?")
+        let three = PasteWarning(text: "cd /tmp\r\nls\nexit", modes: modes)
+        #expect(three?.title == "Paste 3 lines?")
+        #expect(three?.preview == "cd /tmp\nls\nexit")
+        // A program that asked for bracketed paste reads the lines as one paste.
+        modes.bracketedPaste = true
+        #expect(PasteWarning(text: "cd /tmp\nls\n", modes: modes) == nil)
+    }
+
+    @Test func controlCharactersAreShown() {
+        let warning = PasteWarning(text: "echo \u{1B}[31mred\u{7F}\tend", modes: TerminalModes())
+        #expect(warning?.title == "Paste text with control characters?")
+        #expect(warning?.preview == "echo \u{241B}[31mred\u{2421}\tend")
+    }
+
+    @Test func longPastesArePreviewedInPart() {
+        let text = String(repeating: "word\n", count: 1_000)
+        let warning = PasteWarning(text: text, modes: TerminalModes(), previewLimit: 10)
+        #expect(warning?.title == "Paste 1000 lines?")
+        #expect(warning?.preview == "word\nword\n…")
+    }
+}
+
 @Suite struct SecureInputTests {
     @Test func autoFollowsPasswordsAndTheMenu() {
         var secure = SecureInput(mode: .auto)

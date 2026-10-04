@@ -129,6 +129,66 @@ public enum WorkingDirectoryURL {
     }
 }
 
+/// What the view asks before a paste that could run commands nobody saw: text with line
+/// breaks or control characters, going to a program that did not ask for pastes to be
+/// marked as such (bracketed paste, mode 2004). Without the marks, a shell runs each line
+/// as it arrives.
+public struct PasteWarning: Sendable, Equatable {
+    public var title: String
+    public var message: String
+    /// The start of the text, with control characters shown as symbols (␛ for Escape).
+    public var preview: String
+
+    /// Nil when `text` can be pasted without asking.
+    public init?(text: String, modes: TerminalModes, previewLimit: Int = 2_000) {
+        guard InputEncoder.pasteNeedsConfirmation(text, modes: modes) else { return nil }
+        var lines = 1
+        var endsWithBreak = false
+        for character in text {
+            endsWithBreak = character == "\n" || character == "\r" || character == "\r\n"
+            if endsWithBreak { lines += 1 }
+        }
+        if endsWithBreak { lines -= 1 }
+        if text.contains(where: { $0 == "\n" || $0 == "\r" || $0 == "\r\n" }) {
+            title = lines > 1 ? "Paste \(lines) lines?" : "Paste and run this line?"
+            message =
+                lines > 1
+                ? "Each line runs as a command as soon as it arrives, as if you typed it and pressed Return."
+                : "It runs as a command as soon as it arrives, as if you typed it and pressed Return."
+        } else {
+            title = "Paste text with control characters?"
+            message = "They reach the program as if you typed them, and can act as keys such as Escape or Control-C."
+        }
+        preview = Self.visible(text, limit: previewLimit)
+    }
+
+    /// `text` up to `limit` characters, line breaks kept and other control characters
+    /// replaced by their Control Pictures symbols.
+    static func visible(_ text: String, limit: Int) -> String {
+        var out = ""
+        var count = 0
+        for character in text {
+            guard count < limit else {
+                out += "…"
+                break
+            }
+            count += 1
+            if character == "\r\n" || character == "\r" || character == "\n" || character == "\t" {
+                out.append(character == "\t" ? "\t" : "\n")
+                continue
+            }
+            for scalar in character.unicodeScalars {
+                switch scalar.value {
+                case 0x00..<0x20: out.unicodeScalars.append(Unicode.Scalar(0x2400 + scalar.value)!)
+                case 0x7F: out.unicodeScalars.append("\u{2421}")
+                default: out.unicodeScalars.append(scalar)
+                }
+            }
+        }
+        return out
+    }
+}
+
 /// When Secure Keyboard Entry should be on, and keeping macOS's calls balanced.
 ///
 /// It is system-wide while on: other apps stop seeing keystrokes (which is the point, and

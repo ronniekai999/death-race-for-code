@@ -22,6 +22,9 @@ enum MainMenu {
         menu.addItem(
             item("Reload Configuration", #selector(AppDelegate.reloadConfiguration(_:)), ",", [.command, .shift]))
         menu.addItem(.separator())
+        // In the app menu, where Terminal keeps it.
+        menu.addItem(item("Secure Keyboard Entry", #selector(AppDelegate.toggleSecureKeyboardEntry(_:))))
+        menu.addItem(.separator())
         let services = NSMenu(title: "Services")
         let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
         servicesItem.submenu = services

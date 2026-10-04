@@ -52,6 +52,8 @@ public final class TerminalSurfaceView: NSView {
     /// On the alternate screen (less, man), the wheel sends arrow keys even when the program
     /// did not ask for it with mode 1007.
     public var mouseScrollAlternate = true
+    /// Ask before a paste that would run commands (see `PasteWarning`).
+    public var pasteProtection = true
 
     /// The grid's size in cells changed.
     public var onGridChange: ((GridLayout) -> Void)?
@@ -61,6 +63,8 @@ public final class TerminalSurfaceView: NSView {
     public var onEvents: (([TerminalEvent]) -> Void)?
     /// The session ended.
     public var onExit: ((Session.Status) -> Void)?
+    /// `readsPassword` changed.
+    public var onPasswordInputChange: (() -> Void)?
 
     public private(set) var grid: GridLayout
     public private(set) var model: SurfaceModel?
@@ -75,6 +79,7 @@ public final class TerminalSurfaceView: NSView {
     /// that were not ready).
     private var needsFrame = true
     private var reportedExit = false
+    private var reportedReadsPassword = false
     /// A drain is scheduled for a view that is out of sight.
     private var hiddenDrainScheduled = false
     let cursorLayer = CALayer()
@@ -118,6 +123,7 @@ public final class TerminalSurfaceView: NSView {
         addTrackingArea(
             NSTrackingArea(
                 rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil))
+        registerForDraggedTypes(Self.droppedTypes)
     }
 
     @available(*, unavailable)
@@ -201,12 +207,19 @@ public final class TerminalSurfaceView: NSView {
         let update = model.drain()
         if update.titleChanged { onTitleChange?(model.mirror.title) }
         if !update.events.isEmpty { onEvents?(update.events) }
+        if model.mirror.readingPassword != reportedReadsPassword {
+            reportedReadsPassword = model.mirror.readingPassword
+            onPasswordInputChange?()
+        }
         if !reportedExit, case .exited = model.session.status {
             reportedExit = true
             onExit?(model.session.status)
         }
         return !update.isEmpty
     }
+
+    /// The program is reading a password: a line with echo off, as sudo and ssh read them.
+    public var readsPassword: Bool { reportedReadsPassword }
 
     // MARK: - Drawing
 

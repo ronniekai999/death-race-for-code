@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let configStore = ConfigStore()
     private var controllers: [TerminalWindowController] = []
     private let about = AboutWindow()
+    private lazy var secureInput = SecureInputController(mode: configStore.config.secureKeyboardEntry)
     /// Where the next new window's top-left corner goes, so windows cascade.
     private var cascadePoint: NSPoint?
 
@@ -39,13 +40,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // focused (its cursor goes hollow, programs get a focus-out report).
     func applicationDidBecomeActive(_ notification: Notification) {
         for controller in controllers { controller.surface.focusChanged() }
+        updateSecureInput()
     }
 
     func applicationDidResignActive(_ notification: Notification) {
         for controller in controllers { controller.surface.focusChanged() }
+        updateSecureInput()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        secureInput.update(appIsActive: false, focusedTabReadsPassword: false)
         for controller in controllers { controller.session?.close() }
     }
 
@@ -90,8 +94,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.controllers.removeAll { $0 === closed }
                 }
             })
+        controller.onInputStateChange = { [weak self] in self?.updateSecureInput() }
         controllers.append(controller)
         return controller
+    }
+
+    // MARK: - Secure Keyboard Entry
+
+    /// Secure Keyboard Entry follows the active app, the focused tab and the menu item; the
+    /// focused window shows a lock while it is on.
+    private func updateSecureInput() {
+        let focused = NSApp.isActive ? NSApp.keyWindow?.windowController as? TerminalWindowController : nil
+        secureInput.update(
+            appIsActive: NSApp.isActive, focusedTabReadsPassword: focused?.surface.readsPassword ?? false)
+        for controller in controllers {
+            controller.showsSecureInputLock = secureInput.isEnabled && controller === focused
+        }
+    }
+
+    @objc func toggleSecureKeyboardEntry(_ sender: Any?) {
+        secureInput.toggle()
+        updateSecureInput()
     }
 
     // MARK: - Menu actions
@@ -115,6 +138,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func reloadConfiguration(_ sender: Any?) {
         configStore.load()
         for controller in controllers { controller.apply(configStore.config) }
+        secureInput.setMode(configStore.config.secureKeyboardEntry)
+        updateSecureInput()
         configStore.reportProblems(in: NSApp.keyWindow)
+    }
+}
+
+extension AppDelegate: @preconcurrency NSMenuItemValidation {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem.action == #selector(toggleSecureKeyboardEntry(_:)) else { return true }
+        menuItem.state = secureInput.isChecked ? .on : .off
+        return secureInput.canToggle
     }
 }

@@ -26,6 +26,11 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
     private let shellName: String
     private let onClose: (TerminalWindowController) -> Void
     private let onNewTab: (TerminalWindowController) -> Void
+    /// The window gained or lost focus, or its program started or stopped reading a
+    /// password: what Secure Keyboard Entry follows.
+    var onInputStateChange: (() -> Void)?
+    /// A lock in the title bar while Secure Keyboard Entry is on for this window.
+    private let lockAccessory = TerminalWindowController.makeLockAccessory()
 
     /// A new tab running the configured command (or the login shell) in `directory`, or
     /// where the settings say when nil.
@@ -56,10 +61,12 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         window.title = shellName
         super.init(window: window)
         window.delegate = self
+        window.addTitlebarAccessoryViewController(lockAccessory)
         applySettings()
         surface.onTitleChange = { [weak self] title in self?.titleChanged(title) }
         surface.onEvents = { [weak self] events in self?.handle(events) }
         surface.onExit = { [weak self] status in self?.shellExited(status) }
+        surface.onPasswordInputChange = { [weak self] in self?.onInputStateChange?() }
         start(launch)
     }
 
@@ -94,7 +101,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
             alert.alertStyle = .critical
             alert.messageText = "The shell did not start"
             alert.informativeText = "Death Race could not run \(launch.executable): \(error)"
-            if let window { alert.beginSheetModal(for: window) }
+            if let window { alert.beginSheetModal(for: window, completionHandler: nil) }
         }
     }
 
@@ -126,6 +133,24 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
             if access(candidate, X_OK) == 0 { return candidate }
         }
         return nil
+    }
+
+    /// Shown while Secure Keyboard Entry is on and this is the focused window.
+    var showsSecureInputLock = false {
+        didSet { lockAccessory.isHidden = !showsSecureInputLock }
+    }
+
+    private static func makeLockAccessory() -> NSTitlebarAccessoryViewController {
+        let image = NSImageView()
+        image.image = NSImage(systemSymbolName: "lock.fill", accessibilityDescription: "Secure Keyboard Entry is on")
+        image.contentTintColor = .secondaryLabelColor
+        image.toolTip = "Secure Keyboard Entry is on: other apps cannot read what you type."
+        image.frame = NSRect(x: 0, y: 0, width: 30, height: 20)
+        let accessory = NSTitlebarAccessoryViewController()
+        accessory.view = image
+        accessory.layoutAttribute = .trailing
+        accessory.isHidden = true
+        return accessory
     }
 
     private func titleChanged(_ title: String) {
@@ -185,6 +210,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         surface.optionAsMeta = config.optionAsMeta
         surface.mouseScrollMultiplier = config.mouseScrollMultiplier
         surface.mouseScrollAlternate = config.mouseScrollAlternate
+        surface.pasteProtection = config.pasteProtection
         window?.backgroundColor = config.theme.palette.background.nsColor
         updateResizeIncrements()
     }
@@ -232,10 +258,12 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidBecomeKey(_ notification: Notification) {
         surface.focusChanged()
+        onInputStateChange?()
     }
 
     func windowDidResignKey(_ notification: Notification) {
         surface.focusChanged()
+        onInputStateChange?()
     }
 
     func windowDidChangeOcclusionState(_ notification: Notification) {

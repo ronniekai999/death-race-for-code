@@ -1,6 +1,7 @@
 import AppCore
 import AppKit
 import ConfigKit
+import VTCore
 import Vault
 
 /// The WRLD sidebar (⌃⌘S), as on the Main board: Search WRLD, then Legends, WRLD's groups

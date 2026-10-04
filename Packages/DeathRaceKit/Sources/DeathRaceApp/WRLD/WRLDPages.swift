@@ -43,7 +43,7 @@ struct PageRow<Content: View>: View {
 // MARK: - Keys
 
 /// This Mac's Secure Enclave keys WRLD made, and the public keys in ~/.ssh.
-struct KeysPage: View {
+struct WRLDKeysPage: View {
     let model: WRLDBoardModel
 
     var body: some View {

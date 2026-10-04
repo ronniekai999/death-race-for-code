@@ -24,6 +24,13 @@ public final class TunnelBoard: Sendable {
         public var hostName: String
         public var state: State
 
+        public init(tunnel: Tunnel, hostKey: String, hostName: String, state: State) {
+            self.tunnel = tunnel
+            self.hostKey = hostKey
+            self.hostName = hostName
+            self.state = state
+        }
+
         public var id: TunnelID { tunnel.id }
 
         public var isOpen: Bool {

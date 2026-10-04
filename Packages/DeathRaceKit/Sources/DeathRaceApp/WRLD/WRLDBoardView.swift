@@ -27,7 +27,7 @@ struct WRLDBoardView: View {
                                 .frame(width: 330)
                         }
                     }
-                case .keys: KeysPage(model: model)
+                case .keys: WRLDKeysPage(model: model)
                 case .wishingWell: WishingWellPage(model: model)
                 case .comeAndGo: ComeAndGoPage(model: model)
                 case .knownHosts: KnownHostsPage(model: model)

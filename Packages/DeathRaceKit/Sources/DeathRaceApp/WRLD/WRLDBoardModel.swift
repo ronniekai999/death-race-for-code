@@ -145,7 +145,9 @@ final class WRLDBoardModel {
     func forget(_ name: String) {
         guard let wrld else { return }
         Task {
-            do {
+            // A closure doesn't infer the thrown type, so name it: otherwise `error` is
+            // `any Error` and `.refused` isn't in scope.
+            do throws(KnownHosts.Failure) {
                 try await wrld.forgetKnownHost(name)
                 problem = nil
             } catch {

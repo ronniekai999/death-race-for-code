@@ -220,7 +220,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         let sheet = NewHostSheet(
             jumpHosts: wrld.jumpHostChoices, parent: parent,
             add: { draft in
-                do {
+                // Name the thrown type: a closure doesn't infer it, so `error` would be
+                // `any Error` and wouldn't fit `Result<_, WRLDService.AddFailure>`.
+                do throws(WRLDService.AddFailure) {
                     return .success(try await wrld.add(draft))
                 } catch {
                     return .failure(error)

@@ -1,0 +1,29 @@
+  GNU nano 7.2                       notes.txt                        Modified
+Hello from nano
+two
+three
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+^G Help      ^O Write Out ^W Where Is  ^K Cut       ^T Execute   ^C Location
+^X Exit      ^R Read File ^\ Replace   ^U Paste     ^J Justify   ^/ Go To Line
+---- cursor 3;1 ----
+---- styles ----
+1: 1-80 7
+23: 1-2 7 · 14-15 7 · 27-28 7 · 40-41 7 · 53-54 7 · 66-67 7
+24: 1-2 7 · 14-15 7 · 27-28 7 · 40-41 7 · 53-54 7 · 66-67 7

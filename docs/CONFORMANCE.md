@@ -9,7 +9,7 @@ How we know `VTCore` behaves like a terminal. Every check runs on Linux in CI.
 | vttest | the classic VT100/VT220 screens, driven through `vthost` against goldens | Phase 1 |
 | libFuzzer | no crashes or hangs on arbitrary input; deltas replay to the same screen | 1 min per PR, 30 min weekly |
 | SwiftTerm differential | same input, same screen, with a reviewed list of known divergences | Phase 1 |
-| Recorded corpus | vim, nvim, tmux, htop, btop, fzf, lazygit, CJK and emoji sessions end on golden screens | Phase 1 |
+| Recorded corpus | real programs' output replays to golden screens: text, cursor and styles, whole and in pieces | 9 sessions; btop and lazygit to come |
 
 ## esctest
 
@@ -46,6 +46,24 @@ SPA/EPA (5).
   workaround for an old `more(1)` bug, is not implemented (1 test).
 - **DECARM can be set and queried.** esctest expects xterm to fail this test, so passing it
   counts as a failure (1 test).
+
+## Recorded corpus
+
+`scripts/record-corpus.sh` runs real programs inside `vthost run --record`, at 80×24, typing
+scripted keys once the screen settles: vim (plain and with syntax colors), nvim with a
+vertical split, less searching, tmux with three panes, htop, fzf's inline mode, nano and a
+file of CJK, emoji, flags and combining marks. Each recording sits in
+`Packages/DeathRaceKit/Tests/Fixtures/corpus/` with its golden, the screen `vthost replay`
+prints: every row's text, the cursor, and each run of styled cells as SGR parameters.
+`CorpusTests` replays every recording whole, a byte at a time and in random pieces, and
+each must match its golden exactly.
+
+Recordings depend on program versions, so they are recorded once and checked in. After a
+deliberate engine change, `scripts/record-corpus.sh --goldens` rewrites the goldens from
+the same recordings; the diff shows what changed on real screens and gets reviewed like code.
+The recordings keep this machine out of them: tmux gets a plain prompt and a fixed status
+line, and htop lists only itself. btop is left out for now because it shows the host name,
+CPU model and every process; lazygit is not packaged for the Linux image.
 
 ## Fuzzing
 

@@ -97,4 +97,22 @@ import Testing
         t.feed("\u{1B}[0;31;102m\u{1B}P$qm\u{1B}\\")
         #expect(t.takeReplyString() == "\u{1B}P1$r0;31;102m\u{1B}\\")
     }
+
+    @Test func dumpListsTextCursorAndStyledRuns() {
+        let t = makeTerminal(columns: 10, rows: 3)
+        // A styled word, one bold cell, a wide character, and a line erased in blue.
+        t.feed("\u{1B}[7mhi\u{1B}[m \u{1B}[1mX\u{1B}[m 中\r\n\u{1B}[44m\u{1B}[2K\u{1B}[m\u{1B}[?25l")
+        #expect(
+            t.dump() == """
+                hi X 中
+
+
+                ---- cursor 2;1 hidden ----
+                ---- styles ----
+                1: 1-2 7 · 4 1
+                2: 1-10 44
+
+                """)
+        #expect(t.dump(styles: false).hasSuffix("---- cursor 2;1 hidden ----\n"))
+    }
 }

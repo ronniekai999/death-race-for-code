@@ -8,25 +8,6 @@ func makeTerminal(
     return Terminal(configuration)
 }
 
-extension Row {
-    /// The row as text: each character once (wide ones too), empty cells as spaces, trailing
-    /// blanks trimmed.
-    var text: String {
-        var out = ""
-        for column in 0..<columns {
-            let cell = cells[column]
-            if cell.width == .spacerTail { continue }
-            if cell.isEmpty {
-                out.unicodeScalars.append(" ")
-            } else {
-                for scalar in scalars(at: column) { out.unicodeScalars.append(Unicode.Scalar(scalar)!) }
-            }
-        }
-        while out.hasSuffix(" ") { out.removeLast() }
-        return out
-    }
-}
-
 extension Terminal {
     /// Every row of the active area as text.
     var lines: [String] { (0..<rows).map { row($0).text } }

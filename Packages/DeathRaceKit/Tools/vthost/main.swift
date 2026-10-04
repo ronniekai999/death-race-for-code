@@ -21,12 +21,17 @@ func usage() -> Never {
     print(
         """
         usage:
-          vthost run [--columns N] [--rows N] [--checksums] [--dump] -- program [args...]
+          vthost run [--columns N] [--rows N] [--checksums] [--dump] [--record FILE]
+                     [--keys TEXT]... -- program [args...]
               Runs program on a pseudo-terminal with VTCore as the terminal, answering its
               queries, until it exits. --checksums answers DECRQCRA (for esctest); --dump
-              prints the final screen. Exits with the program's status.
+              prints the final screen; --record saves the program's output. Each --keys is
+              typed once the output has been quiet for a moment (\\e \\r \\n \\t \\xHH
+              escapes); after the last one and another quiet moment, the run ends with a
+              hang-up. Exits with the program's status.
           vthost replay [--columns N] [--rows N] [--scrollback] file
-              Feeds a recorded byte stream to the engine and prints the screen.
+              Feeds a recorded byte stream to the engine and prints the screen: its text,
+              the cursor and the styled runs, the form the corpus goldens hold.
           vthost bench [--seconds S] [--only ascii|sgr|unicode|cursor] [file...]
               Measures throughput on built-in workloads, or on the given recordings.
           vthost smoke
@@ -61,6 +66,8 @@ struct Options {
     var scrollback = false
     var seconds = 1.0
     var only: String?
+    var record: String?
+    var keys: [[UInt8]] = []
     var rest: [String] = []
 
     init(_ arguments: [String]) {
@@ -79,6 +86,8 @@ struct Options {
             case "--scrollback": scrollback = true
             case "--seconds": seconds = Double(value()) ?? seconds
             case "--only": only = value()
+            case "--record": record = value()
+            case "--keys": keys.append(unescape(value()))
             case "--":
                 rest = Array(arguments[(index + 1)...])
                 return
@@ -120,6 +129,12 @@ func runCommand(_ arguments: [String]) -> Int32 {
     let exitWatch = pty.makeExitWatch()
     var buffer = [UInt8](repeating: 0, count: 64 * 1024)
     var outgoing: [UInt8] = []
+    var recording: [UInt8] = []
+    var keys = options.keys[...]
+    let settle = 300  // ms of quiet output before typing the next keys
+    var lastOutput = PseudoTerminal.monotonicMilliseconds()
+    // A scripted run ends after its last keys, once the screen has settled.
+    var scripted = !options.keys.isEmpty
     var exited = false
     var closed = false
     while !closed {
@@ -127,19 +142,32 @@ func runCommand(_ arguments: [String]) -> Int32 {
             pollfd(fd: pty.masterFD, events: Int16(POLLIN) | (outgoing.isEmpty ? 0 : Int16(POLLOUT)), revents: 0)
         ]
         if let exitWatch, !exited { fds.append(pollfd(fd: exitWatch, events: Int16(POLLIN), revents: 0)) }
-        while poll(&fds, nfds_t(fds.count), -1) < 0 && errno == EINTR {}
+        let quietFor = PseudoTerminal.monotonicMilliseconds() - lastOutput
+        let timeout: Int32 = scripted ? Int32(max(settle - quietFor, 0)) : -1
+        while poll(&fds, nfds_t(fds.count), timeout) < 0 && errno == EINTR {}
         if fds.count > 1 && fds[1].revents != 0 { exited = true }
 
         reading: while true {
             switch buffer.withUnsafeMutableBytes({ pty.read(into: $0) }) {
             case .bytes(let n):
                 buffer.withUnsafeBufferPointer { terminal.feed(UnsafeBufferPointer(rebasing: $0[0..<n])) }
+                if options.record != nil { recording += buffer[0..<n] }
                 outgoing += terminal.takeReplies()
+                lastOutput = PseudoTerminal.monotonicMilliseconds()
             case .wouldBlock:
                 break reading
             case .closed:
                 closed = true
                 break reading
+            }
+        }
+        if scripted && PseudoTerminal.monotonicMilliseconds() - lastOutput >= settle {
+            if let next = keys.popFirst() {
+                outgoing += next
+                lastOutput = PseudoTerminal.monotonicMilliseconds()
+            } else {
+                scripted = false
+                closed = true
             }
         }
         while !outgoing.isEmpty {
@@ -149,10 +177,13 @@ func runCommand(_ arguments: [String]) -> Int32 {
         if exited { closed = true }
     }
 
-    let status = pty.waitForExit(timeoutMilliseconds: 1_000) ?? pty.hangUp()
+    if let path = options.record, !writeFile(path, recording) {
+        printError("vthost: cannot write \(path)")
+    }
+    let status = pty.waitForExit(timeoutMilliseconds: options.keys.isEmpty ? 1_000 : 0) ?? pty.hangUp()
     pty.close()
     if let exitWatch { close(exitWatch) }
-    if options.dump { printScreen(terminal, scrollback: false) }
+    if options.dump { print(terminal.dump(), terminator: "") }
     switch status {
     case .exited(let code)?: return code
     case .signaled(let signal)?: return 128 + signal
@@ -182,30 +213,36 @@ func replayCommand(_ arguments: [String]) -> Int32 {
     }
     let terminal = Terminal(Terminal.Configuration(columns: options.columns, rows: options.rows))
     terminal.feed(bytes)
-    printScreen(terminal, scrollback: options.scrollback)
+    print(terminal.dump(scrollback: options.scrollback), terminator: "")
     return 0
 }
 
-func printScreen(_ terminal: Terminal, scrollback: Bool) {
-    if scrollback {
-        for index in 0..<terminal.scrollbackCount { print(text(of: terminal.scrollbackRow(index))) }
-        print("---- screen ----")
-    }
-    for y in 0..<terminal.rows { print(text(of: terminal.row(y))) }
-    print("---- cursor \(terminal.cursor.y + 1);\(terminal.cursor.x + 1) ----")
+func writeFile(_ path: String, _ bytes: [UInt8]) -> Bool {
+    guard let file = fopen(path, "wb") else { return false }
+    defer { fclose(file) }
+    return fwrite(bytes, 1, bytes.count, file) == bytes.count
 }
 
-func text(of row: Row) -> String {
-    var out = ""
-    for column in 0..<row.columns where row.cells[column].width != .spacerTail {
-        let scalars = row.scalars(at: column)
-        if scalars.isEmpty {
-            out += " "
-        } else {
-            for scalar in scalars { out.unicodeScalars.append(Unicode.Scalar(scalar) ?? "\u{FFFD}") }
+/// `\e`, `\r`, `\n`, `\t`, `\\` and `\xHH` escapes, for scripted keys.
+func unescape(_ text: String) -> [UInt8] {
+    var out: [UInt8] = []
+    var bytes = Array(text.utf8)[...]
+    while let byte = bytes.popFirst() {
+        guard byte == UInt8(ascii: "\\"), let next = bytes.popFirst() else {
+            out.append(byte)
+            continue
+        }
+        switch next {
+        case UInt8(ascii: "e"): out.append(0x1B)
+        case UInt8(ascii: "r"): out.append(0x0D)
+        case UInt8(ascii: "n"): out.append(0x0A)
+        case UInt8(ascii: "t"): out.append(0x09)
+        case UInt8(ascii: "x"):
+            out.append(UInt8(String(decoding: bytes.prefix(2), as: UTF8.self), radix: 16) ?? 0x3F)
+            bytes = bytes.dropFirst(2)
+        default: out.append(next)
         }
     }
-    while out.hasSuffix(" ") { out.removeLast() }
     return out
 }
 

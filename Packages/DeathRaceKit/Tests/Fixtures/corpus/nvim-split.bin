@@ -1,0 +1,49 @@
+[?1049h[22;0;0t[?1h=[H[2J]11;?[?2004h[?u[c[?25h[?25l[>1u(B[m[H[2J[38;5;81m#include (B[m[95m<stdio.h>(B[m[K
+[K
+[96m/* Legends never die. */(B[m[K
+[38;5;121mstatic(B[m [38;5;121mint(B[m race([38;5;121mint(B[m laps) {[K
+    [38;5;121mint(B[m total = [95m0(B[m;[K
+    [93mfor(B[m ([38;5;121mint(B[m lap = [95m1(B[m; lap <= laps; lap++) {[K
+        total += lap * [95m999(B[m;[K
+    }[K
+    [93mreturn(B[m total;[K
+}[K
+[K
+[38;5;121mint(B[m main([38;5;121mvoid(B[m) {[K
+    printf([95m"(B[m[38;5;224m%d\n(B[m[95m"(B[m, race([95m3(B[m));[K
+    [93mreturn(B[m [95m0(B[m;[K
+}[K
+[94m~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+~[K
+(B[0;1;7msample.c                                                      1,1            All]112[2 q]112[2 q[?1002h[?1006h[H[?25h[?25l[?1004h[?25h[?25l(B[m[23B[J:set[Cnumber[Ccursorline]112[2 q[?1002l[?1006l[24;1H[?25h[?25l[H(B[0;4m[93m  1 (B[0;4m[38;5;81m#include (B[0;4m[95m<stdio.h>(B[0;4m                                                          
+(B[m[93m  2 
+  3 (B[m[96m/* Legends never die. */
+(B[m[93m  4 (B[m[38;5;121mstatic(B[m [38;5;121mint(B[m race([38;5;121mint(B[m laps) {
+[93m  5 (B[m    [38;5;121mint(B[m total = [95m0(B[m;
+[93m  6 (B[m    [93mfor(B[m ([38;5;121mint(B[m lap = [95m1(B[m; lap <= laps; lap++) {
+[93m  7 (B[m        total += lap * [95m999(B[m;
+[93m  8 (B[m    }
+[93m  9 (B[m    [93mreturn(B[m total;
+[93m 10 (B[m}
+[93m 11 
+ 12 (B[m[38;5;121mint(B[m main([38;5;121mvoid(B[m) {
+[93m 13 (B[m    printf([95m"(B[m[38;5;224m%d\n(B[m[95m"(B[m, race([95m3(B[m));
+[93m 14 (B[m    [93mreturn(B[m [95m0(B[m;
+[93m 15 (B[m}]112[2 q[?1002h[?1006h[1;5H[?25h[?25l[23B[22X:vsplit[Cnotes.txt]112[2 q[?1002l[?1006l[24;1H[?25h[?25l[1;5H(B[0;4mone               [2;5H(B[mtwo[3;5Hthree[19X
+[94m~[39X
+~[39X
+~[39X
+~[39X
+~[39X
+~[39X
+~[39X
+~[39X
+~[39X
+~[39X
+~[39X
+~[39X[1;41H(B[m│[2;41H│[3;41H│[4;41H│[5;41H│[6;41H│[7;41H│[8;41H│[9;41H│[10;41H│[11;41H│[12;41H│[13;41H│[14;41H│[15;41H│[16;41H│[17;41H│[18;41H│[19;41H│[20;41H│[21;41H│[22;41H│[23;1H(B[0;1;7mnotes.txt[13C1,1            All[1;42H(B[0;4m[93m  1 (B[0;4m[38;5;81m#include (B[0;4m[95m<stdio.h>[2;42H(B[m[93m  2 [3;42H  3 (B[m[96m/* Legends never die. */[4;42H(B[m[93m  4 (B[m[38;5;121mstatic(B[m [38;5;121mint(B[m race([38;5;121mint(B[m laps) {[5;42H[93m  5 (B[m    [38;5;121mint(B[m total = [95m0(B[m;[6;42H[93m  6 (B[m    [93mfor(B[m ([38;5;121mint(B[m lap = [95m1(B[m; lap <= laps;[7;42H[93m    (B[mlap++) {[8;42H[93m  7 (B[m        total += lap * [95m999(B[m;[9;42H[93m  8 (B[m    }[10;42H[93m  9 (B[m    [93mreturn(B[m total;[11;42H[93m 10 (B[m}[12;42H[93m 11 [13;42H 12 (B[m[38;5;121mint(B[m main([38;5;121mvoid(B[m) {[14;42H[93m 13 (B[m    printf([95m"(B[m[38;5;224m%d\n(B[m[95m"(B[m, race([95m3(B[m));[15;42H[93m 14 (B[m    [93mreturn(B[m [95m0(B[m;[16;42H[93m 15 (B[m}[K[17;42H[94m~[18;42H~[19;42H~[20;42H~[21;42H~[22;42H~[23;42H(B[0;7msample.c             1,1            All]112[2 q[?1002h[?1006h[1;5H[?25h

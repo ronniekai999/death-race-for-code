@@ -98,15 +98,21 @@ extension Terminal {
         UInt8(min(value, 255))
     }
 
-    /// The pen as an SGR parameter string, for DECRQSS.
+    /// The pen as an SGR parameter string, for DECRQSS. xterm starts it with a reset.
     func describePen() -> String {
-        let pen = screen.cursor.pen
-        var parts = ["0"]
-        let a = pen.attributes
-        if a.contains(.bold) { parts.append("1") }
-        if a.contains(.faint) { parts.append("2") }
-        if a.contains(.italic) { parts.append("3") }
-        switch pen.underline {
+        (["0"] + screen.cursor.pen.sgrParameters).joined(separator: ";")
+    }
+}
+
+extension Style {
+    /// The SGR parameters that turn the default style into this one, colon forms for extended
+    /// colors and underline styles: `["1", "4:3", "38:5:208"]`. Empty for the default style.
+    public var sgrParameters: [String] {
+        var parts: [String] = []
+        if attributes.contains(.bold) { parts.append("1") }
+        if attributes.contains(.faint) { parts.append("2") }
+        if attributes.contains(.italic) { parts.append("3") }
+        switch underline {
         case .none: break
         case .single: parts.append("4")
         case .double: parts.append("4:2")
@@ -114,18 +120,18 @@ extension Terminal {
         case .dotted: parts.append("4:4")
         case .dashed: parts.append("4:5")
         }
-        if a.contains(.blink) { parts.append("5") }
-        if a.contains(.inverse) { parts.append("7") }
-        if a.contains(.invisible) { parts.append("8") }
-        if a.contains(.strikethrough) { parts.append("9") }
-        if a.contains(.overline) { parts.append("53") }
-        parts += sgr(for: pen.foreground, base: 30, extended: 38)
-        parts += sgr(for: pen.background, base: 40, extended: 48)
-        if pen.underlineColor != .default { parts += sgr(for: pen.underlineColor, base: nil, extended: 58) }
-        return parts.joined(separator: ";")
+        if attributes.contains(.blink) { parts.append("5") }
+        if attributes.contains(.inverse) { parts.append("7") }
+        if attributes.contains(.invisible) { parts.append("8") }
+        if attributes.contains(.strikethrough) { parts.append("9") }
+        if attributes.contains(.overline) { parts.append("53") }
+        parts += Self.sgr(for: foreground, base: 30, extended: 38)
+        parts += Self.sgr(for: background, base: 40, extended: 48)
+        parts += Self.sgr(for: underlineColor, base: nil, extended: 58)
+        return parts
     }
 
-    private func sgr(for color: TerminalColor, base: Int?, extended: Int) -> [String] {
+    private static func sgr(for color: TerminalColor, base: Int?, extended: Int) -> [String] {
         switch color.kind {
         case .default:
             return []

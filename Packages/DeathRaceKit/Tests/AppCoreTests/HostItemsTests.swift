@@ -60,3 +60,37 @@ struct HostItemsTests {
         #expect(launch.environment["LANG"] == "en_US.UTF-8")
     }
 }
+
+@Suite("Tunnels in Hear Me Calling and the status bar")
+struct TunnelItemsTests {
+    @Test func tunnelsAreListedWithTheirState() {
+        let open = Tunnel(
+            id: TunnelID(rawValue: "t1"),
+            spec: TunnelSpec(kind: .local, listenPort: 5432, target: .init(host: "db", port: 5432)))
+        let off = Tunnel(id: TunnelID(rawValue: "t2"), spec: TunnelSpec(kind: .dynamic, listenPort: 1080))
+        let vault = Vault(hosts: [
+            WRLDHost(
+                id: HostID(rawValue: "h1"), name: "prod-api", source: .wrld(Connection(address: "10.0.4.21")),
+                tunnels: [open, off])
+        ])
+        let items = PaletteSearch.tunnels(vault: vault, open: [open.id])
+        #expect(
+            items.map(\.title) == [
+                "5432 → db:5432 · Local · through prod-api", "SOCKS 1080 · Dynamic · through prod-api",
+            ])
+        #expect(items.map(\.detail) == ["Open · ↵ turns it off", "Off · ↵ turns it on"])
+        #expect(items.map(\.id) == ["tunnel.t1", "tunnel.t2"])
+        #expect(PaletteSearch.search("5432", in: items).map(\.item.id) == ["tunnel.t1"])
+    }
+
+    @Test func theStatusBarCountsOpenTunnels() {
+        var facts = StatusLine.Facts(columns: 80, rows: 24)
+        facts.directory = "/Users/r/code"
+        facts.home = "/Users/r"
+        #expect(StatusLine(facts).leading.map(\.text) == ["~/code"])
+        facts.openTunnels = 1
+        #expect(StatusLine(facts).leading.map(\.text) == ["~/code", "1 tunnel"])
+        facts.openTunnels = 2
+        #expect(StatusLine(facts).leading.last == .init("2 tunnels", .muted, symbol: "arrow.left.arrow.right"))
+    }
+}

@@ -10,6 +10,7 @@ public struct PaletteItem: Sendable, Equatable, Identifiable {
         case action = "Actions"
         case place = "Tabs and panes"
         case host = "Hosts"
+        case tunnel = "Tunnels"
         case theme = "Themes"
         case settings = "Settings"
     }
@@ -20,6 +21,8 @@ public struct PaletteItem: Sendable, Equatable, Identifiable {
         case pane(TabID, PaneID)
         /// ↵ opens it in a new tab, ⌘↵ beside the current pane.
         case host(HostRef)
+        /// ↵ turns it on or off.
+        case tunnel(TunnelID)
         case theme(String)
         case settings(SettingsCatalog.Page)
     }
@@ -42,6 +45,7 @@ public struct PaletteItem: Sendable, Equatable, Identifiable {
         case .pane(let tab, let pane): "pane.\(tab.rawValue).\(pane.rawValue)"
         case .host(.vault(let host)): "host.\(host.rawValue)"
         case .host(.sshConfig(let alias)): "host.alias.\(alias)"
+        case .tunnel(let tunnel): "tunnel.\(tunnel.rawValue)"
         case .theme(let theme): "theme.\(theme)"
         case .settings(let page): "settings.\(page.rawValue)"
         }
@@ -168,6 +172,20 @@ public enum PaletteSearch {
                 keywords: ["ssh", "connect"], alternate: "Open Beside")
         }
         return saved + found
+    }
+
+    /// Come & Go's tunnels, the open ones saying so, found by their ports and host.
+    public static func tunnels(vault: Vault, open: Set<TunnelID>) -> [PaletteItem] {
+        vault.hosts.flatMap { host in
+            host.tunnels.map { tunnel in
+                let spec = tunnel.spec
+                return PaletteItem(
+                    .tunnel(tunnel.id), kind: .tunnel, title: spec.summary(host: host.name),
+                    detail: open.contains(tunnel.id) ? "Open · ↵ turns it off" : "Off · ↵ turns it on",
+                    keywords: [host.name, String(spec.listenPort), "tunnel", "forward", "come & go"]
+                        + (spec.target.map { [$0.host, String($0.port)] } ?? []))
+            }
+        }
     }
 
     /// The themes; the one in use says so.

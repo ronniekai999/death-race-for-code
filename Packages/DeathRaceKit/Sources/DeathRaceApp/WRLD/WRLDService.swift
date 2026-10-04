@@ -32,6 +32,7 @@ final class WRLDService: HostConnecting {
 
     private var broker: AskpassBroker?
     private var pool: MasterPool?
+    private var board: TunnelBoard?
     /// New Secure Enclave keys waiting to go onto their hosts, over the first connection.
     private var pendingKeys: [HostID: KeyID] = [:]
     private var login: [String: String]?
@@ -143,6 +144,14 @@ final class WRLDService: HostConnecting {
             if case .vault(let id) = host, let key = pendingKeys[id] {
                 Task { await install(key, on: id, alias: target.alias) }
             }
+            if case .vault(let id) = host, let tunnels = vault.host(id)?.tunnels,
+                tunnels.contains(where: \.opensWithConnection), let board
+            {
+                Task {
+                    await board.openWithConnection(tunnels, on: target)
+                    Self.tunnelsChanged()
+                }
+            }
             let arguments = SSHCommand.session(alias: target.alias, config: paths.generatedConfig)
             return .ready(
                 ShellLaunchPlan.ssh(
@@ -183,6 +192,45 @@ final class WRLDService: HostConnecting {
     }
 
     private static func user(_ pane: PaneID) -> String { "pane:\(pane.rawValue)" }
+
+    // MARK: - Come & Go
+
+    /// Status bars count again, on the main thread.
+    nonisolated static func tunnelsChanged() {
+        DispatchQueue.main.async { NotificationCenter.default.post(name: .tunnelsChanged, object: nil) }
+    }
+
+    var openTunnelCount: Int { board?.openCount ?? 0 }
+
+    func paletteTunnels() -> [PaletteItem] {
+        PaletteSearch.tunnels(vault: vault, open: Set(board?.all.filter(\.isOpen).map(\.id) ?? []))
+    }
+
+    /// Come & Go's rows: every tunnel WRLD holds, with what the board knows of it.
+    var tunnelRows: [TunnelBoard.Row] {
+        vault.hosts.flatMap { host in
+            host.tunnels.map { tunnel in
+                board?.row(tunnel.id)
+                    ?? TunnelBoard.Row(
+                        tunnel: tunnel, hostKey: GeneratedConfig.controlKey(for: host), hostName: host.name,
+                        state: .closed)
+            }
+        }
+    }
+
+    func toggleTunnel(_ id: TunnelID) async {
+        guard let host = vault.hosts.first(where: { $0.tunnels.contains { $0.id == id } }),
+            let tunnel = host.tunnels.first(where: { $0.id == id })
+        else { return }
+        if let board, board.row(id)?.isOpen == true {
+            await board.close(id)
+        } else {
+            guard let target = target(for: .vault(host.id)), await startPool() != nil, let board else { return }
+            Self.tunnelsChanged()
+            await board.open(tunnel, on: target, secrets: savedSecrets)
+        }
+        Self.tunnelsChanged()
+    }
 
     // MARK: - Adding hosts and keys
 
@@ -303,12 +351,21 @@ final class WRLDService: HostConnecting {
                 return nil
             }
             self.broker = broker
+            let boardBox = Locked<TunnelBoard?>(nil)
+            let merged = LoginEnvironment.merging(login, into: environment)
             let pool = MasterPool(
                 broker: broker,
-                settings: MasterPool.Settings(
-                    config: paths.generatedConfig, helper: helper,
-                    environment: LoginEnvironment.merging(login, into: environment)))
+                settings: MasterPool.Settings(config: paths.generatedConfig, helper: helper, environment: merged),
+                onEnd: { key, _ in
+                    // A master that ends takes its tunnels with it.
+                    boardBox.withLock { $0 }?.hostEnded(key)
+                    Self.tunnelsChanged()
+                })
+            let board = TunnelBoard(
+                pool: pool, controller: TunnelController(runner: SystemProcessRunner(), environment: merged))
+            boardBox.withLock { $0 = board }
             self.pool = pool
+            self.board = board
             return pool
         }
         starting = task

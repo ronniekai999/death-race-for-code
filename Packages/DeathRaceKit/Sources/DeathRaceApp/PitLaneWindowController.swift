@@ -132,6 +132,19 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         strip.onNewTab = { [weak self] in self?.newTab(nil) }
         root.statusBar.onProblemsClick = { [weak self] in self?.onSettingsProblemsClick?() }
         applyChrome()
+        tunnelsObserver = NotificationCenter.default.addObserver(
+            forName: .tunnelsChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshStatus() }
+        }
+    }
+
+    /// Recounts the status bar's tunnels when one opens or closes. Set once, on the main
+    /// thread; read only by deinit, and removing an observer is safe from any thread.
+    nonisolated(unsafe) private var tunnelsObserver: (any NSObjectProtocol)?
+
+    deinit {
+        if let tunnelsObserver { NotificationCenter.default.removeObserver(tunnelsObserver) }
     }
 
     @available(*, unavailable)
@@ -465,6 +478,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         // work on it.
         let items =
             paletteActions() + host.places(from: self) + (host.connections?.paletteHosts() ?? [])
+            + (host.connections?.paletteTunnels() ?? [])
             + PaletteSearch.themes(current: config.themeID) + PaletteSearch.settingsPages
         let model = HearMeCallingModel(
             state: PaletteState(items: items, recent: host.recentPicks), palette: LegendsPalette(chrome))
@@ -520,6 +534,10 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         case .host(let ref):
             closeHearMeCalling()
             open(ref, beside: false)
+        case .tunnel(let id):
+            closeHearMeCalling()
+            let connections = host?.connections
+            Task { await connections?.toggleTunnel(id) }
         }
     }
 
@@ -867,6 +885,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         facts.program = pane.programName
         facts.secureInput = showsSecureInput
         facts.settingsProblems = settingsProblems
+        facts.openTunnels = host?.connections?.openTunnelCount ?? 0
         // Where the link ⌘ is held over goes, in whichever pane it is.
         facts.hoveredLink = panes.values.lazy.compactMap { $0.surface.hoveredLink }.first.map {
             LinkPolicy.shown($0.uri)

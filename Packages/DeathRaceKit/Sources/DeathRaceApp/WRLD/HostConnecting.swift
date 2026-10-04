@@ -1,4 +1,5 @@
 import AppCore
+import Foundation
 import PTYKit
 import SSHKit
 import Vault
@@ -29,4 +30,15 @@ protocol HostConnecting: AnyObject, Sendable {
     func paletteHosts() -> [PaletteItem]
     /// The hosts with a connection open, by name, for the quit question.
     var openConnections: [String] { get }
+    /// Come & Go's tunnels that are open.
+    var openTunnelCount: Int { get }
+    /// Hear Me Calling's tunnels.
+    func paletteTunnels() -> [PaletteItem]
+    /// Turns a tunnel on, or off when it's open.
+    func toggleTunnel(_ id: TunnelID) async
+}
+
+extension Notification.Name {
+    /// A tunnel opened or closed: status bars count them again.
+    static let tunnelsChanged = Notification.Name("local.deathraceforcode.tunnelsChanged")
 }

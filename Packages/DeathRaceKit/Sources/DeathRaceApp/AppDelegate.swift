@@ -99,18 +99,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         let running = configStore.config.confirmClose ? allPanes.filter { $0.isRunning } : []
         let connected = !(wrld?.openConnections.isEmpty ?? true)
         guard !running.isEmpty || connected else { return .terminateNow }
+        let tunnels = configStore.config.confirmClose ? (wrld?.openTunnelCount ?? 0) : 0
         Task {
             var programs: [String] = []
             for pane in running {
                 if let program = await pane.runningProgram() { programs.append(program) }
             }
-            if !programs.isEmpty {
+            if !programs.isEmpty || tunnels > 0 {
                 let alert = NSAlert()
                 alert.messageText = "Goodbye & Good Riddance?"
-                alert.informativeText =
-                    programs.count == 1
-                    ? "\(programs[0]) is still running. Quit anyway?"
-                    : "\(ListFormatter.localizedString(byJoining: programs)) are still running. Quit anyway?"
+                alert.informativeText = Self.quitQuestion(programs: programs, tunnels: tunnels)
                 alert.addButton(withTitle: "Quit")
                 alert.addButton(withTitle: "Cancel")
                 guard alert.runModal() == .alertFirstButtonReturn else {
@@ -121,6 +119,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
+    }
+
+    /// "vim is still running, and 2 tunnels are open. Quit anyway?"
+    static func quitQuestion(programs: [String], tunnels: Int) -> String {
+        var parts: [String] = []
+        if programs.count == 1 { parts.append("\(programs[0]) is still running") }
+        if programs.count > 1 {
+            parts.append("\(ListFormatter.localizedString(byJoining: programs)) are still running")
+        }
+        if tunnels == 1 { parts.append("1 tunnel is open") }
+        if tunnels > 1 { parts.append("\(tunnels) tunnels are open") }
+        return parts.joined(separator: ", and ") + ". Quit anyway?"
     }
 
     func applicationWillTerminate(_ notification: Notification) {

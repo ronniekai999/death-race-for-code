@@ -146,11 +146,20 @@ private final class Rig: Sendable {
                 environment: ["PATH": "/usr/bin:/bin"]))
     }
 
+    /// Each host's WRLD name.
+    static func name(_ host: HostID) -> String {
+        switch host {
+        case targetID: "target"
+        case closedID: "closed"
+        default: "jump"
+        }
+    }
+
     /// How the app's pool sees a host.
     func target(_ host: HostID) throws -> ConnectionTarget {
         ConnectionTarget(
             key: host.rawValue, alias: try #require(config.aliases[host]),
-            controlPath: try #require(config.controlPaths[host]), name: host == Self.targetID ? "target" : "jump")
+            controlPath: try #require(config.controlPaths[host]), name: Self.name(host))
     }
 
     /// WRLD's passwords, by alias, as the app hands them to the pool.
@@ -159,8 +168,7 @@ private final class Rig: Sendable {
             uniqueKeysWithValues: config.aliases.map { id, alias in
                 (
                     alias,
-                    SavedSecret(
-                        ref: SecretRef(.hostPassword, id.rawValue), name: id == Self.targetID ? "target" : "jump")
+                    SavedSecret(ref: SecretRef(.hostPassword, id.rawValue), name: Self.name(id))
                 )
             })
     }
@@ -568,6 +576,112 @@ struct MasterPoolTests {
         #expect(await pool.connect(closed, for: "pane-1") == .failed(.refused))
         #expect(pool.master(for: Rig.closedID.rawValue) == nil)
         #expect(await pool.connect(closed, for: "pane-1") == .failed(.refused))
+        await rig.finish()
+    }
+}
+
+@Suite("Come & Go, against a real sshd", .serialized, .enabled(if: TestSSHD.isAvailable))
+struct TunnelBoardTests {
+    private func tunnel(_ kind: TunnelSpec.Kind, listen: Int, to port: Int? = nil, opensWithConnection: Bool = false)
+        -> Tunnel
+    {
+        Tunnel(
+            spec: TunnelSpec(kind: kind, listenPort: listen, target: port.map { .init(host: "127.0.0.1", port: $0) }),
+            opensWithConnection: opensWithConnection)
+    }
+
+    @Test func aTunnelOpensItsHostsMasterAndClosingLetsItGo() async throws {
+        let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword])
+        let pool = try rig.pool(idleClose: .milliseconds(200))
+        let board = TunnelBoard(pool: pool, controller: rig.tunnels, now: { Date(timeIntervalSince1970: 0) })
+        let echo = try EchoServer()
+        defer { echo.stop() }
+        let local = tunnel(.local, listen: try freePort(), to: echo.port)
+
+        // No pane: the tunnel starts the master itself.
+        let state = await board.open(local, on: try rig.target(Rig.jumpID), secrets: rig.saved)
+        #expect(state == .open(since: Date(timeIntervalSince1970: 0)))
+        #expect(pool.connected == [Rig.jumpID.rawValue])
+        #expect(board.openCount == 1)
+        #expect(roundTrip(port: local.spec.listenPort, "come") == "come")
+        #expect(
+            board.row(local.id)?.text(time: { _ in "10:42" })
+                == "\(local.spec.listenPort) → 127.0.0.1:\(echo.port) · Local · on jump · open since 10:42")
+
+        await board.close(local.id)
+        #expect(board.openCount == 0)
+        #expect(board.row(local.id)?.state == .closed)
+        #expect(await eventually { !connects(port: local.spec.listenPort) })
+        // The last user gone, the master follows after its idle time.
+        #expect(await eventually { pool.connected.isEmpty })
+        await rig.finish()
+    }
+
+    @Test func closingATunnelLeavesThePanesMasterUp() async throws {
+        let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword])
+        let pool = try rig.pool(idleClose: .milliseconds(200))
+        let board = TunnelBoard(pool: pool, controller: rig.tunnels)
+        let jump = try rig.target(Rig.jumpID)
+        #expect(await pool.connect(jump, for: "pane-1", secrets: rig.saved) == .ready)
+        let dynamic = tunnel(.dynamic, listen: try freePort())
+        await board.open(dynamic, on: jump)
+        #expect(board.row(dynamic.id)?.isOpen == true)
+        await board.close(dynamic.id)
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(pool.connected == [Rig.jumpID.rawValue])
+        #expect(rig.presence.reasons.count == 1)
+        await pool.endAll()
+        await rig.finish()
+    }
+
+    @Test func aTunnelThatCantOpenSaysWhyAndHoldsNoMaster() async throws {
+        let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword])
+        let pool = try rig.pool(idleClose: .milliseconds(200))
+        let board = TunnelBoard(pool: pool, controller: rig.tunnels)
+        let echo = try EchoServer()
+        defer { echo.stop() }
+        let taken = tunnel(.local, listen: echo.port, to: 22)
+        #expect(
+            await board.open(taken, on: try rig.target(Rig.jumpID), secrets: rig.saved)
+                == .failed("Port \(echo.port) is in use on this Mac."))
+        #expect(board.openCount == 0)
+        #expect(await eventually { pool.connected.isEmpty })
+
+        let unreachable = tunnel(.dynamic, listen: try freePort())
+        #expect(
+            await board.open(unreachable, on: try rig.target(Rig.closedID)) == .failed("closed refused the connection.")
+        )
+        await rig.finish()
+    }
+
+    @Test func tunnelsThatOpenWithTheConnectionDoAndCloseWithIt() async throws {
+        let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword])
+        let endings = EndingLog()
+        let board = Locked<TunnelBoard?>(nil)
+        let pool = MasterPool(
+            broker: rig.broker,
+            settings: MasterPool.Settings(
+                config: rig.paths.generatedConfig, helper: rig.helper, environment: ["PATH": "/usr/bin:/bin"]),
+            onEnd: { key, ending in
+                endings.add(key, ending)
+                board.withLock { $0 }?.hostEnded(key)
+            })
+        let tunnels = TunnelBoard(pool: pool, controller: rig.tunnels)
+        board.withLock { $0 = tunnels }
+        let jump = try rig.target(Rig.jumpID)
+        let always = tunnel(.dynamic, listen: try freePort(), opensWithConnection: true)
+        let sometimes = tunnel(.dynamic, listen: try freePort())
+
+        #expect(await pool.connect(jump, for: "pane-1", secrets: rig.saved) == .ready)
+        await tunnels.openWithConnection([always, sometimes], on: jump)
+        #expect(tunnels.row(always.id)?.isOpen == true)
+        #expect(tunnels.row(sometimes.id) == nil)
+
+        // The master goes (the network dropped): its tunnels say so.
+        let pid = try #require(pool.master(for: jump.key)?.pid)
+        kill(pid, SIGKILL)
+        #expect(await eventually { tunnels.openCount == 0 })
+        #expect(tunnels.row(always.id)?.state == .failed("closed when the connection to jump ended"))
         await rig.finish()
     }
 }

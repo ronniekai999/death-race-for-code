@@ -94,6 +94,8 @@ public struct StatusLine: Equatable, Sendable {
         public var hoveredLink: String?
         /// Settings lines that could not be used at the last automatic reload.
         public var settingsProblems = 0
+        /// Come & Go's tunnels that are open, in every window.
+        public var openTunnels = 0
 
         public init(columns: Int, rows: Int) {
             self.columns = columns
@@ -110,6 +112,11 @@ public struct StatusLine: Equatable, Sendable {
                 leading.append(Run(abbreviatingHome(directory, home: facts.home), .muted))
             }
             if let branch = facts.branch { leading.append(Run(branch, .accent)) }
+            if facts.openTunnels > 0 {
+                let count = facts.openTunnels
+                leading.append(
+                    Run(count == 1 ? "1 tunnel" : "\(count) tunnels", .muted, symbol: "arrow.left.arrow.right"))
+            }
             if facts.secureInput { leading.append(Run("Secure input", .muted, symbol: "lock.fill")) }
             if facts.settingsProblems > 0 {
                 let count = facts.settingsProblems

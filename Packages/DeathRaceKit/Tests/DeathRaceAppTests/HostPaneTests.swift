@@ -61,6 +61,22 @@ final class FakeConnections: HostConnecting {
     func paletteHosts() -> [PaletteItem] { PaletteSearch.hosts(vault: Vault(), aliases: ["nas-999"]) }
 
     var openConnections: [String] { [] }
+
+    private(set) var toggled: [TunnelID] = []
+    var openTunnelCount: Int { toggled.count % 2 }
+
+    func paletteTunnels() -> [PaletteItem] {
+        let tunnel = Tunnel(id: TunnelID(rawValue: "t1"), spec: TunnelSpec(kind: .dynamic, listenPort: 1080))
+        let host = WRLDHost(
+            id: HostID(rawValue: "h1"), name: "bastion", source: .wrld(Connection(address: "10.0.0.1")),
+            tunnels: [tunnel])
+        return PaletteSearch.tunnels(vault: Vault(hosts: [host]), open: openTunnelCount == 1 ? [tunnel.id] : [])
+    }
+
+    func toggleTunnel(_ id: TunnelID) async {
+        toggled.append(id)
+        NotificationCenter.default.post(name: .tunnelsChanged, object: nil)
+    }
 }
 
 extension WindowTests {
@@ -149,6 +165,27 @@ extension WindowTests {
         await eventually { pane.session != nil }
         pane.shutDown()
         #expect(connections.released == [pane.id])
+    }
+
+    @Test func aTunnelIsToggledFromHearMeCallingAndCountedInTheStatusBar() async throws {
+        let (_, connections, controller) = hostWindow()
+        defer { controller.window?.close() }
+
+        controller.showHearMeCalling(nil)
+        let overlay = try #require(controller.hearMeCalling)
+        type("1080", into: overlay)
+        #expect(overlay.model.state.selected?.target == .tunnel(TunnelID(rawValue: "t1")))
+        press(#selector(NSResponder.insertNewline(_:)), in: overlay)
+        await eventually { connections.toggled == [TunnelID(rawValue: "t1")] }
+        await eventually { controller.root.statusBar.line.leading.contains { $0.text == "1 tunnel" } }
+    }
+
+    @Test func quittingNamesWhatItEnds() {
+        #expect(AppDelegate.quitQuestion(programs: ["vim"], tunnels: 0) == "vim is still running. Quit anyway?")
+        #expect(AppDelegate.quitQuestion(programs: [], tunnels: 1) == "1 tunnel is open. Quit anyway?")
+        #expect(
+            AppDelegate.quitQuestion(programs: ["vim", "prod-api’s session"], tunnels: 2)
+                == "vim and prod-api’s session are still running, and 2 tunnels are open. Quit anyway?")
     }
 
     @Test func hostsAreInHearMeCallingAndCommandReturnOpensOneBeside() async throws {

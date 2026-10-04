@@ -269,7 +269,8 @@ extension Terminal {
             row.cells[x].width = .wide
             s.splitWideCharacter(in: row, at: x + 2)
             if row.cells[x + 1].hasGrapheme { row.graphemes[x + 1] = nil }
-            row.cells[x + 1] = Cell(scalar: 0, width: .spacerTail, styleID: row.cells[x].styleID)
+            row.cells[x + 1] = Cell(
+                scalar: 0, width: .spacerTail, styleID: row.cells[x].styleID, protected: row.cells[x].isProtected)
             if x + 2 >= s.columns {
                 s.cursor.x = s.columns - 1
                 s.cursor.pendingWrap = modes.autowrap

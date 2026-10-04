@@ -132,9 +132,10 @@ public final class Row {
         if columns < cells.count {
             cells.removeLast(cells.count - columns)
             graphemes = graphemes.filter { $0.key < columns }
-            // A wide character cut in half loses its right half.
+            // A wide character cut in half goes, extra scalars and all.
             if columns > 0 && cells[columns - 1].width == .wide {
                 cells[columns - 1] = .blank(styleID: cells[columns - 1].styleID)
+                graphemes[columns - 1] = nil
             }
         } else if columns > cells.count {
             cells.append(contentsOf: repeatElement(.empty, count: columns - cells.count))

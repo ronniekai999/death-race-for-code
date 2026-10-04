@@ -169,6 +169,27 @@ import Testing
         #expect(t.row(0).scalars(at: 2) == [0x78])
     }
 
+    @Test func variationSelector16KeepsAProtectedCharacterProtected() {
+        let t = makeTerminal()
+        // DECSCA protects what follows; a selective erase (DECSED) must spare both halves.
+        t.feed("\u{1B}[1\"q❤\u{FE0F}\u{1B}[0\"q\u{1B}[?2J")
+        #expect(t.row(0).cells[0].isProtected)
+        #expect(t.row(0).cells[1].width == .spacerTail)
+        #expect(t.row(0).cells[1].isProtected)
+        #expect(t.row(0).scalars(at: 0) == [0x2764, 0xFE0F])
+    }
+
+    @Test func cuttingAWideCharacterDropsItsExtraScalars() {
+        let t = makeTerminal(columns: 4)
+        // On the alternate screen a narrower width crops rows instead of reflowing them.
+        t.feed("\u{1B}[?1049hab👩‍👩‍👧")
+        #expect(t.row(0).cells[2].hasGrapheme)
+        t.resize(columns: 3, rows: 5)
+        #expect(t.row(0).cells[2].isEmpty)
+        #expect(!t.row(0).cells[2].hasGrapheme)
+        #expect(t.row(0).graphemes.isEmpty)
+    }
+
     @Test func legacyWidthModeKeepsCodePointWidths() {
         let t = makeTerminal()
         t.feed("\u{1B}[?2027l❤\u{FE0F}")

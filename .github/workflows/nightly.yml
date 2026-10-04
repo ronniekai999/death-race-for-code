@@ -1,0 +1,51 @@
+name: nightly
+
+# The long checks that would slow every pull request down: half an hour of fuzzing, with the
+# corpus carried from run to run. Weekly rather than nightly while the repository is private:
+# a nightly half hour would spend about 1,000 of the Free plan's 2,000 monthly minutes.
+# Run it any time from the Actions tab.
+
+on:
+  schedule:
+    - cron: "17 7 * * 0"  # Sundays, 07:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: fuzz for 30 minutes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    container:
+      image: swift:6.3.3-noble@sha256:cd45c27b3abc42310c33cfaf3008b18156cbdc9187834c9617e8f43a26d2675c
+    steps:
+      - uses: actions/checkout@v5
+      - name: Tools the image may lack
+        run: |
+          missing=""
+          for tool in make python3; do command -v $tool >/dev/null || missing="$missing $tool"; done
+          if [ -n "$missing" ]; then apt-get update -qq && apt-get install -y -qq $missing; fi
+      - name: Restore the corpus
+        uses: actions/cache/restore@v4
+        with:
+          path: Tools/VTFuzz/.build/corpus
+          key: fuzz-corpus-${{ github.run_id }}
+          restore-keys: fuzz-corpus-
+      - name: Fuzz
+        run: |
+          make fuzz FUZZ_SECONDS=1800
+      - name: Save the corpus
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: Tools/VTFuzz/.build/corpus
+          key: fuzz-corpus-${{ github.run_id }}
+      - name: Keep what the fuzzer found
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ github.run_id }}
+          path: Tools/VTFuzz/.build/artifacts/
+          retention-days: 30

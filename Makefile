@@ -2,6 +2,7 @@
 #
 #   make test        run the package tests (portable targets on Linux; everything on macOS)
 #   make esctest     run xterm's conformance suite against the engine (needs python3)
+#   make fuzz        fuzz the engine with libFuzzer for FUZZ_SECONDS (swift.org toolchain)
 #   make bench       measure engine throughput (release build)
 #   make lint        swift-format lint
 #   make run         build, bundle, sign and open the app (macOS)
@@ -12,7 +13,10 @@
 PKG := Packages/DeathRaceKit
 APP := build/Death Race for Code.app
 
-.PHONY: test esctest bench lint format run smoke bundle clean install-swift-linux
+.PHONY: test esctest fuzz bench lint format run smoke bundle clean install-swift-linux
+
+FUZZ := Tools/VTFuzz
+FUZZ_SECONDS ?= 60
 
 test:
 	swift test --package-path $(PKG)
@@ -20,14 +24,25 @@ test:
 esctest:
 	scripts/esctest.sh
 
+# Xcode's toolchain has no libFuzzer runtime; use the swift.org one (Linux, or macOS with it
+# installed). New inputs collect in $(FUZZ)/.build/corpus; a crash leaves crash-* there too.
+fuzz:
+	swift build --package-path $(FUZZ) -c release -Xswiftc -sanitize=fuzzer,address
+	python3 $(FUZZ)/make-seeds.py $(FUZZ)/.build/corpus
+	mkdir -p $(FUZZ)/.build/artifacts
+	$(FUZZ)/.build/release/VTFuzz -max_total_time=$(FUZZ_SECONDS) -timeout=10 -rss_limit_mb=4096 \
+		-print_final_stats=1 -artifact_prefix=$(FUZZ)/.build/artifacts/ $(FUZZ)/.build/corpus
+
 bench:
 	swift run --package-path $(PKG) -c release vthost bench
 
+SWIFT_SOURCES := $(PKG)/Sources $(PKG)/Tests $(PKG)/Tools $(PKG)/Package.swift $(FUZZ)/Sources $(FUZZ)/Package.swift
+
 lint:
-	swift format lint --recursive --strict $(PKG)/Sources $(PKG)/Tests $(PKG)/Tools $(PKG)/Package.swift
+	swift format lint --recursive --strict $(SWIFT_SOURCES)
 
 format:
-	swift format --in-place --recursive $(PKG)/Sources $(PKG)/Tests $(PKG)/Tools $(PKG)/Package.swift
+	swift format --in-place --recursive $(SWIFT_SOURCES)
 
 bundle:
 	scripts/bundle.sh
@@ -40,7 +55,7 @@ smoke:
 	"$(APP)/Contents/MacOS/DeathRace" --smoke-test
 
 clean:
-	rm -rf build $(PKG)/.build
+	rm -rf build $(PKG)/.build $(FUZZ)/.build
 
 install-swift-linux:
 	scripts/install-swift-linux.sh

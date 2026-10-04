@@ -7,7 +7,7 @@ How we know `VTCore` behaves like a terminal. Every check runs on Linux in CI.
 | Unit tests | each sequence and edge case we implement | parser, terminal, reflow, input, deltas, sessions |
 | esctest | xterm-compatible behavior, through `vthost` answering its queries | 356 pass; ratchet in CI |
 | vttest | the classic VT100/VT220 screens, driven through `vthost` against goldens | Phase 1 |
-| libFuzzer | no crashes or hangs on arbitrary input; deltas replay to the same screen | Phase 1 |
+| libFuzzer | no crashes or hangs on arbitrary input; deltas replay to the same screen | 1 min per PR, 30 min weekly |
 | SwiftTerm differential | same input, same screen, with a reviewed list of known divergences | Phase 1 |
 | Recorded corpus | vim, nvim, tmux, htop, btop, fzf, lazygit, CJK and emoji sessions end on golden screens | Phase 1 |
 
@@ -46,6 +46,17 @@ SPA/EPA (5).
   workaround for an old `more(1)` bug, is not implemented (1 test).
 - **DECARM can be set and queried.** esctest expects xterm to fail this test, so passing it
   counts as a failure (1 test).
+
+## Fuzzing
+
+`make fuzz` builds `Tools/VTFuzz` (a separate package, since libFuzzer supplies `main`) with
+AddressSanitizer and runs it from a seed corpus of representative output. Each input picks a
+terminal size, then interleaves output, resizes and scrolling. After every step the delta goes
+through `DeltaCodec` into a `MirrorGrid`, which must equal a fresh snapshot. Inputs starting
+with a zero byte go straight to the delta decoder, which must fail cleanly. Linux CI fuzzes
+for a minute on every pull request; `nightly.yml` fuzzes for half an hour weekly and carries
+the corpus forward. Xcode's toolchain has no libFuzzer runtime, so fuzzing runs on Linux (or
+with the swift.org toolchain on a Mac).
 
 ## Rules
 

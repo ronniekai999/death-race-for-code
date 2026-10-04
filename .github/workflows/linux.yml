@@ -26,23 +26,36 @@ jobs:
       image: swift:6.3.3-noble@sha256:cd45c27b3abc42310c33cfaf3008b18156cbdc9187834c9617e8f43a26d2675c
     steps:
       - uses: actions/checkout@v5
+      - name: Tools the image may lack
+        run: |
+          missing=""
+          for tool in make python3; do command -v $tool >/dev/null || missing="$missing $tool"; done
+          if [ -n "$missing" ]; then apt-get update -qq && apt-get install -y -qq $missing; fi
       - name: Build
         run: swift build --package-path Packages/DeathRaceKit --build-tests
       - name: Test
         run: swift test --package-path Packages/DeathRaceKit --skip-build
       - name: Lint
-        run: >-
-          swift format lint --recursive --strict
-          Packages/DeathRaceKit/Sources Packages/DeathRaceKit/Tests
-          Packages/DeathRaceKit/Tools Packages/DeathRaceKit/Package.swift
+        run: make lint
       - name: vthost smoke test
         run: swift run --package-path Packages/DeathRaceKit vthost smoke
       # xterm's conformance suite, with vthost as the terminal. A ratchet: new failures and
       # unexpected passes both fail the build (see docs/CONFORMANCE.md).
       - name: esctest
         run: |
-          command -v python3 >/dev/null || { apt-get update -qq && apt-get install -y -qq python3; }
           scripts/esctest.sh
+      # A minute of libFuzzer: the engine must not crash, and every delta must reproduce the
+      # screen through the codec. nightly.yml fuzzes for half an hour.
+      - name: Fuzz for a minute
+        run: |
+          make fuzz FUZZ_SECONDS=60
+      - name: Keep what the fuzzer found
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ github.sha }}
+          path: Tools/VTFuzz/.build/artifacts/
+          retention-days: 14
       # Session threads are the one place threads meet; check them for data races.
       - name: Test under Thread Sanitizer
         run: >-

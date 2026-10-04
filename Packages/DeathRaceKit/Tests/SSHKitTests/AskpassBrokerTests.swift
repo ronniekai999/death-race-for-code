@@ -417,6 +417,21 @@ struct AskpassHelperTests {
         #expect(folderMode & 0o777 == 0o700)
     }
 
+    // A symlink where the socket folder should be is refused (O_NOFOLLOW): someone could
+    // otherwise redirect the socket to a folder they control and receive the prompts and the
+    // token. A plain folder this user owns is tightened to 0700 instead (above), not refused.
+    @Test func aSymlinkedFolderIsRefused() throws {
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        let elsewhere = folder + "/elsewhere"
+        try FileManager.default.createDirectory(atPath: elsewhere, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: folder + "/run", withDestinationPath: elsewhere)
+        let broker = AskpassBroker(
+            socketPath: socket, secrets: MemorySecretStore(), presence: ScriptedPresence(),
+            presenter: ScriptedPresenter())
+        #expect(throws: (any Error).self) { try broker.start() }
+    }
+
     @Test func stoppingRemovesTheSocket() throws {
         defer { try? FileManager.default.removeItem(atPath: folder) }
         let broker = try broker()

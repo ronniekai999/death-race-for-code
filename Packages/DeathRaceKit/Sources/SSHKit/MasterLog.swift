@@ -215,15 +215,19 @@ public struct MasterLog: Equatable, Sendable {
     /// Why the connection failed, the most specific reason in the lines; nil when they say
     /// nothing about it.
     public var failure: ConnectionFailure? {
-        let text = lines.joined(separator: "\n")
+        // A "channel N: …" line is a forwarding channel failing (a tunnel to a port nothing
+        // answers, say), not the master's own connection. Left in, its "Connection refused"
+        // would be mistaken for why the master failed, hiding the real reason on a later line.
+        let relevant = lines.filter { !Self.isChannelLine($0) }
+        let text = relevant.joined(separator: "\n")
         if text.contains("REMOTE HOST IDENTIFICATION HAS CHANGED") {
             return .hostKeyChanged(
-                fingerprint: fingerprint(in: lines), knownHostsLine: offendingLine(in: lines),
-                removal: lines.lazy.compactMap { KeyRemoval(parsing: $0) }.first)
+                fingerprint: fingerprint(in: relevant), knownHostsLine: offendingLine(in: relevant),
+                removal: relevant.lazy.compactMap { KeyRemoval(parsing: $0) }.first)
         }
         if text.contains("Host key verification failed") { return .hostKeyRejected }
         if text.contains("Too many authentication failures") { return .tooManyAuthenticationFailures }
-        if let line = lines.last(where: { $0.contains("Permission denied (") }),
+        if let line = relevant.last(where: { $0.contains("Permission denied (") }),
             let open = line.range(of: "Permission denied ("), let close = line[open.upperBound...].firstIndex(of: ")")
         {
             let methods = line[open.upperBound..<close].split(separator: ",").map(String.init)
@@ -239,7 +243,12 @@ public struct MasterLog: Equatable, Sendable {
         {
             return .closedByRemote
         }
-        return lines.last.map(ConnectionFailure.other)
+        return relevant.last.map(ConnectionFailure.other)
+    }
+
+    /// `channel 1: open failed: …`: a forwarding channel, not the master's connection.
+    static func isChannelLine(_ line: String) -> Bool {
+        line.hasPrefix("channel ") && (line.dropFirst("channel ".count).first?.isNumber ?? false)
     }
 
     /// "The fingerprint for the ED25519 key sent by the remote host is", then the print on

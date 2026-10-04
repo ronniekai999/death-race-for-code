@@ -277,6 +277,18 @@ struct MasterLogTests {
         #expect(failure("") == nil)
     }
 
+    // A forwarding channel failing ("channel N: …") isn't why the master's connection ended;
+    // its "Connection refused" must not mask the real, later reason.
+    @Test func aFailedForwardChannelDoesntMaskTheRealReason() {
+        let text = """
+            channel 1: open failed: connect failed: Connection refused
+            Connection to 127.0.0.1 closed by remote host.
+            """
+        #expect(failure(text + "\n") == .closedByRemote)
+        // With nothing but a channel error, the master itself reported no failure.
+        #expect(failure("channel 2: open failed: administratively prohibited\n") == nil)
+    }
+
     @Test func aChangedHostKeySaysWhichLineHeldTheOldOne() {
         let text = """
             @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@

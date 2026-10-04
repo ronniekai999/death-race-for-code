@@ -62,18 +62,28 @@ public struct KeychainSecretStore: SecretStore {
 
     /// Saves `secret`, replacing what was saved for `ref`. `label` is what Keychain Access
     /// shows: "Password for prod-api".
+    ///
+    /// Deletes any existing item first, then adds, so the item is created with *our* access
+    /// control. Updating in place would keep the access control an item already had — and if
+    /// another app running as this user pre-created one with the same service and account and
+    /// a permissive list, our password would be readable by it. When the existing item can't
+    /// be deleted (it's one we don't control), fall back to updating in place rather than
+    /// prompting.
     public func write(_ secret: String, for ref: SecretRef, label: String) throws {
         let data = Data(secret.utf8)
-        let changes: [String: Any] = [kSecValueData as String: data, kSecAttrLabel as String: label]
-        var status = SecItemUpdate(query(for: ref) as CFDictionary, changes as CFDictionary)
-        if status == errSecItemNotFound {
-            var item = query(for: ref)
-            item[kSecValueData as String] = data
-            item[kSecAttrLabel as String] = label
-            item[kSecAttrDescription as String] = "Death Race for Code"
-            status = SecItemAdd(item as CFDictionary, nil)
+        var item = query(for: ref)
+        item[kSecValueData as String] = data
+        item[kSecAttrLabel as String] = label
+        item[kSecAttrDescription as String] = "Death Race for Code"
+        let deleted = SecItemDelete(query(for: ref) as CFDictionary)
+        if deleted == errSecSuccess || deleted == errSecItemNotFound {
+            let status = SecItemAdd(item as CFDictionary, nil)
+            guard status == errSecSuccess else { throw KeychainError(status: status) }
+        } else {
+            let changes: [String: Any] = [kSecValueData as String: data, kSecAttrLabel as String: label]
+            let status = SecItemUpdate(query(for: ref) as CFDictionary, changes as CFDictionary)
+            guard status == errSecSuccess else { throw KeychainError(status: status) }
         }
-        guard status == errSecSuccess else { throw KeychainError(status: status) }
     }
 
     public func delete(_ ref: SecretRef) throws {

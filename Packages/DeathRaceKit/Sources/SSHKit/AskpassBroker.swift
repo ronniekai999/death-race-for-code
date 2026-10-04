@@ -347,12 +347,12 @@ public final class AskpassBroker: Sendable {
 
     // MARK: - The socket
 
-    /// Listens at `socketPath`, in a folder of mode 0700 made if needed.
+    /// Listens at `socketPath`, in a folder of mode 0700 that this user owns.
     public func start() throws {
         let folder = (socketPath as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(
             atPath: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        chmod(folder, 0o700)
+        try secureFolder(folder)
         let listener = try UnixSocket.listen(at: socketPath)
         var wake: [Int32] = [-1, -1]
         guard pipe(&wake) == 0 else {
@@ -360,6 +360,9 @@ public final class AskpassBroker: Sendable {
             throw UnixSocket.Failure.system("pipe", errno: errno)
         }
         let (wakeRead, wakeWrite) = (wake[0], wake[1])
+        // The pipe mustn't survive into the ssh processes we spawn.
+        _ = fcntl(wakeRead, F_SETFD, FD_CLOEXEC)
+        _ = fcntl(wakeWrite, F_SETFD, FD_CLOEXEC)
         state.withLock {
             $0.listener = listener
             $0.wake = (wakeRead, wakeWrite)
@@ -367,6 +370,25 @@ public final class AskpassBroker: Sendable {
         let thread = Thread { [self] in acceptLoop(listener: listener, wake: wakeRead) }
         thread.name = "Death Race: askpass broker"
         thread.start()
+    }
+
+    /// Opens the socket's folder without following a symlink and checks this user owns it and
+    /// nobody else can write it, then tightens it to 0700. A folder someone else controls (a
+    /// planted symlink, a shared or misconfigured home) could otherwise let another user put
+    /// the socket where they receive the prompts and the token.
+    private func secureFolder(_ folder: String) throws {
+        let fd = open(folder, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard fd >= 0 else { throw UnixSocket.Failure.system("open askpass folder", errno: errno) }
+        defer { close(fd) }
+        var info = stat()
+        guard fstat(fd, &info) == 0 else { throw UnixSocket.Failure.system("stat askpass folder", errno: errno) }
+        guard info.st_uid == getuid() else {
+            throw UnixSocket.Failure.system("askpass folder is owned by another user", errno: EPERM)
+        }
+        _ = fchmod(fd, 0o700)
+        guard fstat(fd, &info) == 0, info.st_mode & 0o077 == 0 else {
+            throw UnixSocket.Failure.system("askpass folder is open to other users", errno: EPERM)
+        }
     }
 
     /// Stops listening; questions in flight are cancelled by their helpers' ssh.

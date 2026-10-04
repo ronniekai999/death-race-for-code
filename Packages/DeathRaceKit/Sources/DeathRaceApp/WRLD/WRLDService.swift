@@ -326,6 +326,9 @@ final class WRLDService: HostConnecting {
             }
             Self.tunnelsChanged()
         }
+        // Forget its saved password before it leaves the vault, so no orphan is left in the
+        // Keychain (forgetPassword looks the host up to find the item's key).
+        forgetPassword(host)
         edit { $0.removeHost(host) }
     }
 

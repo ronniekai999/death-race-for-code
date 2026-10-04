@@ -241,6 +241,7 @@ extension PaletteItem.Kind {
         switch self {
         case .action: "ACTION"
         case .place: "TAB"
+        case .host: "HOST"
         case .theme: "THEME"
         case .settings: "SETTINGS"
         }
@@ -406,6 +407,7 @@ struct PaletteGlyph: View {
             case .window: return "macwindow"
             }
         case .pane: return "rectangle.split.2x1"
+        case .host: return "server.rack"
         case .theme: return "paintpalette"
         case .settings(let page): return page.symbol
         }

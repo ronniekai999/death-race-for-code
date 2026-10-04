@@ -495,6 +495,9 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         case .settings(let page):
             closeHearMeCalling()
             host?.showSettings(page: page)
+        case .host:
+            // Hosts are only listed once WRLD is wired to the window.
+            closeHearMeCalling()
         }
     }
 

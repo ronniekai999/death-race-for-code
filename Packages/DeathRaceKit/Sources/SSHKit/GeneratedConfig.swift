@@ -57,10 +57,17 @@ public struct GeneratedConfig: Equatable, Sendable {
     public let aliases: [HostID: String]
     /// Each host's control socket.
     public let controlPaths: [HostID: String]
+    /// The control socket of each alias from `~/.ssh/config` that WRLD doesn't hold.
+    public let aliasControlPaths: [String: String]
     /// Hosts left out, and why.
     public let problems: [Problem]
 
-    public init(vault: Vault, paths: WRLDPaths, includes: [String] = standardIncludes) {
+    /// `aliases` are the concrete names in `~/.ssh/config`: each gets a control-only block
+    /// too, so connecting to one from Hear Me Calling also gets a master the app owns, and
+    /// jump hops through it reuse that master.
+    public init(
+        vault: Vault, paths: WRLDPaths, includes: [String] = standardIncludes, aliases discovered: [String] = []
+    ) {
         var problems: [Problem] = []
 
         // 1. Names, so a host can point at a jump host listed after it.
@@ -135,6 +142,14 @@ public struct GeneratedConfig: Equatable, Sendable {
             lines += ["ControlMaster no", "ControlPersist no", "ControlPath " + Self.pathValue(controlPath)]
             blocks.append((["Host " + alias] + lines.map { "    " + $0 }).joined(separator: "\n"))
         }
+        var aliasControlPaths: [String: String] = [:]
+        for alias in discovered where SSHConfigDiscovery.isConcrete(alias) && Self.isWord(alias) {
+            guard written.insert(alias).inserted else { continue }
+            let controlPath = paths.controlPath(for: Self.controlKey(forAlias: alias))
+            aliasControlPaths[alias] = controlPath
+            let lines = ["ControlMaster no", "ControlPersist no", "ControlPath " + Self.pathValue(controlPath)]
+            blocks.append((["Host " + alias] + lines.map { "    " + $0 }).joined(separator: "\n"))
+        }
 
         var text = """
             # Written by Death Race for Code from WRLD (wrld.json). Edits here are replaced.
@@ -147,6 +162,7 @@ public struct GeneratedConfig: Equatable, Sendable {
         self.text = text
         self.aliases = aliases
         self.controlPaths = controlPaths
+        self.aliasControlPaths = aliasControlPaths
         self.problems = problems
     }
 
@@ -232,9 +248,11 @@ public struct GeneratedConfig: Equatable, Sendable {
     public static func controlKey(for host: WRLDHost) -> String {
         switch host.source {
         case .wrld: host.id.rawValue
-        case .sshConfig(let alias): "alias:" + alias
+        case .sshConfig(let alias): controlKey(forAlias: alias)
         }
     }
+
+    public static func controlKey(forAlias alias: String) -> String { "alias:" + alias }
 
     /// One word with nothing ssh_config or a shell would read as more: no spaces, quotes,
     /// comments, control characters or percent tokens.

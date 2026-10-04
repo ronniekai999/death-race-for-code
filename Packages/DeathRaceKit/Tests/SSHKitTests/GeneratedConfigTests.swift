@@ -88,6 +88,22 @@ struct GeneratedConfigTests {
         #expect(config.text.hasSuffix("Match all\nInclude ~/.ssh/config\nInclude /etc/ssh/ssh_config\n"))
     }
 
+    @Test func aliasesFoundInYourConfigGetControlSettingsToo() {
+        let vault = Vault(hosts: [alias("h1", "nas-999")])
+        let config = GeneratedConfig(
+            vault: vault, paths: paths, aliases: ["nas-999", "pi-hole", "prod-*", "bad alias", "pi-hole"])
+        // nas-999 is WRLD's already; the pattern and the name with a space can't be hosts.
+        #expect(config.text.components(separatedBy: "Host nas-999").count == 2)
+        #expect(config.aliasControlPaths == ["pi-hole": paths.controlPath(for: "alias:pi-hole")])
+        #expect(
+            config.text.contains(
+                "Host pi-hole\n    ControlMaster no\n    ControlPersist no\n    ControlPath \(paths.controlPath(for: "alias:pi-hole"))\n"
+            ))
+        #expect(!config.text.contains("prod-*"))
+        #expect(!config.text.contains("bad alias"))
+        #expect(GeneratedConfig.controlKey(forAlias: "pi-hole") == "alias:pi-hole")
+    }
+
     @Test func namesAreMadeUniqueAndSafe() {
         let vault = Vault(hosts: [
             host("h1", "Prod API"), host("h2", "prod api"), host("h3", "  ✨ "), host("h4", "a--b__c"),

@@ -65,6 +65,31 @@ public enum ConnectionFailure: Equatable, Sendable {
     }
 }
 
+/// What a pane that couldn't connect offers next, as buttons.
+public enum ConnectionOffer: Equatable, Sendable {
+    /// Try again.
+    case reconnect
+    /// ssh in the pane itself, logging in on its own, without the app's master.
+    case plainSSH
+    /// macOS's Local Network setting, where Death Race is allowed or not.
+    case allowLocalNetwork
+}
+
+extension ConnectionFailure {
+    /// The buttons for this failure, first the one most likely to help. `address` is where
+    /// the host is, when WRLD knows it.
+    public func offers(address: String?) -> [ConnectionOffer] {
+        if let address, LocalNetwork.suggestsPermission(address: address, failure: self) {
+            return [.allowLocalNetwork, .reconnect]
+        }
+        switch self {
+        // Plain ssh would stop at the same host key, or ask the question you just declined.
+        case .hostKeyChanged, .hostKeyRejected, .cancelled: return [.reconnect]
+        default: return [.reconnect, .plainSSH]
+        }
+    }
+}
+
 /// The last lines a master wrote on stderr, and what they mean.
 public struct MasterLog: Equatable, Sendable {
     public static let kept = 20

@@ -106,17 +106,23 @@ private final class Rig: Sendable {
 
     /// Starts a master for `host`, registered with the broker: a cancel ends it, connecting
     /// saves what you asked to remember, and ending forgets the token.
-    func master(_ host: HostID, mayAsk: Bool = true) throws -> MasterSupervisor {
+    func master(_ host: HostID, mayAsk: Bool = true) async throws -> MasterSupervisor {
         let late = LateMaster()
-        let context = AskpassContext(
-            hostName: host == Self.targetID ? "target" : "jump",
-            passwords: [Self.jumpHop: Self.jumpRef, Self.targetHop: Self.targetRef],
-            hostNames: [Self.jumpRef: "jump", Self.targetRef: "target"], mayAsk: mayAsk)
+        // The hops as ssh will name them, worked out as the app works them out.
+        let alias = try #require(config.aliases[host])
+        let chain = try await HostChain.resolve(
+            alias: alias, config: paths.generatedConfig, runner: SystemProcessRunner(),
+            environment: ["PATH": "/usr/bin:/bin"])
+        let names = Dictionary(uniqueKeysWithValues: config.aliases.map { ($0.value, $0.key) })
+        let context = chain.askpassContext(hostName: host == Self.targetID ? "target" : "jump", mayAsk: mayAsk) {
+            guard let id = names[$0] else { return nil }
+            return (SecretRef(.hostPassword, id.rawValue), id == Self.targetID ? "target" : "jump")
+        }
         let token = broker.register(context) { late.end(.failed(.cancelled)) }
         let environment = AskpassEnvironment.adding(
             helper: helper, socket: broker.socketPath, token: token, to: ["PATH": "/usr/bin:/bin", "HOME": folder])
         let master = MasterSupervisor(
-            alias: try #require(config.aliases[host]), config: paths.generatedConfig,
+            alias: alias, config: paths.generatedConfig,
             controlPath: try #require(config.controlPaths[host]), environment: environment
         ) { [broker] state in
             switch state {
@@ -164,7 +170,7 @@ struct SSHDTests {
         let rig = try Rig(
             settings: ["StrictHostKeyChecking ask", "PreferredAuthentications password"],
             answers: [.yes, .text(TestSSHD.jumpPassword, remember: true)])
-        let master = try rig.master(Rig.jumpID)
+        let master = try await rig.master(Rig.jumpID)
         await expectReady(master)
 
         let questions = rig.presenter.questions
@@ -194,7 +200,7 @@ struct SSHDTests {
 
     @Test func aSavedPasswordTakesOnlyTouchID() async throws {
         let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword])
-        let master = try rig.master(Rig.jumpID)
+        let master = try await rig.master(Rig.jumpID)
         await expectReady(master)
         #expect(rig.presence.reasons == ["use the saved password for jump"])
         #expect(rig.presenter.questions.isEmpty)
@@ -203,7 +209,7 @@ struct SSHDTests {
 
     @Test func throughAJumpHostEachHopGetsItsOwnPassword() async throws {
         let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword, Rig.targetRef: TestSSHD.targetPassword])
-        let master = try rig.master(Rig.targetID)
+        let master = try await rig.master(Rig.targetID)
         await expectReady(master)
         #expect(
             rig.presence.reasons.sorted() == ["use the saved password for jump", "use the saved password for target"])
@@ -215,10 +221,10 @@ struct SSHDTests {
 
     @Test func aJumpHopUsesTheJumpHostsOwnMaster() async throws {
         let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword, Rig.targetRef: TestSSHD.targetPassword])
-        let jump = try rig.master(Rig.jumpID)
+        let jump = try await rig.master(Rig.jumpID)
         await expectReady(jump)
         #expect(rig.presence.reasons.count == 1)
-        let target = try rig.master(Rig.targetID)
+        let target = try await rig.master(Rig.targetID)
         await expectReady(target)
         // Only the target's own login: the hop went through the jump host's master.
         #expect(rig.presence.reasons.count == 2)
@@ -227,7 +233,7 @@ struct SSHDTests {
 
     @Test func panesUseTheMasterWithoutLoggingIn() async throws {
         let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword])
-        let master = try rig.master(Rig.jumpID)
+        let master = try await rig.master(Rig.jumpID)
         await expectReady(master)
         for _ in 0..<3 {
             let result = try await rig.run(on: Rig.jumpID, "echo hello from $USER")
@@ -246,7 +252,7 @@ struct SSHDTests {
 
     @Test func cancellingEndsTheAttemptAfterOneQuestion() async throws {
         let rig = try Rig(answers: [.cancel])
-        let master = try rig.master(Rig.jumpID)
+        let master = try await rig.master(Rig.jumpID)
         #expect(await settle(master) == .ended(.failed(.cancelled)))
         #expect(rig.presenter.questions.count == 1)
         await rig.finish()
@@ -254,7 +260,7 @@ struct SSHDTests {
 
     @Test func decliningTouchIDEndsTheAttempt() async throws {
         let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword], touchID: false)
-        let master = try rig.master(Rig.jumpID)
+        let master = try await rig.master(Rig.jumpID)
         #expect(await settle(master) == .ended(.failed(.cancelled)))
         #expect(rig.presence.reasons.count == 1)
         #expect(rig.presenter.questions.isEmpty)
@@ -264,7 +270,7 @@ struct SSHDTests {
     @Test func aWrongSavedPasswordLeadsToAQuestion() async throws {
         let rig = try Rig(
             saved: [Rig.jumpRef: "not-the-password"], answers: [.text(TestSSHD.jumpPassword, remember: true)])
-        let master = try rig.master(Rig.jumpID)
+        let master = try await rig.master(Rig.jumpID)
         await expectReady(master)
         #expect(rig.presence.reasons.count == 1)
         let question = try #require(rig.presenter.questions.first)
@@ -277,7 +283,7 @@ struct SSHDTests {
         let rig = try Rig(
             settings: ["PreferredAuthentications keyboard-interactive", "NumberOfPasswordPrompts 1"],
             answers: [.text("not-the-password", remember: true)])
-        let master = try rig.master(Rig.jumpID)
+        let master = try await rig.master(Rig.jumpID)
         let state = await settle(master)
         guard case .ended(.failed(.authenticationFailed)) = state else {
             Issue.record("Expected a refused login, got \(state): \(master.log.lines)")
@@ -290,7 +296,7 @@ struct SSHDTests {
 
     @Test func backgroundWorkStopsInsteadOfAsking() async throws {
         let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword])
-        let master = try rig.master(Rig.jumpID, mayAsk: false)
+        let master = try await rig.master(Rig.jumpID, mayAsk: false)
         #expect(await settle(master) == .ended(.failed(.cancelled)))
         #expect(rig.presence.reasons.isEmpty)
         await rig.finish()
@@ -300,14 +306,14 @@ struct SSHDTests {
 
     @Test func nothingListeningSaysRefused() async throws {
         let rig = try Rig()
-        let master = try rig.master(Rig.closedID)
+        let master = try await rig.master(Rig.closedID)
         #expect(await settle(master) == .ended(.failed(.refused)))
         await rig.finish()
     }
 
     @Test func aMasterKilledFromOutsideSaysSoAndLeavesNoSocket() async throws {
         let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword])
-        let master = try rig.master(Rig.jumpID)
+        let master = try await rig.master(Rig.jumpID)
         await expectReady(master)
         let pid = try #require(master.pid)
         kill(pid, SIGKILL)
@@ -318,7 +324,7 @@ struct SSHDTests {
 
     @Test func leftoversFromACrashAreEnded() async throws {
         let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword])
-        let master = try rig.master(Rig.jumpID)
+        let master = try await rig.master(Rig.jumpID)
         await expectReady(master)
         // As if the app had crashed: nobody ends it, and the next launch finds its socket.
         let ended = await MasterSupervisor.cleanUpLeftovers(
@@ -334,7 +340,7 @@ struct SSHDTests {
 
     @Test func localRemoteAndDynamicForwardsCarryTrafficAndClose() async throws {
         let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword])
-        let master = try rig.master(Rig.jumpID)
+        let master = try await rig.master(Rig.jumpID)
         await expectReady(master)
         let echo = try EchoServer()
         defer { echo.stop() }
@@ -369,7 +375,7 @@ struct SSHDTests {
 
     @Test func aTunnelThatCantOpenSaysWhy() async throws {
         let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword])
-        let master = try rig.master(Rig.jumpID)
+        let master = try await rig.master(Rig.jumpID)
         await expectReady(master)
         let echo = try EchoServer()
         defer { echo.stop() }

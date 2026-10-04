@@ -31,6 +31,20 @@ public enum ShellLaunchPlan {
         return launch
     }
 
+    /// ssh in a pane: `arguments` as SSHKit writes them (`/usr/bin/ssh` first, so ProxyJump
+    /// hops run the same ssh), with the terminal's environment and your login shell's PATH
+    /// and SSH_AUTH_SOCK on top, in your home folder.
+    public static func ssh(
+        arguments: [String], login: [String: String],
+        environment: [String: String] = ShellLaunch.processEnvironment(), appVersion: String
+    ) -> ShellLaunch {
+        var terminal = ShellLaunch.terminalEnvironment(inheriting: environment, appVersion: appVersion)
+        terminal.merge(login) { _, login in login }
+        return ShellLaunch(
+            executable: arguments.first ?? "/usr/bin/ssh", arguments: arguments, environment: terminal,
+            workingDirectory: environment["HOME"])
+    }
+
     /// The program's path: as given when it has a slash, else the first on PATH.
     public static func resolve(
         _ program: String, path: String?, isExecutable: (String) -> Bool = { access($0, X_OK) == 0 }

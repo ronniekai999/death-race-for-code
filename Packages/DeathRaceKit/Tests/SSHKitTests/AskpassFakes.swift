@@ -89,11 +89,19 @@ final class GatedPresenter: PromptPresenter {
     }
 }
 
-/// A process tree of the test's making.
+/// A process tree of the test's making. `peer` is what `credentials(of:)` reports for any
+/// socket — nil unless a test sets it, which lets the askpass client's peer-uid check be
+/// driven without a second account.
 struct FakePeers: PeerInspector {
     var parents: [Int32: Int32]
+    var peer: (pid: Int32, uid: UInt32)?
 
-    func credentials(of fd: Int32) -> (pid: Int32, uid: UInt32)? { nil }
+    init(parents: [Int32: Int32], peer: (pid: Int32, uid: UInt32)? = nil) {
+        self.parents = parents
+        self.peer = peer
+    }
+
+    func credentials(of fd: Int32) -> (pid: Int32, uid: UInt32)? { peer }
     func parent(of pid: Int32) -> Int32? { parents[pid] }
 }
 

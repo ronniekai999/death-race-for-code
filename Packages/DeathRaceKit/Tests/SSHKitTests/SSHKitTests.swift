@@ -236,6 +236,20 @@ struct OSReleaseTests {
         #expect(OSRelease(parsing: "# nothing\n").display == nil)
         #expect(OSRelease(parsing: "").display == nil)
     }
+
+    @Test func controlCharactersAndAbsurdLengthsAreStripped() throws {
+        // /etc/os-release is read over the connection and is untrusted: control characters or an
+        // enormous value must not reach the card's line or its VoiceOver label.
+        let nasty = OSRelease(
+            parsing: "NAME=\"U\u{07}buntu\u{1B}\u{9B}\"\nVERSION_ID=\"\(String(repeating: "9", count: 500))\"\n")
+        let shown = try #require(nasty.display)
+        #expect(shown.hasPrefix("Ubuntu "))
+        #expect(
+            shown.unicodeScalars.allSatisfy {
+                $0.value >= 0x20 && $0.value != 0x7F && !(0x80...0x9F).contains($0.value)
+            })
+        #expect(shown.count <= 129)
+    }
 }
 
 @Suite("What a master's errors mean")

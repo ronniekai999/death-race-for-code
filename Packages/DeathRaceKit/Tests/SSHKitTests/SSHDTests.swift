@@ -726,6 +726,29 @@ struct TunnelBoardTests {
         #expect(tunnels.row(always.id)?.state == .failed("closed when the connection to jump ended"))
         await rig.finish()
     }
+
+    @Test func aTunnelThatCantCancelSaysSoInsteadOfLookingClosed() async throws {
+        let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword])
+        let pool = try rig.pool(idleClose: .milliseconds(200))
+        let board = TunnelBoard(pool: pool, controller: rig.tunnels)
+        let echo = try EchoServer()
+        defer { echo.stop() }
+        let jump = try rig.target(Rig.jumpID)
+        let local = tunnel(.local, listen: try freePort(), to: echo.port)
+        await board.open(local, on: jump, secrets: rig.saved)
+        #expect(board.row(local.id)?.isOpen == true)
+
+        // Pull the control socket out from under the master so `-O cancel` can't reach it: the
+        // local port stays bound, so the row must say the close failed, not report it closed.
+        let controlPath = try #require(pool.master(for: jump.key)?.controlPath)
+        try FileManager.default.removeItem(atPath: controlPath)
+        await board.close(local.id)
+        #expect(board.row(local.id)?.state == .failed("The connection isn't open."))
+        #expect(board.openCount == 0)
+
+        await pool.endAll()
+        await rig.finish()
+    }
 }
 
 // MARK: - Sockets for the tunnel tests

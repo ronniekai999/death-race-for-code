@@ -464,10 +464,15 @@ public enum AskpassClient {
     /// Asks the broker at `socket`. Nil when it can't be reached or answers nonsense. With
     /// `waitForReply` false the question is sent and left (a notice).
     public static func ask(
-        socket: String, token: String, prompt: String, hint: String?, waitForReply: Bool = true
+        socket: String, token: String, prompt: String, hint: String?, waitForReply: Bool = true,
+        peers: any PeerInspector = SystemPeerInspector()
     ) -> AskpassWire.Reply? {
         guard let fd = UnixSocket.connect(to: socket) else { return nil }
         defer { close(fd) }
+        // Defence in depth: only the broker verifies the helper today, so also confirm the
+        // other end is this user before the token is sent — a socket another account planted
+        // under our path gets nothing.
+        guard peers.credentials(of: fd)?.uid == UInt32(getuid()) else { return nil }
         let request = AskpassWire.Request(token: token, prompt: prompt, hint: hint)
         guard UnixSocket.writeAll(fd, AskpassWire.encode(request)) else { return nil }
         guard waitForReply else { return .done }

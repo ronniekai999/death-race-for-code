@@ -17,9 +17,9 @@ public struct OSRelease: Equatable, Sendable {
             let key = line[..<equals].trimmingWhitespace
             let value = Self.unquote(String(line[line.index(after: equals)...]).trimmingWhitespace)
             switch key {
-            case "NAME": name = value
-            case "VERSION_ID": versionID = value
-            case "PRETTY_NAME": prettyName = value
+            case "NAME": name = Self.clean(value)
+            case "VERSION_ID": versionID = Self.clean(value)
+            case "PRETTY_NAME": prettyName = Self.clean(value)
             default: break
             }
         }
@@ -33,6 +33,19 @@ public struct OSRelease: Equatable, Sendable {
             return name
         }
         return prettyName.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// A value fit to show. A host's `/etc/os-release` is read over the connection and is
+    /// untrusted: a corrupt or hostile one could otherwise send control characters or an absurd
+    /// length straight into the card's line and its VoiceOver label. Drop C0, C1 and DEL (the
+    /// rule `SSHValue.isPath` uses) and cap the length; a real name or version is far shorter.
+    static func clean(_ value: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        scalars.append(
+            contentsOf: value.unicodeScalars.filter {
+                $0.value >= 0x20 && $0.value != 0x7F && !(0x80...0x9F).contains($0.value)
+            })
+        return String(String(scalars).prefix(64))
     }
 
     static func unquote(_ value: String) -> String {

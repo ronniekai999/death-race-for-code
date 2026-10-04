@@ -343,6 +343,25 @@ struct AskpassHelperTests {
         #expect(result.status == .exited(code: 0))
     }
 
+    @Test func theClientOnlyTrustsABrokerRunAsThisUser() throws {
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        let broker = try broker(saved: [targetRef: "s3cret"])
+        defer { broker.stop() }
+        let token = broker.register(AskpassContext(hostName: "prod-api", passwords: [target: targetRef]), onCancel: {})
+        broker.attach(token: token, rootPID: getpid())
+        let prompt = "ubuntu@10.0.4.21's password: "
+
+        // Our own uid: the client goes ahead and the broker answers.
+        let ours = FakePeers(parents: [:], peer: (pid: 100, uid: me))
+        #expect(
+            AskpassClient.ask(socket: socket, token: token, prompt: prompt, hint: nil, peers: ours) == .answer("s3cret")
+        )
+
+        // A broker that looks like another user's: the token is never sent, nothing comes back.
+        let stranger = FakePeers(parents: [:], peer: (pid: 100, uid: me &+ 1))
+        #expect(AskpassClient.ask(socket: socket, token: token, prompt: prompt, hint: nil, peers: stranger) == nil)
+    }
+
     @Test func aNoticeExitsAtOnceWithNothingPrinted() async throws {
         defer { try? FileManager.default.removeItem(atPath: folder) }
         let presenter = ScriptedPresenter()

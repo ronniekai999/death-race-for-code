@@ -121,14 +121,19 @@ public final class TunnelBoard: Sendable {
     /// Turns it off: new connections are refused, ones already through run on; its host's
     /// master is let go.
     public func close(_ id: TunnelID) async {
-        let row = rows.withLock { rows -> Row? in
-            guard let index = rows.firstIndex(where: { $0.id == id }) else { return nil }
-            defer { rows[index].state = .closed }
-            return rows[index]
-        }
-        guard let row else { return }
+        guard let row = rows.withLock({ $0.first { $0.id == id } }) else { return }
+        // A failed `-O cancel` leaves the local port bound, so don't report it closed: surface
+        // the reason the way `open` surfaces a failed forward, so the row turns red instead of
+        // quietly saying it's off.
+        var failure: String?
         if row.isOpen, let master = pool.master(for: row.hostKey) {
-            try? await controller.close(row.tunnel.spec, socket: master.controlPath)
+            do { try await controller.close(row.tunnel.spec, socket: master.controlPath) } catch {
+                failure = error.sentence
+            }
+        }
+        rows.withLock { rows in
+            guard let index = rows.firstIndex(where: { $0.id == id }) else { return }
+            rows[index].state = failure.map(Row.State.failed) ?? .closed
         }
         if row.state != .opening { pool.release(Self.user(id)) }
     }

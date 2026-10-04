@@ -5,6 +5,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <pthread.h>
 #include <signal.h>
 #include <string.h>
@@ -64,6 +65,21 @@ static void close_pair(int fds[2]) {
     if (fds[1] >= 0) close(fds[1]);
 }
 
+// Waits for the end of file that the child's execve() or exit brings, at most 2 seconds:
+// on macOS another thread's fork() between pipe() and fcntl() could hold the write end.
+static void wait_until_started(int fd) {
+    struct pollfd p = {.fd = fd, .events = POLLIN, .revents = 0};
+    for (;;) {
+        int ready = poll(&p, 1, 2000);
+        if (ready < 0 && errno == EINTR) continue;
+        if (ready <= 0) return;
+        char byte;
+        ssize_t got = read(fd, &byte, 1);
+        if (got < 0 && errno == EINTR) continue;
+        if (got <= 0) return;
+    }
+}
+
 int cpty_spawn_pipes(const char *path, char *const argv[], char *const envp[], const char *cwd,
                      int new_session, pid_t *child_pid,
                      int *stdin_fd, int *stdout_fd, int *stderr_fd) {
@@ -79,6 +95,17 @@ int cpty_spawn_pipes(const char *path, char *const argv[], char *const envp[], c
         int saved = errno;
         close_pair(in);
         close_pair(out);
+        errno = saved;
+        return -1;
+    }
+    // Closed by the child's execve() (or its exit): until then the parent waits, so the
+    // child has its own session and process group by the time this returns.
+    int started[2] = {-1, -1};
+    if (make_pipe(started) != 0) {
+        int saved = errno;
+        close_pair(in);
+        close_pair(out);
+        close_pair(err);
         errno = saved;
         return -1;
     }
@@ -102,6 +129,7 @@ int cpty_spawn_pipes(const char *path, char *const argv[], char *const envp[], c
         close_pair(in);
         close_pair(out);
         close_pair(err);
+        close_pair(started);
         errno = saved;
         return -1;
     }
@@ -117,11 +145,14 @@ int cpty_spawn_pipes(const char *path, char *const argv[], char *const envp[], c
             dup2(err[1], STDERR_FILENO) < 0) {
             _exit(126);
         }
+        // The started pipe becomes descriptor 3, still close-on-exec; everything above goes.
+        if (started[1] != 3 && dup2(started[1], 3) < 0) _exit(126);
+        (void)fcntl(3, F_SETFD, FD_CLOEXEC);
 #if defined(__linux__) && defined(SYS_close_range)
-        if (syscall(SYS_close_range, 3U, ~0U, 0U) != 0)
+        if (syscall(SYS_close_range, 4U, ~0U, 0U) != 0)
 #endif
         {
-            for (int fd = 3; fd < max_fd; fd++) close(fd);
+            for (int fd = 4; fd < max_fd; fd++) close(fd);
         }
         if (cwd != NULL) (void)chdir(cwd);
         execve(path, argv, envp);
@@ -132,6 +163,9 @@ int cpty_spawn_pipes(const char *path, char *const argv[], char *const envp[], c
     close(in[0]);
     close(out[1]);
     close(err[1]);
+    close(started[1]);
+    wait_until_started(started[0]);
+    close(started[0]);
     *child_pid = pid;
     *stdin_fd = in[1];
     *stdout_fd = out[0];

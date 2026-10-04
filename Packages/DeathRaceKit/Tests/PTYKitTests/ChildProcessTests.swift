@@ -70,16 +70,20 @@ struct ChildProcessTests {
         #expect(PseudoTerminal.monotonicMilliseconds() - started < 2_500)
     }
 
-    @Test func itLeadsASessionOfItsOwn() throws {
-        let child = try ChildProcess.spawn(
-            executable: "/bin/sleep", arguments: ["sleep", "5"], environment: environment)
-        defer {
-            child.signal(SIGKILL)
-            _ = child.waitForExit(timeoutMilliseconds: 2_000)
+    @Test func itLeadsASessionOfItsOwnAsSoonAsSpawnReturns() throws {
+        // Spawning waits for the child's exec, so its group can be signalled at once. Without
+        // that wait, a check straight after fork() loses the race now and then.
+        for _ in 0..<20 {
+            let child = try ChildProcess.spawn(
+                executable: "/bin/sleep", arguments: ["sleep", "5"], environment: environment)
+            defer {
+                child.signal(SIGKILL)
+                _ = child.waitForExit(timeoutMilliseconds: 2_000)
+            }
+            #expect(child.isSessionLeader)
+            #expect(getsid(child.pid) == child.pid)
+            #expect(getpgid(child.pid) == child.pid)
         }
-        #expect(child.isSessionLeader)
-        #expect(getsid(child.pid) == child.pid)
-        #expect(getpgid(child.pid) == child.pid)
     }
 
     @Test func aMissingProgramExits127() throws {

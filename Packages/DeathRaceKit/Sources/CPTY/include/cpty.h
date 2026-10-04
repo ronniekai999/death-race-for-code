@@ -58,8 +58,10 @@ int cpty_process_cwd(pid_t pid, char *buffer, size_t size);
 /// `argv` and `envp` are NULL-terminated; `cwd` may be NULL to inherit the caller's. On
 /// success returns 0 and stores the parent's ends, all close-on-exec and blocking: the write
 /// end of the child's input in `*stdin_fd`, and the read ends of its output and errors in
-/// `*stdout_fd` and `*stderr_fd`. Returns -1 with errno set on failure; a failed exec shows up
-/// later as the child exiting with status 127. Every other descriptor is closed in the child.
+/// `*stdout_fd` and `*stderr_fd`. It returns once the child has called execve() (or exited),
+/// so with `new_session` its process group can be signalled straight away. Returns -1 with
+/// errno set on failure; a failed exec shows up as the child exiting with status 127. Every
+/// other descriptor is closed in the child.
 int cpty_spawn_pipes(const char *path, char *const argv[], char *const envp[], const char *cwd,
                      int new_session, pid_t *child_pid,
                      int *stdin_fd, int *stdout_fd, int *stderr_fd);

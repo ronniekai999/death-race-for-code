@@ -10,7 +10,7 @@ them. Read it before changing anything that moves bytes between the shell and th
 ```
  DeathRace.app (UI process)                           legendsd (Phase 7, LaunchAgent)
  ┌────────────────────────────────────────────┐       ┌───────────────────────────────┐
- │ DeathRaceApp  SwiftUI shell: WRLD sidebar, │       │ SessionHost over XPC          │
+ │ DeathRaceApp  AppKit shell: WRLD sidebar,  │       │ SessionHost over XPC          │
  │   tabs, splits, Hear Me Calling, settings, │       │  owns PTYs + VTCore engines   │
  │   LucidDreams panel                        │       │  survives quit/crash/update   │
  │ TerminalUI  NSView: keys/IME/mouse/select  │◀─────▶│  same ScreenDelta bytes       │
@@ -18,6 +18,8 @@ them. Read it before changing anything that moves bytes between the shell and th
  │ LegendsUI   tokens + Neon components       │
  │ MirrorGrid  screen copy the renderer draws │
  ├────────────────────────────────────────────┤
+ │ SurfaceCore  geometry · colors · frames    │  ◀─ portable: the view's logic, Linux-tested
+ │ ConfigKit   the settings file              │  ◀─ portable
  │ SessionKit  session thread: PTY + engine   │  ◀─ portable; moves into legendsd in Phase 7
  │ ScreenProtocol  ScreenDelta · DeltaCodec   │  ◀─ portable
  │ VTCore      parser · grid · scrollback     │  ◀─ portable, fuzzed, Linux-tested
@@ -42,9 +44,13 @@ UI half needs macOS.
 | `VTCore` | macOS, Linux | the engine: parser, screens and scrollback, reflow, SGR, modes, reports, OSC/DCS; key, mouse, focus and paste encoding |
 | `ScreenProtocol` | macOS, Linux | `ScreenDelta`, `DeltaBuilder` (session side), `MirrorGrid` (app side), `DeltaCodec` (bytes for XPC) |
 | `SessionKit` | macOS, Linux | `Session`: one thread per shell owning its PTY and engine, a locked mailbox for deltas and commands |
-| `vthost` | macOS, Linux | headless host CLI: `smoke` now; `run`, `replay`, `dump`, `bench`, esctest later |
+| `ConfigKit` | macOS, Linux | the settings file: `ConfigSchema` (one table drives the parser, the defaults and the template), `ConfigParser` with diagnostics, `Config`, `Theme` |
+| `SurfaceCore` | macOS, Linux | what the terminal view does apart from AppKit and Metal: `SurfaceSession` (a `Session`, or `ReplaySession` in process), `SurfaceModel` (the mirror and what changed), `ColorResolver`, `FrameBuilder` (GPU instances, rebuilt per changed row), `SpriteRasterizer` (box drawing), `ShelfAtlas`, `CellMetrics`/`GridLayout`/`CellGeometry`, `Selection`/`WordRules`, `KeyRouting`/`MacKeyCode`, `ScrollAccumulator`, `FramePacer`, `SecureInput`, `PreeditLayout`, `ShellQuoting`, `WorkingDirectoryURL` |
+| `vthost` | macOS, Linux | headless host CLI: `run`, `replay`, `dump`, `bench`, `smoke`; the terminal esctest and vttest drive |
 | `LegendsUI` | macOS | design system: tokens, `Wordmark999`, `NeonBorder`, `Starfield`, `Tagline` |
-| `DeathRaceApp` | macOS | the SwiftUI app; Phase 0 shows a first-lap window and checks the login shell |
+| `RenderKit` | macOS | `FontSet` (SF Mono or a named family, real or slanted italics), `GlyphRasterizer` (CoreText, language-aware fallback, emoji fit to their cells), `Shaders` (compiled at launch), `SurfaceRenderer` (three frames in flight, atlas uploads), `OffscreenRenderer` (render and read back, for the smoke test) |
+| `TerminalUI` | macOS | `TerminalSurfaceView`: lays out the grid; drawing and input next |
+| `DeathRaceApp` | macOS | the AppKit app: a window controller per tab (native tabs), menus, settings, About |
 | `DeathRace` | macOS | executable; `--smoke-test` runs the headless end-to-end check |
 
 ## Decisions
@@ -115,7 +121,13 @@ meanwhile, the session builds again on the one taken. Phases 1–6 pass deltas i
 
 The session owns each client's viewport. Rows travel by id, so scrolling sends only the new
 line, and a viewport scrolled back into history stays on the same lines while output arrives
-below. Scrolling never changes a row's version; only content changes do. A randomized test
+below. Scrolling never changes a row's version; only content changes do. Every delta also
+carries the viewport's line number (`Terminal.linesScrolledOff`, which counts every line
+that ever left the top of the screen, kept or not), so a line keeps its number while output
+scrolls and history is trimmed: selections hold on to text by line number, and
+`Session.text(in:generation:)` reads ranges that reach back into history the app never had.
+Questions to a session (that text, the foreground process) are always answered, with nil
+once the session has ended. A randomized test
 feeds random output in random chunks (with resizes, screen switches and scrollback trimming),
 sends every delta through the codec, and checks that the app's mirror equals a fresh snapshot
 after each one. The decoder is defensive: counts are checked against the bytes that remain
@@ -171,12 +183,42 @@ macOS the last close of a terminal's slave side waits for unread output to drain
 master is open, so a shell whose final prompt nobody read cannot finish exiting: waiting for
 it first deadlocks. Linux does not drain on close, so only macOS CI catches this.
 
+### An AppKit shell, SwiftUI inside
+
+The app is an `NSApplication` with a window controller per tab, not SwiftUI's `App`. A
+terminal needs things only AppKit gives: native window tabs with a working + button
+(`newWindowForTab:`), close and quit confirmation sheets (`.terminateLater`), and a responder
+chain that carries Copy, Paste and Bigger/Smaller to the focused terminal view. SwiftUI still
+draws the Legends Never Die pieces (About now, the Pit Lane chrome in Phase 3), hosted in
+AppKit windows.
+
+### Settings are a file
+
+`~/.config/deathrace/config` (or `$XDG_CONFIG_HOME/deathrace/config`) holds `name = value`
+lines in Ghostty's style. One table, `ConfigSchema`, names every setting and knows how to read
+and write its value, so the parser, the defaults and the commented template Settings… creates
+cannot drift apart; a test reads the template back. A line that cannot be used is reported
+once, with a suggestion for a misspelled name, and leaves that setting at its default: nothing
+in the file can stop the app starting. Reload Configuration applies what changed to open
+windows; the settings under New tabs apply to tabs opened afterwards. The Settings window of
+Phase 3 edits the same file.
+
 ### Rendering
 
-`TerminalSurfaceView` (NSView + CAMetalLayer + NSTextInputClient) draws from `MirrorGrid`: a
-cols×rows background texture, one instanced glyph draw from CoreText-rasterized atlases, and
-decorations in the shader. Shaders compile at runtime from bundled source, because Xcode 26
-ships its Metal toolchain as a separate download and builds can hang silently without it.
+`TerminalSurfaceView` (NSView + CAMetalLayer + NSTextInputClient) draws from `MirrorGrid`
+through `FrameBuilder`, which lives in the portable `SurfaceCore` so the frame is tested on
+Linux: one background color per cell, one instanced glyph draw from CoreText-rasterized
+atlases (shelf-packed, coverage and color), and decorations (five underline styles,
+strikethrough, overline) drawn by the shader from absolute pixel positions so dots, dashes
+and waves continue across cells. Rows are cached by id and version, so output rebuilds only
+the rows it changed and a scroll rebuilds one. Colors are resolved in sRGB, as themes and
+programs mean them. Box drawing, block elements and the powerline arrows are drawn by
+`SpriteRasterizer` at the exact cell size, not taken from the font: lines sit on whole
+pixels at the same place in every cell, and a test checks that every arm meets the arm of
+the same weight in the next cell at six cell sizes. Frame goldens replay real programs'
+recordings through the whole path (engine, deltas, mirror, colors, frame builder) and compare
+the colors drawn. Shaders compile at runtime from source, because Xcode 26 ships its Metal
+toolchain as a separate download and builds can hang silently without it.
 Glow, XDR Neon (EDR), ligature shaping and images are a late polish phase, and they only ever
 draw on frames that are happening anyway.
 
@@ -195,12 +237,24 @@ same authenticated connection.
 one MenuGlance uses. Ad-hoc signatures change with every build, which resets Keychain access,
 privacy permissions and login-item approval each time.
 
+### The legendsd spike
+
+Phase 7's daemon depends on one question: are shells that a LaunchAgent starts on a
+pseudo-terminal still attributed to Death Race by macOS privacy protection (TCC)? Or is the
+agent its own responsible process, needing grants of its own? `legendsd-spike` measures it
+on a real Mac: [SPIKE.md](SPIKE.md) has the steps and the three possible outcomes.
+
+**Verdict: pending.** It is recorded here with the macOS build it was measured on, and decides
+whether Phase 7 builds legendsd as planned, adds an onboarding step for its grants, or keeps
+shells in the app and keeps sessions alive another way.
+
 ## Known risks
 
 - **The daemon and privacy permissions.** A LaunchAgent is its own responsible process, so
   shells it spawns do not inherit the app's grants, and a PTY host re-parented to launchd has
-  hit "Failed to create Attribution Chain" on macOS 26.3.1. Phase 2 includes a one-day spike;
-  its verdict goes here before Phase 7 is designed. Never double-fork.
+  hit "Failed to create Attribution Chain" on macOS 26.3.1. Phase 2 includes a one-day spike
+  ([above](#the-legendsd-spike)); its verdict goes there before Phase 7 is designed. Never
+  double-fork.
 - **Secure Keyboard Entry is global.** Enable and disable calls must balance, and it is dropped
   whenever the app deactivates. It cannot see password prompts on the far side of SSH.
 - **A password prompt is canonical input with echo off**, not echo off alone. Shells' line
@@ -212,8 +266,10 @@ privacy permissions and login-item approval each time.
   dash, which has no line editor.
 - **The notch is shared with MenuGlance.** A DistributedNotificationCenter handshake makes
   MenuGlance hide its island while Lucid Dreams is open.
-- **CI has no GPU.** macOS runners are VMs; renderer golden-image tests skip without a Metal
-  device and run locally.
+- **CI's GPU is virtual.** macOS runners are VMs with a paravirtual Metal device. The renderer
+  tests and the smoke test's render run there, and every run keeps the corpus screens it
+  rendered as an artifact for review. Pixel goldens, which need a real GPU's antialiasing,
+  run on a Mac with `make test-render`.
 
 ## Roadmap
 

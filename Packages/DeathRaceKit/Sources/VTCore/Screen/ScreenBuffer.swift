@@ -93,10 +93,13 @@ final class ScreenBuffer {
     private(set) var scrollback = RingBuffer<Row>()
     private(set) var scrollbackBytes = 0
     var scrollbackLimitBytes: Int
-    /// Lines ever added to scrollback, so a viewport scrolled into history can stay on the
-    /// same lines while output arrives. Reflow re-adds every line; it also bumps the
+    /// Lines that have ever left the top of this screen, whether scrollback kept them or not.
+    /// It numbers lines for good: the active row `y` is line `linesScrolledOff + y`, and
+    /// scrollback row `i` is line `linesScrolledOff - scrollback.count + i`, however much
+    /// history is trimmed. A viewport scrolled into history stays on the same lines with it,
+    /// and selections hold on to text by it. Reflow re-adds every line; it also bumps the
     /// terminal's generation, which tells readers to start over.
-    private(set) var scrollbackLinesAdded: UInt64 = 0
+    private(set) var linesScrolledOff: UInt64 = 0
 
     var cursor = Cursor()
     var savedCursor: SavedCursor?
@@ -168,7 +171,7 @@ final class ScreenBuffer {
         guard n > 0 else { return }
         for _ in 0..<n {
             let leaving = active.remove(at: scrollTop)
-            if keepsScrollback && scrollTop == 0 {
+            if scrollTop == 0 {
                 pushToScrollback(leaving)
             } else {
                 recycle(leaving)
@@ -210,13 +213,14 @@ final class ScreenBuffer {
         }
     }
 
+    /// A line leaves the top of the screen: into scrollback, if this screen keeps any.
     func pushToScrollback(_ row: consuming Row) {
+        linesScrolledOff &+= 1
         guard keepsScrollback, scrollbackLimitBytes > 0 else {
             recycle(row)
             return
         }
         scrollbackBytes += row.estimatedBytes
-        scrollbackLinesAdded &+= 1
         scrollback.append(row)
         while scrollbackBytes > scrollbackLimitBytes, !scrollback.isEmpty {
             let oldest = scrollback.removeFirst()

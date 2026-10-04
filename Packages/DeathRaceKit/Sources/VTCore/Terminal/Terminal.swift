@@ -47,7 +47,16 @@ public final class Terminal {
     public internal(set) var isAlternateScreen = false
 
     public internal(set) var modes = TerminalModes()
+    /// The colors in use: the base palette (`configuration.palette`, the app's theme) with
+    /// what programs changed on top.
     public internal(set) var palette: Palette
+    /// The palette entries (0–255) and dynamic colors (`foregroundSlot`…`cursorSlot`) a
+    /// program set (OSC 4, 10, 11, 12). A new base palette leaves them alone; their resets
+    /// (OSC 104, 110, 111, 112) and RIS forget them.
+    var paletteOverrides: Set<Int> = []
+    static let foregroundSlot = 256
+    static let backgroundSlot = 257
+    static let cursorSlot = 258
     public internal(set) var title = ""
     public internal(set) var iconName = ""
     var titleStack: [(title: String, iconName: String)] = []
@@ -130,6 +139,21 @@ public final class Terminal {
         return events
     }
 
+    // MARK: - Theme
+
+    /// Installs a new base palette (the app's theme changed). Colors a program set keep its
+    /// values; the rest take the new ones, and OSC 104/110–112 now reset to them.
+    public func setBasePalette(_ base: Palette) {
+        configuration.palette = base
+        for index in 0..<256 where !paletteOverrides.contains(index) {
+            palette.colors[index] = base.colors[index]
+        }
+        if !paletteOverrides.contains(Self.foregroundSlot) { palette.foreground = base.foreground }
+        if !paletteOverrides.contains(Self.backgroundSlot) { palette.background = base.background }
+        if !paletteOverrides.contains(Self.cursorSlot) { palette.cursor = base.cursor }
+        emit(.colorsChanged)
+    }
+
     // MARK: - Resize
 
     /// Resizes both screens. The primary reflows: soft-wrapped lines are wrapped again at the
@@ -170,8 +194,11 @@ public final class Terminal {
 
     public var scrollbackCount: Int { screen.scrollback.count }
 
-    /// Lines ever added to this screen's scrollback; see `ScreenBuffer.scrollbackLinesAdded`.
-    public var scrollbackLinesAdded: UInt64 { screen.scrollbackLinesAdded }
+    /// Lines that have ever left the top of the screen programs draw on, kept or not. The
+    /// active row `y` is line `linesScrolledOff + y` and scrollback row `i` is line
+    /// `linesScrolledOff - scrollbackCount + i`: numbers that stay with their lines while
+    /// output scrolls and history is trimmed, until the generation changes.
+    public var linesScrolledOff: UInt64 { screen.linesScrolledOff }
 
     /// A scrollback row, 0 being the oldest kept.
     public func scrollbackRow(_ index: Int) -> Row { screen.scrollback[index] }

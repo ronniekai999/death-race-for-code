@@ -123,6 +123,7 @@ extension Terminal {
         }
         modes = TerminalModes()
         palette = configuration.palette
+        paletteOverrides.removeAll()
         title = ""
         iconName = ""
         titleStack.removeAll()

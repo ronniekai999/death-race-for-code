@@ -58,7 +58,15 @@ public final class Session: Sendable {
     /// waiting, so a runaway paste cannot grow memory without bound.
     @discardableResult
     public func send(_ bytes: [UInt8]) -> Bool {
-        channel.sendInput(bytes)
+        channel.sendInput(bytes, typed: true)
+    }
+
+    /// Queues what the terminal reports on its own rather than what the user typed (focus
+    /// changes, mouse reports, key releases): like `send`, but a scrolled-back view stays
+    /// where it is.
+    @discardableResult
+    public func sendReport(_ bytes: [UInt8]) -> Bool {
+        channel.sendInput(bytes, typed: false)
     }
 
     /// Resizes the terminal and tells the program. Resizes that arrive faster than the
@@ -92,6 +100,30 @@ public final class Session: Sendable {
         channel.send(.close)
     }
 
+    /// Installs a new base palette, the app's theme: colors programs set stay, the rest
+    /// change, and the next delta carries the result.
+    public func setBasePalette(_ palette: Palette) {
+        channel.send(.setBasePalette(palette))
+    }
+
+    // MARK: - Questions
+
+    /// The text of `range`, read on the session thread, so it reaches into history the app
+    /// does not have. Nil when the screen is no longer the one of `generation` (the line
+    /// numbers would point at other text) or the session has ended.
+    public func text(in range: TextRegion, generation: UInt64) async -> String? {
+        await withCheckedContinuation { continuation in
+            channel.send(.query(.text(range, generation: generation, continuation)))
+        }
+    }
+
+    /// Who is in the terminal's foreground, or nil once the session has ended.
+    public func foregroundProcess() async -> ForegroundProcess? {
+        await withCheckedContinuation { continuation in
+            channel.send(.query(.foregroundProcess(continuation)))
+        }
+    }
+
     // MARK: - Results
 
     /// The waiting delta, if any. Taking it tells the session the app has it.
@@ -113,13 +145,31 @@ public final class Session: Sendable {
 /// wakes the thread.
 final class SessionChannel: Sendable {
     enum Command: Sendable {
-        case input([UInt8])
+        /// Bytes for the program; `typed` ones return a scrolled-back view to the bottom.
+        case input([UInt8], typed: Bool)
         case resize(columns: Int, rows: Int, cellWidth: Int, cellHeight: Int)
         case scroll(Int)
         case scrollToBottom
         case snapshot
         case focus(Bool)
+        case setBasePalette(Palette)
+        case query(Query)
         case close
+    }
+
+    /// A command that answers. Every query is answered exactly once: by the session thread,
+    /// or with nil when the session has ended, so no caller waits forever.
+    enum Query: Sendable {
+        case text(TextRegion, generation: UInt64, CheckedContinuation<String?, Never>)
+        case foregroundProcess(CheckedContinuation<ForegroundProcess?, Never>)
+
+        /// Answers nil: there is no session to ask.
+        func cancel() {
+            switch self {
+            case .text(_, _, let reply): reply.resume(returning: nil)
+            case .foregroundProcess(let reply): reply.resume(returning: nil)
+            }
+        }
     }
 
     struct Mailbox: Sendable {
@@ -145,22 +195,26 @@ final class SessionChannel: Sendable {
     }
 
     /// Queues a command for the session thread; once the session has ended there is no one
-    /// to run it, so it is dropped.
+    /// to run it, so it is dropped, and a query is answered with nil.
     func send(_ command: Command) {
         let queued = mailbox.withLock { box in
             guard box.status == .running else { return false }
             box.commands.append(command)
             return true
         }
-        if queued { wake.signal() }
+        if queued {
+            wake.signal()
+        } else if case .query(let query) = command {
+            query.cancel()
+        }
     }
 
-    func sendInput(_ bytes: [UInt8]) -> Bool {
+    func sendInput(_ bytes: [UInt8], typed: Bool) -> Bool {
         guard !bytes.isEmpty else { return true }
         let accepted = mailbox.withLock { box in
             guard box.status == .running, box.queuedInput + bytes.count <= Self.inputLimit else { return false }
             box.queuedInput += bytes.count
-            box.commands.append(.input(bytes))
+            box.commands.append(.input(bytes, typed: typed))
             return true
         }
         if accepted { wake.signal() }

@@ -62,6 +62,36 @@ import Testing
         #expect(t.palette.background == t.configuration.palette.background)
     }
 
+    /// The app's theme changes under a running program: what the program set stays, the rest
+    /// follows the theme, and resets and queries use the new theme.
+    @Test func aNewBasePaletteKeepsWhatProgramsSet() {
+        let t = makeTerminal()
+        t.feed("\u{1B}]4;1;#010203\u{7}\u{1B}]11;#040506\u{7}")
+        _ = t.takeEvents()
+        t.setBasePalette(.xterm)
+        #expect(t.palette.colors[1] == RGB(1, 2, 3))
+        #expect(t.palette.colors[2] == Palette.xterm.colors[2])
+        #expect(t.palette.background == RGB(4, 5, 6))
+        #expect(t.palette.foreground == Palette.xterm.foreground)
+        #expect(t.palette.cursor == Palette.xterm.cursor)
+        #expect(t.takeEvents() == [.colorsChanged])
+
+        t.feed("\u{1B}]104;1\u{7}\u{1B}]111\u{7}")
+        #expect(t.palette == Palette.xterm)
+        // Reset, they follow the theme again.
+        t.setBasePalette(.legendsNeverDie)
+        #expect(t.palette == Palette.legendsNeverDie)
+        t.feed("\u{1B}]11;?\u{7}")
+        #expect(t.takeReplyString() == "\u{1B}]11;rgb:1010/0808/2222\u{7}")
+    }
+
+    @Test func aFullResetForgetsWhatProgramsSet() {
+        let t = makeTerminal()
+        t.feed("\u{1B}]4;5;#010203\u{7}\u{1B}]10;#040506\u{7}\u{1B}c")
+        t.setBasePalette(.xterm)
+        #expect(t.palette == Palette.xterm)
+    }
+
     @Test func clipboardWritesAreEventsAndReadsAreRefused() {
         let t = makeTerminal()
         t.feed("\u{1B}]52;c;aGVsbG8=\u{7}")

@@ -7,14 +7,15 @@
 #   make vtdiff      VTCore next to SwiftTerm: throughput, and every corpus screen in both
 #   make lint        swift-format lint
 #   make run         build, bundle, sign and open the app (macOS)
-#   make smoke       bundle, then run the app's headless --smoke-test (macOS)
+#   make smoke       bundle, run the app's headless --smoke-test, save build/smoke-frame.png (macOS)
+#   make test-render corpus screens drawn by the GPU against PNG goldens (macOS with a real GPU)
 #   make bundle      build "Death Race for Code.app" into build/ (macOS)
 #   make install-swift-linux   install the swift.org toolchain on Ubuntu
 
 PKG := Packages/DeathRaceKit
 APP := build/Death Race for Code.app
 
-.PHONY: test esctest fuzz bench vtdiff lint format run smoke bundle clean install-swift-linux
+.PHONY: test test-render esctest fuzz bench vtdiff lint format run smoke bundle clean install-swift-linux
 
 FUZZ := Tools/VTFuzz
 DIFF := Tools/VTDiff
@@ -22,6 +23,11 @@ FUZZ_SECONDS ?= 60
 
 test:
 	swift test --package-path $(PKG)
+
+# A missing golden is written to Packages/DeathRaceKit/Tests/Fixtures/render and its test fails:
+# look at the PNG, commit it, and run again.
+test-render:
+	DEATHRACE_RENDER_GOLDENS=1 swift test --package-path $(PKG) --filter RenderGoldenTests
 
 esctest:
 	scripts/esctest.sh
@@ -61,7 +67,7 @@ run: bundle
 
 smoke:
 	CONFIG=debug scripts/bundle.sh
-	"$(APP)/Contents/MacOS/DeathRace" --smoke-test
+	"$(APP)/Contents/MacOS/DeathRace" --smoke-test --write-frame build/smoke-frame.png
 
 clean:
 	rm -rf build $(PKG)/.build $(FUZZ)/.build $(DIFF)/.build

@@ -29,8 +29,41 @@ private func waitFor(_ condition: () -> Bool) -> Bool {
     return true
 }
 
+/// `path` with symbolic links resolved (/tmp is /private/tmp on macOS).
+private func resolved(_ path: String) -> String {
+    guard let real = realpath(path, nil) else { return path }
+    defer { free(real) }
+    return String(cString: real)
+}
+
 @Suite("PseudoTerminal")
 struct PseudoTerminalTests {
+    @Test("the foreground job and its directory are visible from the master side")
+    func foregroundProcess() throws {
+        let terminal = try PseudoTerminal.spawn(shell(["-i"]), size: TerminalSize(rows: 24, columns: 80))
+        defer { terminal.hangUp() }
+        // At its prompt the shell is the foreground.
+        #expect(waitFor { terminal.foregroundProcess()?.isShell == true })
+        #expect(terminal.foregroundProcess()?.pid == terminal.pid)
+        #expect(terminal.foregroundProcess()?.name.isEmpty == false)
+
+        // With job control, a command runs in a process group of its own.
+        terminal.writeAll("cd /tmp && sleep 5\n")
+        #expect(waitFor { terminal.foregroundProcess()?.name == "sleep" })
+        let job = terminal.foregroundProcess()
+        #expect(job?.isShell == false)
+        #expect(job?.pid != terminal.pid)
+        #expect(job?.workingDirectory == resolved("/tmp"))
+    }
+
+    @Test("process names and directories, and nothing for a process that does not exist")
+    func processLookups() {
+        #expect(PseudoTerminal.processName(getpid())?.isEmpty == false)
+        #expect(PseudoTerminal.workingDirectory(of: getpid())?.hasPrefix("/") == true)
+        #expect(PseudoTerminal.processName(Int32.max) == nil)
+        #expect(PseudoTerminal.workingDirectory(of: Int32.max) == nil)
+    }
+
     @Test("a shell runs a command typed into the terminal")
     func shellRunsTypedCommand() throws {
         let transcript = try SmokeTest.run(shell())

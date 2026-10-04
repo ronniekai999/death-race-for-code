@@ -1,0 +1,241 @@
+import Dispatch
+import Metal
+import SurfaceCore
+
+public enum RenderError: Error, CustomStringConvertible {
+    case noDevice
+    case shaders(String)
+    case resources(String)
+
+    public var description: String {
+        switch self {
+        case .noDevice: "no Metal device"
+        case .shaders(let reason): "the shaders did not compile: \(reason)"
+        case .resources(let what): "Metal could not make \(what)"
+        }
+    }
+}
+
+/// The compiled shaders: three pipelines for one device and one pixel format.
+public final class RenderPipelines: @unchecked Sendable {
+    // Pipeline states are immutable and thread-safe, as Metal documents; Sendable by hand
+    // because the protocols are not marked.
+    let backgrounds: any MTLRenderPipelineState
+    let glyphs: any MTLRenderPipelineState
+    let decorations: any MTLRenderPipelineState
+    public let pixelFormat: MTLPixelFormat
+
+    /// Compiles `Shaders.source`: a few tens of milliseconds, so done once per device and
+    /// off the main thread where it can be.
+    public init(device: any MTLDevice, pixelFormat: MTLPixelFormat = .bgra8Unorm) throws {
+        let library: any MTLLibrary
+        do {
+            library = try device.makeLibrary(source: Shaders.source, options: nil)
+        } catch {
+            throw RenderError.shaders(String(describing: error))
+        }
+        func pipeline(_ vertex: String, _ fragment: String, blends: Bool) throws -> any MTLRenderPipelineState {
+            let descriptor = MTLRenderPipelineDescriptor()
+            descriptor.label = vertex
+            descriptor.vertexFunction = library.makeFunction(name: vertex)
+            descriptor.fragmentFunction = library.makeFunction(name: fragment)
+            guard descriptor.vertexFunction != nil, descriptor.fragmentFunction != nil else {
+                throw RenderError.shaders("\(vertex) or \(fragment) is missing")
+            }
+            let attachment = descriptor.colorAttachments[0]!
+            attachment.pixelFormat = pixelFormat
+            if blends {
+                // Premultiplied alpha: the shaders multiply color by coverage.
+                attachment.isBlendingEnabled = true
+                attachment.rgbBlendOperation = .add
+                attachment.alphaBlendOperation = .add
+                attachment.sourceRGBBlendFactor = .one
+                attachment.sourceAlphaBlendFactor = .one
+                attachment.destinationRGBBlendFactor = .oneMinusSourceAlpha
+                attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
+            }
+            do {
+                return try device.makeRenderPipelineState(descriptor: descriptor)
+            } catch {
+                throw RenderError.shaders("\(vertex): \(error)")
+            }
+        }
+        backgrounds = try pipeline("backgroundVertex", "backgroundFragment", blends: false)
+        glyphs = try pipeline("glyphVertex", "glyphFragment", blends: true)
+        decorations = try pipeline("decorationVertex", "decorationFragment", blends: true)
+        self.pixelFormat = pixelFormat
+    }
+}
+
+/// Where the grid sits in the target, in pixels.
+public struct PixelLayout: Sendable, Equatable {
+    public var width: Int
+    public var height: Int
+    public var originX: Int
+    public var originY: Int
+
+    public init(width: Int, height: Int, originX: Int, originY: Int) {
+        self.width = width
+        self.height = height
+        self.originX = originX
+        self.originY = originY
+    }
+}
+
+/// The values every shader reads, laid out as the shaders' `Uniforms`: 40 bytes.
+struct Uniforms {
+    var viewportSize: SIMD2<Float>
+    var gridOrigin: SIMD2<Float>
+    var cellSize: SIMD2<Float>
+    var columns: UInt32
+    var rows: UInt32
+    var clearColor: UInt32
+    var padding: UInt32 = 0
+}
+
+/// Encodes frames for one surface: the atlas textures, and per-frame buffers for up to three
+/// frames in flight.
+///
+/// The main thread never waits for the GPU: when all three slots are still drawing, `encode`
+/// declines and the frame is drawn on the next tick.
+public final class SurfaceRenderer {
+    public let device: any MTLDevice
+    public let pipelines: RenderPipelines
+    private var maskTexture: (any MTLTexture)?
+    private var colorTexture: (any MTLTexture)?
+    private var maskGeneration = -1
+    private var colorGeneration = -1
+    private var slots: [Slot]
+    private var nextSlot = 0
+    private let available = DispatchSemaphore(value: SurfaceRenderer.framesInFlight)
+    public static let framesInFlight = 3
+
+    private struct Slot {
+        var backgrounds: (any MTLBuffer)?
+        var glyphs: (any MTLBuffer)?
+        var decorations: (any MTLBuffer)?
+    }
+
+    public init(device: any MTLDevice, pipelines: RenderPipelines) {
+        self.device = device
+        self.pipelines = pipelines
+        slots = Array(repeating: Slot(), count: Self.framesInFlight)
+    }
+
+    /// Encodes `frame` into `commandBuffer`, drawing into `target`. False when every slot is
+    /// still in flight (draw again on the next tick) or a buffer could not be made.
+    @discardableResult
+    public func encode(
+        _ frame: Frame, cell: CellMetrics, layout: PixelLayout, glyphs: GlyphCache, target: any MTLTexture,
+        commandBuffer: any MTLCommandBuffer
+    ) -> Bool {
+        guard available.wait(timeout: .now()) == .success else { return false }
+        var encoded = false
+        defer {
+            // The slot comes back when the GPU is done with it, or now if nothing was encoded.
+            if encoded {
+                let semaphore = available
+                commandBuffer.addCompletedHandler { _ in semaphore.signal() }
+            } else {
+                available.signal()
+            }
+        }
+
+        uploadAtlases(glyphs)
+        let index = nextSlot
+        nextSlot = (nextSlot + 1) % Self.framesInFlight
+        guard let backgrounds = fill(&slots[index].backgrounds, with: frame.backgrounds),
+            let maskTexture, let colorTexture
+        else { return false }
+        let glyphBuffer = frame.glyphs.isEmpty ? nil : fill(&slots[index].glyphs, with: frame.glyphs)
+        let decorationBuffer =
+            frame.decorations.isEmpty ? nil : fill(&slots[index].decorations, with: frame.decorations)
+
+        var uniforms = Uniforms(
+            viewportSize: SIMD2(Float(layout.width), Float(layout.height)),
+            gridOrigin: SIMD2(Float(layout.originX), Float(layout.originY)),
+            cellSize: SIMD2(Float(cell.width), Float(cell.height)),
+            columns: UInt32(frame.columns), rows: UInt32(frame.rows), clearColor: frame.clearColor)
+
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = target
+        pass.colorAttachments[0].loadAction = .dontCare
+        pass.colorAttachments[0].storeAction = .store
+        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: pass) else { return false }
+        encoder.label = "Death Race frame"
+
+        encoder.setRenderPipelineState(pipelines.backgrounds)
+        encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
+        encoder.setFragmentBuffer(backgrounds, offset: 0, index: 1)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+
+        if let glyphBuffer {
+            encoder.setRenderPipelineState(pipelines.glyphs)
+            encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
+            encoder.setVertexBuffer(glyphBuffer, offset: 0, index: 1)
+            encoder.setFragmentTexture(maskTexture, index: 0)
+            encoder.setFragmentTexture(colorTexture, index: 1)
+            encoder.drawPrimitives(
+                type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: frame.glyphs.count)
+        }
+        if let decorationBuffer {
+            encoder.setRenderPipelineState(pipelines.decorations)
+            encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
+            encoder.setVertexBuffer(decorationBuffer, offset: 0, index: 1)
+            encoder.drawPrimitives(
+                type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: frame.decorations.count)
+        }
+        encoder.endEncoding()
+        encoded = true
+        return true
+    }
+
+    /// Copies `values` into `buffer`, making a larger one when it does not fit.
+    private func fill<T>(_ buffer: inout (any MTLBuffer)?, with values: [T]) -> (any MTLBuffer)? {
+        let length = max(MemoryLayout<T>.stride * values.count, 16)
+        if buffer == nil || buffer!.length < length {
+            // Room to grow, so a slightly bigger frame does not allocate again.
+            buffer = device.makeBuffer(length: length + length / 2, options: .storageModeShared)
+        }
+        guard let buffer else { return nil }
+        values.withUnsafeBytes { bytes in
+            if let base = bytes.baseAddress { buffer.contents().copyMemory(from: base, byteCount: bytes.count) }
+        }
+        return buffer
+    }
+
+    /// Brings the atlas textures up to date: made again after an atlas grew, otherwise the
+    /// rows written since the last frame.
+    ///
+    /// Writing while earlier frames are still drawing is safe: new glyphs go where nothing
+    /// was, and a shelf is reused only after three frames have not drawn from it.
+    private func uploadAtlases(_ glyphs: GlyphCache) {
+        upload(glyphs.mask, to: &maskTexture, generation: &maskGeneration, format: .r8Unorm)
+        upload(glyphs.color, to: &colorTexture, generation: &colorGeneration, format: .bgra8Unorm)
+    }
+
+    private func upload(
+        _ atlas: AtlasPixels, to texture: inout (any MTLTexture)?, generation: inout Int, format: MTLPixelFormat
+    ) {
+        let size = atlas.size
+        let rowBytes = size * atlas.bytesPerPixel
+        var rows = atlas.takeDirtyRows()
+        if texture == nil || generation != atlas.sizeGeneration {
+            let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+                pixelFormat: format, width: size, height: size, mipmapped: false)
+            descriptor.usage = .shaderRead
+            descriptor.storageMode = device.hasUnifiedMemory ? .shared : .managed
+            texture = device.makeTexture(descriptor: descriptor)
+            texture?.label = format == .r8Unorm ? "Glyph coverage" : "Color glyphs"
+            generation = atlas.sizeGeneration
+            rows = 0..<size
+        }
+        guard let texture, let rows, !rows.isEmpty else { return }
+        atlas.pixels.withUnsafeBytes { bytes in
+            guard let base = bytes.baseAddress else { return }
+            texture.replace(
+                region: MTLRegionMake2D(0, rows.lowerBound, size, rows.count), mipmapLevel: 0,
+                withBytes: base + rows.lowerBound * rowBytes, bytesPerRow: rowBytes)
+        }
+    }
+}

@@ -228,6 +228,43 @@ private func text(_ row: RowSnapshot) -> String {
         #expect(link.mirror.lines.map(text) == ["9", "10", "11", "12"])
     }
 
+    /// Lines keep their numbers as output scrolls, whether scrollback keeps them, trims them
+    /// or keeps none at all. "1" is printed first, so it is line 0.
+    @Test(arguments: [50 * 1024 * 1024, 2_000, 0])
+    func lineNumbersStayWithTheirLines(scrollback: Int) throws {
+        var link = Link(columns: 10, rows: 4, scrollback: scrollback)
+        for n in 1...30 { link.terminal.feed("\(n)\r\n") }
+        link.terminal.feed("31")
+        try link.sync()
+        #expect(link.mirror.lines.map(text) == ["28", "29", "30", "31"])
+        #expect(link.mirror.viewportTopLine == 27)
+        #expect(link.terminal.linesScrolledOff == 27)
+        guard scrollback > 0 else { return }
+        link.builder.scroll(by: 3, in: link.terminal)
+        try link.sync()
+        #expect(link.mirror.lines.map(text) == ["25", "26", "27", "28"])
+        #expect(link.mirror.viewportTopLine == 24)
+        // Output below a scrolled-back view moves nothing in it, numbers included.
+        link.terminal.feed("\r\n32\r\n33")
+        try link.sync()
+        #expect(link.mirror.lines.map(text) == ["25", "26", "27", "28"])
+        #expect(link.mirror.viewportTopLine == 24)
+    }
+
+    @Test func theAlternateScreenNumbersItsOwnLines() throws {
+        var link = Link(columns: 10, rows: 4)
+        link.terminal.feed("a\r\nb\r\nc\r\nd\r\ne")
+        try link.sync()
+        #expect(link.mirror.viewportTopLine == 1)
+        link.terminal.feed("\u{1B}[?1049h\u{1B}[H1\r\n2\r\n3\r\n4\r\n5\r\n6")
+        try link.sync()
+        #expect(link.mirror.lines.map(text) == ["3", "4", "5", "6"])
+        #expect(link.mirror.viewportTopLine == 2)
+        link.terminal.feed("\u{1B}[?1049l")
+        try link.sync()
+        #expect(link.mirror.viewportTopLine == 1)
+    }
+
     @Test func aResizeReturnsToTheBottom() throws {
         var link = try scrolled()
         link.builder.scroll(by: 3, in: link.terminal)
@@ -302,7 +339,7 @@ private func text(_ row: RowSnapshot) -> String {
             graphemes: [3: [0x301]], isWrapped: true, promptMarks: [.promptStart, .commandEnd], exitCode: -1)
         return ScreenDelta(
             generation: 3, version: 99, isSnapshot: false, columns: 4, rows: 1, viewportOffset: 2,
-            scrollbackCount: 10, rowIDs: [42], changedRows: [row],
+            scrollbackCount: 10, viewportTopLine: 0x1234_5678_9ABC, rowIDs: [42], changedRows: [row],
             cursor: CursorSnapshot(x: 3, y: 0, pendingWrap: true, visible: false, shape: .underline, blinks: false),
             modes: modes, kittyFlags: 31, isAlternateScreen: true, title: "Legends ✦ 999", palette: palette,
             events: [
@@ -348,12 +385,28 @@ private func text(_ row: RowSnapshot) -> String {
         var w = ByteWriter()
         w.bytes.append(contentsOf: DeltaCodec.magic)
         w.u8(DeltaCodec.formatVersion)
-        w.u64(0)
-        w.u64(0)
+        w.u64(0)  // generation
+        w.u64(0)  // version
+        w.u64(0)  // base version
         w.bool(true)
-        for _ in 0..<4 { w.u32(1) }
+        for _ in 0..<4 { w.u32(1) }  // columns, rows, viewport offset, scrollback count
+        w.u64(0)  // viewport top line
         w.u32(UInt32.max)  // "four billion row ids"
         #expect(throws: DeltaCodec.DecodeError.truncated) { try DeltaCodec.decode(w.bytes) }
+    }
+
+    @Test func forgedSizesAndLineNumbersAreRejected() {
+        var huge = richDelta()
+        huge.columns = DeltaCodec.maxDimension + 1
+        #expect(throws: DeltaCodec.DecodeError.invalid("screen size")) {
+            try DeltaCodec.decode(DeltaCodec.encode(huge))
+        }
+        // The rows below the top line would count past the largest line number.
+        var late = richDelta()
+        late.viewportTopLine = UInt64.max
+        #expect(throws: DeltaCodec.DecodeError.invalid("line number")) {
+            try DeltaCodec.decode(DeltaCodec.encode(late))
+        }
     }
 
     @Test func badHeadersAreRejected() {

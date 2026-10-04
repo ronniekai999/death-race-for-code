@@ -45,6 +45,7 @@ public struct DeltaBuilder {
             rows: terminal.rows,
             viewportOffset: viewportOffset,
             scrollbackCount: terminal.scrollbackCount,
+            viewportTopLine: terminal.linesScrolledOff &- UInt64(viewportOffset),
             rowIDs: rowIDs.ids,
             changedRows: changed,
             cursor: CursorSnapshot(
@@ -85,7 +86,7 @@ public struct DeltaBuilder {
     /// Keeps a scrolled-back viewport on the same lines as new ones arrive, and drops it back
     /// to the bottom when the screen is replaced.
     private mutating func followScrollback(_ terminal: Terminal) {
-        let added = terminal.scrollbackLinesAdded
+        let added = terminal.linesScrolledOff
         if generationSeen != terminal.generation || terminal.isAlternateScreen {
             viewportOffset = 0
         } else if viewportOffset > 0 {

@@ -96,6 +96,16 @@ private func key(
         #expect(key(.keypad(.up)) == "\u{1B}[A")
     }
 
+    @Test func commandHasNoLegacyEncoding() {
+        // A ⌘ chord no menu item took must not type its letter, nor pass for a Meta arrow.
+        #expect(key(.character("k"), .command, text: "k") == "")
+        #expect(key(.left, .command) == "")
+        #expect(key(.enter, [.command, .shift]) == "")
+        #expect(key(.keypad(.digit(1)), .command) == "")
+        // The Kitty protocol reports it, as super.
+        #expect(key(.character("k"), .command, text: "k", kitty: 0b1) == "\u{1B}[107;9u")
+    }
+
     @Test func releasesAndModifierKeysSendNothing() {
         #expect(key(.character("a"), [], .release) == "")
         #expect(key(.modifier(.leftShift), .shift) == "")

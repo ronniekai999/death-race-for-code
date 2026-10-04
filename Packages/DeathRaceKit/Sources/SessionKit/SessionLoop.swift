@@ -24,10 +24,12 @@ final class SessionLoop {
     private var running = true
     private var exitStatus: ExitStatus??
 
-    /// Something the app has not seen yet beyond row changes: a snapshot request, a scroll.
+    /// The app asked for something (a snapshot, a scroll, a resize): publish even in the
+    /// middle of a synchronized frame.
     private var mustPublish = true
+    private var passwordStateChanged = false
     private var publishedVersion: UInt64 = .max
-    private var echoOff = false
+    private var readingPassword = false
     /// While synchronized output (mode 2026) is on, publishing waits for the program to
     /// finish its frame, until this deadline: a program that never turns it off must not
     /// freeze the screen. Nil when not holding, including after the deadline passed.
@@ -95,8 +97,11 @@ final class SessionLoop {
             switch command {
             case .input(let bytes):
                 outgoing.append((bytes, true))
-                builder.scrollToBottom()
-                mustPublish = true
+                // Typing returns a scrolled-back view to the bottom, at once.
+                if builder.viewportOffset > 0 {
+                    builder.scrollToBottom()
+                    mustPublish = true
+                }
             case .resize(let columns, let rows, let cellWidth, let cellHeight):
                 resize = (columns, rows, cellWidth, cellHeight)  // only the last one matters
             case .scroll(let lines):
@@ -149,10 +154,12 @@ final class SessionLoop {
         let replies = terminal.takeReplies()
         if !replies.isEmpty { outgoing.append((replies, false)) }
 
-        let nowEchoOff = pty.isEchoDisabled
-        if nowEchoOff != echoOff {
-            echoOff = nowEchoOff
-            mustPublish = true
+        // A change here is published like any other change: it does not cut through a
+        // synchronized frame (and a line editor toggling echo at every prompt is no reason to).
+        let nowReadingPassword = pty.isReadingPassword
+        if nowReadingPassword != readingPassword {
+            readingPassword = nowReadingPassword
+            passwordStateChanged = true
         }
         if terminal.modes.synchronizedOutput {
             if !syncSeen {
@@ -222,7 +229,7 @@ final class SessionLoop {
     }
 
     private func publishIfNeeded() {
-        let changed = terminal.currentVersion != publishedVersion || !terminal.events.isEmpty
+        let changed = terminal.currentVersion != publishedVersion || !terminal.events.isEmpty || passwordStateChanged
         guard changed || mustPublish else { return }
         // Synchronized output holds the frame until the program finishes it, unless the
         // app asked for something or the watchdog ran out.
@@ -238,7 +245,8 @@ final class SessionLoop {
             builder.didDeliver(taken)
         }
         var delta = builder.makeDelta(from: terminal, events: terminal.takeEvents())
-        delta.echoOff = echoOff
+        delta.readingPassword = readingPassword
+        passwordStateChanged = false
         #if DEBUG
             // Debug builds send every delta through the codec the daemon will use.
             delta = try! DeltaCodec.decode(DeltaCodec.encode(delta))

@@ -175,10 +175,12 @@ public final class PseudoTerminal {
         return cpty_get_size(masterFD, &rows, &columns) == 0 ? (rows, columns) : nil
     }
 
-    /// True while the program on the terminal has turned echo off, which is how password
-    /// prompts look. Drives Secure Keyboard Entry; checked after each read batch, never polled.
-    public var isEchoDisabled: Bool {
-        cpty_echo_disabled(masterFD) == 1
+    /// True while the program on the terminal reads a line with echo off: a password prompt
+    /// (sudo, ssh, getpass). A shell's line editor also turns echo off, at every prompt, but
+    /// reads in raw mode, so it does not count. Drives Secure Keyboard Entry; checked after
+    /// each read batch, never polled.
+    public var isReadingPassword: Bool {
+        cpty_password_mode(masterFD) == 1
     }
 
     /// A descriptor that becomes readable when the child exits, to wait on with `poll`

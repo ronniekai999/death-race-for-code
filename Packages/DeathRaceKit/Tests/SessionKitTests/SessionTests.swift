@@ -111,13 +111,18 @@ struct SessionTests {
         #expect(h.session.status == .exited(.exited(code: 3)))
     }
 
-    @Test("echo off, as at a password prompt, reaches the app")
-    func echoOff() throws {
+    @Test("a password prompt reaches the app, and ends")
+    func passwordPrompt() throws {
         let h = try Harness()
-        h.type("stty -echo\n")
-        #expect(h.waitUntil { $0.mirror.echoOff })
-        h.type("stty echo\n")
-        #expect(h.waitUntil { !$0.mirror.echoOff })
+        #expect(h.waitUntil { $0.text.contains("$") })
+        #expect(!h.mirror.readingPassword)
+        // Like getpass and readpassphrase: echo off, then the prompt, then a line. The session
+        // checks the terminal's mode when output arrives, so the prompt is what reveals it.
+        h.type("stty -echo; printf 'Password: '; read secret; stty echo\n")
+        #expect(h.waitUntil { $0.mirror.readingPassword })
+        h.type("hunter2\n")
+        #expect(h.waitUntil { !$0.mirror.readingPassword })
+        #expect(!h.text.contains("hunter2"))
     }
 
     @Test("typing returns a scrolled-back view to the bottom")

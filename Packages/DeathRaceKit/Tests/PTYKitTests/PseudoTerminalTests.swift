@@ -18,6 +18,17 @@ private func shell(_ extraArguments: [String] = []) -> ShellLaunch {
     )
 }
 
+/// Polls `condition` for up to five seconds; terminal modes change without any output.
+private func waitFor(_ condition: () -> Bool) -> Bool {
+    let deadline = PseudoTerminal.monotonicMilliseconds() + 5_000
+    while !condition() {
+        if PseudoTerminal.monotonicMilliseconds() > deadline { return false }
+        var pause = timespec(tv_sec: 0, tv_nsec: 10_000_000)
+        nanosleep(&pause, nil)
+    }
+    return true
+}
+
 @Suite("PseudoTerminal")
 struct PseudoTerminalTests {
     @Test("a shell runs a command typed into the terminal")
@@ -42,18 +53,21 @@ struct PseudoTerminalTests {
         )
     }
 
-    @Test("turning echo off is visible from the master side")
-    func echoDetection() throws {
+    @Test("a password prompt is visible from the master side")
+    func passwordDetection() throws {
         let terminal = try PseudoTerminal.spawn(shell(), size: TerminalSize(rows: 24, columns: 80))
         defer { terminal.hangUp() }
 
-        #expect(!terminal.isEchoDisabled)
-        terminal.writeAll("stty -echo; echo ready-$((1+1))\n")
+        #expect(!terminal.isReadingPassword)
+        // `read` after `stty -echo` reads a line with echo off, as getpass does.
+        terminal.writeAll("stty -echo; echo ready-$((1+1)); read secret; stty echo\n")
         var transcript: [UInt8] = []
         #expect(
             SmokeTest.readUntil(
                 terminal, contains: Array("ready-2".utf8), into: &transcript, timeoutMilliseconds: 5_000))
-        #expect(terminal.isEchoDisabled)
+        #expect(waitFor { terminal.isReadingPassword })
+        terminal.writeAll("hunter2\n")
+        #expect(waitFor { !terminal.isReadingPassword })
     }
 
     @Test("the exit status of the child is reported")

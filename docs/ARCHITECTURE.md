@@ -38,7 +38,7 @@ UI half needs macOS.
 | Target | Platform | Role |
 | --- | --- | --- |
 | `CPTY` | macOS, Linux | `openpty` → `fork` → `setsid` → `TIOCSCTTY` → `dup2` → `execve`, in C |
-| `PTYKit` | macOS, Linux | `PseudoTerminal` (non-blocking master, resize, echo state, reaping), `ShellLaunch`, `SmokeTest` |
+| `PTYKit` | macOS, Linux | `PseudoTerminal` (non-blocking master, resize, password-prompt detection, child-exit watch, hang-up), `ShellLaunch`, `SmokeTest` |
 | `VTCore` | macOS, Linux | the engine: parser, screens and scrollback, reflow, SGR, modes, reports, OSC/DCS; key, mouse, focus and paste encoding |
 | `ScreenProtocol` | macOS, Linux | `ScreenDelta`, `DeltaBuilder` (session side), `MirrorGrid` (app side), `DeltaCodec` (bytes for XPC) |
 | `SessionKit` | macOS, Linux | `Session`: one thread per shell owning its PTY and engine, a locked mailbox for deltas and commands |
@@ -67,7 +67,7 @@ parser barge back in and stall the main thread for seconds. So no engine is shar
  Session thread (one per tab; QoS userInitiated when focused, utility in background tabs)
    poll([pty, wakeFD])                      blocks: zero work at idle
    PTY readable → read into a 64 KiB batch until EAGAIN (Darwin PTYs hand back ~1 KiB per read)
-                → terminal.feed(batch) → write replies → re-check ECHO for secure input
+                → terminal.feed(batch) → write replies → check for a password prompt
                 → rows changed, input drained, synchronized output (2026) not holding:
                     publish ONE coalesced ScreenDelta, wake main
    wakeFD → input (backpressured) · resize (reflow + TIOCSWINSZ) · fetchRows · search · ack · visibility
@@ -187,6 +187,13 @@ privacy permissions and login-item approval each time.
   its verdict goes here before Phase 7 is designed. Never double-fork.
 - **Secure Keyboard Entry is global.** Enable and disable calls must balance, and it is dropped
   whenever the app deactivates. It cannot see password prompts on the far side of SSH.
+- **A password prompt is canonical input with echo off**, not echo off alone. Shells' line
+  editors (zsh's ZLE, bash's readline) turn echo off at every prompt and echo keys
+  themselves, but they read in raw mode; getpass and readpassphrase (sudo, ssh) read a line in
+  canonical mode. The mode is checked when output arrives, and those readers turn echo off
+  before printing their prompt, so the prompt reveals it. Checking echo alone would have
+  enabled Secure Keyboard Entry at every zsh prompt. macOS CI caught it: Linux's `/bin/sh` is
+  dash, which has no line editor.
 - **The notch is shared with MenuGlance.** A DistributedNotificationCenter handshake makes
   MenuGlance hide its island while Lucid Dreams is open.
 - **CI has no GPU.** macOS runners are VMs; renderer golden-image tests skip without a Metal

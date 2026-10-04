@@ -281,7 +281,7 @@ private func text(_ row: RowSnapshot) -> String {
                 .clipboardWrite(selection: "c", contents: [0, 1, 255]),
                 .promptMark(.promptStart, rowID: 1), .promptMark(.commandEnd(exitCode: 2), rowID: 3),
                 .promptMark(.commandEnd(exitCode: nil), rowID: 4), .colorsChanged, .screenReplaced,
-            ], echoOff: true)
+            ], readingPassword: true)
     }
 
     @Test func roundTrips() throws {

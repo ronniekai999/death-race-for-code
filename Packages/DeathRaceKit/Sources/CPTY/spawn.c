@@ -141,10 +141,10 @@ int cpty_get_size(int master_fd, unsigned short *rows, unsigned short *cols) {
     return 0;
 }
 
-int cpty_echo_disabled(int master_fd) {
+int cpty_password_mode(int master_fd) {
     struct termios t;
     if (tcgetattr(master_fd, &t) != 0) return -1;
-    return (t.c_lflag & ECHO) ? 0 : 1;
+    return ((t.c_lflag & ICANON) && !(t.c_lflag & ECHO)) ? 1 : 0;
 }
 
 int cpty_exit_watch(pid_t pid) {

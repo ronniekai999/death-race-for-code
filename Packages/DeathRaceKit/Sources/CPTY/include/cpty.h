@@ -26,10 +26,11 @@ int cpty_set_size(int master_fd, unsigned short rows, unsigned short cols,
 /// Reads the size the terminal currently reports. Returns 0, or -1 with errno set.
 int cpty_get_size(int master_fd, unsigned short *rows, unsigned short *cols);
 
-/// Returns 1 when the terminal has ECHO off (a password prompt), 0 when it is on,
-/// or -1 with errno set. On macOS the master and slave share one tty, so the master's
-/// termios reflects what the program on the slave asked for.
-int cpty_echo_disabled(int master_fd);
+/// Returns 1 when the terminal reads a line with echo off (ICANON on, ECHO off), the way
+/// password prompts read (sudo, ssh, getpass); 0 otherwise; -1 with errno set. Echo alone
+/// is not enough: shells' line editors turn echo off at every prompt, but they read in raw
+/// mode. The master's termios reflects what the program on the slave asked for.
+int cpty_password_mode(int master_fd);
 
 /// A descriptor that becomes readable when process `pid` exits, for waiting on it with
 /// poll() alongside other descriptors: a kqueue with EVFILT_PROC on macOS, a pidfd on Linux.

@@ -264,6 +264,13 @@ private func press(
         let route = KeyRouting.route(
             press(0x00, .control, typed: "\u{1}", plain: "ф", unmodified: "ф"), optionAsMeta: .left, composing: false)
         #expect(route == .encode(KeyEvent(.character("ф"), modifiers: .control, text: "ф", baseLayoutKey: "a")))
+        // Control goes by that US letter, so Control-A and Control-C work as on a US layout.
+        guard case .encode(let controlA) = route else { return }
+        #expect(KeyEncoder.encode(controlA, modes: TerminalModes(), kittyFlags: 0) == [0x01])
+        let controlC = KeyRouting.route(
+            press(0x08, .control, typed: "\u{3}", plain: "с", unmodified: "с"), optionAsMeta: .left, composing: false)
+        guard case .encode(let event) = controlC else { return }
+        #expect(KeyEncoder.encode(event, modes: TerminalModes(), kittyFlags: 0) == [0x03])
     }
 
     @Test func insertedTextBecomesAKeyEvent() {
@@ -328,6 +335,8 @@ private func press(
         #expect(ShellQuoting.quote("/Users/me/notes.md") == "/Users/me/notes.md")
         #expect(ShellQuoting.quote("/Users/me/My Files/a&b (1).txt") == "/Users/me/My\\ Files/a\\&b\\ \\(1\\).txt")
         #expect(ShellQuoting.quote("~start") == "\\~start")
+        #expect(ShellQuoting.quote("=ls") == "\\=ls")
+        #expect(ShellQuoting.quote("/tmp/a=b") == "/tmp/a=b")
         #expect(ShellQuoting.quote("/tmp/café.txt") == "/tmp/café.txt")
         #expect(ShellQuoting.quote("/tmp/new\nline's") == "'/tmp/new\nline'\\''s'")
         #expect(ShellQuoting.quote(paths: ["/a b", "/c"]) == "/a\\ b /c ")

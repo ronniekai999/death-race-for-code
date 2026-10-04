@@ -44,6 +44,8 @@ public final class TerminalSurfaceView: NSView {
     /// The cursor blinks unless a program says otherwise (DECSCUSR).
     public var cursorBlink = true {
         didSet {
+            guard cursorBlink != oldValue else { return }
+            cursorLayer.removeAnimation(forKey: "blink")
             blinkOrigin = nil
             updateCursor()
         }
@@ -196,13 +198,18 @@ public final class TerminalSurfaceView: NSView {
         guard model != nil else { return }
         if isSeen {
             wake()
-        } else if !hiddenDrainScheduled {
-            // Out of sight: keep up with titles, bells and the shell's exit without drawing,
-            // at most four times a second. The session merges what comes in between.
-            hiddenDrainScheduled = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) { [weak self] in
-                MainActor.assumeIsolated { self?.drainWhileHidden() }
-            }
+        } else {
+            scheduleHiddenDrain()
+        }
+    }
+
+    /// Out of sight: keep up with titles, bells and the shell's exit without drawing, at
+    /// most four times a second. The session merges what comes in between.
+    private func scheduleHiddenDrain() {
+        guard model != nil, !hiddenDrainScheduled else { return }
+        hiddenDrainScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) { [weak self] in
+            MainActor.assumeIsolated { self?.drainWhileHidden() }
         }
     }
 
@@ -224,6 +231,9 @@ public final class TerminalSurfaceView: NSView {
     private func pauseDrawing() {
         link?.isPaused = true
         pacer = FramePacer()
+        // A delta the paused link was about to take would otherwise wait until the view is
+        // seen again: the session tells only once until it is taken.
+        scheduleHiddenDrain()
     }
 
     /// Applies what the session sent since the last call and acts on it; true when there is
@@ -537,7 +547,7 @@ public final class TerminalSurfaceView: NSView {
         session?.setFocused(focused)
         if let mirror = model?.mirror {
             let report = InputEncoder.focus(focused, modes: mirror.modes)
-            if !report.isEmpty { session?.send(report) }
+            if !report.isEmpty { session?.sendReport(report) }
         }
         if !focused { discardComposition() }
         updateCursor()

@@ -158,9 +158,9 @@ extension MirrorGrid {
     /// The text of `range` if every line of it is in view; nil when some of it has to come
     /// from the session.
     public func text(in range: TextRegion) -> String? {
-        guard range.start.line >= viewportTopLine, range.end.line < viewportTopLine + UInt64(lines.count) else {
-            return nil
-        }
+        guard range.start.line >= viewportTopLine, range.end.line >= viewportTopLine,
+            range.end.line - viewportTopLine < UInt64(lines.count)
+        else { return nil }
         return TextExtractor.text(in: range) { line($0) }
     }
 }

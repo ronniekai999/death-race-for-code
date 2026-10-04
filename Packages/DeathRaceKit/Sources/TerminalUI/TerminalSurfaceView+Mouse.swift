@@ -46,7 +46,7 @@ extension TerminalSurfaceView {
             kind, button: button, column: at.column, row: at.row, pixelX: at.pixelX, pixelY: at.pixelY,
             modifiers: mouseModifiers(event))
         let bytes = MouseEncoder.encode(mouse, modes: mirror.modes)
-        if !bytes.isEmpty { session?.send(bytes) }
+        if !bytes.isEmpty { session?.sendReport(bytes) }
     }
 
     override public func mouseDown(with event: NSEvent) {

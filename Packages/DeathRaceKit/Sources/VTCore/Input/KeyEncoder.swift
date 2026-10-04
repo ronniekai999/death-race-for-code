@@ -32,7 +32,13 @@ public enum KeyEncoder {
 
         switch event.key {
         case .character(let scalar):
-            if mods.contains(.control), let code = controlCode(for: scalar) { return escape + [code] }
+            // On a layout whose letters are not Latin (Russian, Greek, Hebrew), Control goes by
+            // the key's US letter, so Control-C still interrupts.
+            if mods.contains(.control),
+                let code = controlCode(for: scalar) ?? event.baseLayoutKey.flatMap(controlCode(for:))
+            {
+                return escape + [code]
+            }
             return event.text.isEmpty ? [] : escape + Array(event.text.utf8)
         case .enter:
             return escape + (modes.newline ? [0x0D, 0x0A] : [0x0D])

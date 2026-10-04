@@ -58,7 +58,15 @@ public final class Session: Sendable {
     /// waiting, so a runaway paste cannot grow memory without bound.
     @discardableResult
     public func send(_ bytes: [UInt8]) -> Bool {
-        channel.sendInput(bytes)
+        channel.sendInput(bytes, typed: true)
+    }
+
+    /// Queues what the terminal reports on its own rather than what the user typed (focus
+    /// changes, mouse reports, key releases): like `send`, but a scrolled-back view stays
+    /// where it is.
+    @discardableResult
+    public func sendReport(_ bytes: [UInt8]) -> Bool {
+        channel.sendInput(bytes, typed: false)
     }
 
     /// Resizes the terminal and tells the program. Resizes that arrive faster than the
@@ -137,7 +145,8 @@ public final class Session: Sendable {
 /// wakes the thread.
 final class SessionChannel: Sendable {
     enum Command: Sendable {
-        case input([UInt8])
+        /// Bytes for the program; `typed` ones return a scrolled-back view to the bottom.
+        case input([UInt8], typed: Bool)
         case resize(columns: Int, rows: Int, cellWidth: Int, cellHeight: Int)
         case scroll(Int)
         case scrollToBottom
@@ -200,12 +209,12 @@ final class SessionChannel: Sendable {
         }
     }
 
-    func sendInput(_ bytes: [UInt8]) -> Bool {
+    func sendInput(_ bytes: [UInt8], typed: Bool) -> Bool {
         guard !bytes.isEmpty else { return true }
         let accepted = mailbox.withLock { box in
             guard box.status == .running, box.queuedInput + bytes.count <= Self.inputLimit else { return false }
             box.queuedInput += bytes.count
-            box.commands.append(.input(bytes))
+            box.commands.append(.input(bytes, typed: typed))
             return true
         }
         if accepted { wake.signal() }

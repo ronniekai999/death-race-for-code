@@ -242,6 +242,20 @@ struct SessionTests {
         #expect(h.waitUntil { $0.mirror.viewportOffset == 0 })
     }
 
+    @Test("reports leave a scrolled-back view where it is")
+    func reportsDoNotScroll() throws {
+        let h = try Harness(rows: 4)
+        h.type("i=0; while [ $i -lt 20 ]; do echo line$i; i=$((i+1)); done\n")
+        #expect(h.waitUntil { $0.text.contains("line19") && $0.mirror.scrollbackCount > 10 })
+        h.session.scroll(by: 5)
+        #expect(h.waitUntil { $0.mirror.viewportOffset == 5 })
+        // A focus report (mode 1004), as switching apps sends it; then a scroll, which the
+        // session handles after the report, proves the report was taken.
+        #expect(h.session.sendReport(Array("\u{1B}[O".utf8)))
+        h.session.scroll(by: 1)
+        #expect(h.waitUntil { $0.mirror.viewportOffset == 6 })
+    }
+
     @Test("synchronized output holds the frame, but not forever")
     func synchronizedOutput() throws {
         let h = try Harness()

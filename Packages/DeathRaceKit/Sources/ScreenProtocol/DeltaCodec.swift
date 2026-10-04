@@ -175,6 +175,9 @@ public enum DeltaCodec {
 
     // MARK: - Decoding
 
+    /// The most columns or rows a decoded screen may have: far more than a display holds.
+    public static let maxDimension = 10_000
+
     public static func decode(_ bytes: [UInt8]) throws(DecodeError) -> ScreenDelta {
         var r = ByteReader(bytes: bytes)
         guard try r.take(4) == magic else { throw .badMagic }
@@ -187,9 +190,14 @@ public enum DeltaCodec {
         let isSnapshot = try r.bool()
         let columns = Int(try r.u32())
         let rows = Int(try r.u32())
+        // Deltas may come from another process: a size no screen has would have the app
+        // allocate billions of cells, and a line number this close to the top of the range
+        // would overflow counting the rows below it.
+        guard columns <= maxDimension, rows <= maxDimension else { throw .invalid("screen size") }
         let viewportOffset = Int(try r.u32())
         let scrollbackCount = Int(try r.u32())
         let viewportTopLine = try r.u64()
+        guard viewportTopLine <= UInt64.max - UInt64(rows) else { throw .invalid("line number") }
 
         let idCount = try r.count(elementSize: 8)
         var rowIDs: [UInt64] = []

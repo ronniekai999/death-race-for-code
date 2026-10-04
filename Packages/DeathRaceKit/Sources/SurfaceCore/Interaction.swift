@@ -19,8 +19,9 @@ public enum ShellQuoting {
         var out = ""
         for (index, character) in path.unicodeScalars.enumerated() {
             let isSafe = character.value < 0x80 && safe.contains(UInt8(character.value))
-            // A leading ~ would be expanded to a home directory.
-            if !isSafe && character.value < 0x80 || (index == 0 && character == "~") {
+            // A leading ~ would be expanded to a home directory, and in zsh a leading = to
+            // the path of the command named after it.
+            if !isSafe && character.value < 0x80 || (index == 0 && (character == "~" || character == "=")) {
                 out.unicodeScalars.append("\\")
             }
             out.unicodeScalars.append(character)

@@ -109,10 +109,10 @@ final class SessionLoop {
                 continue
             }
             switch command {
-            case .input(let bytes):
+            case .input(let bytes, let typed):
                 outgoing.appendInput(bytes)
                 // Typing returns a scrolled-back view to the bottom, at once.
-                if builder.viewportOffset > 0 {
+                if typed, builder.viewportOffset > 0 {
                     builder.scrollToBottom()
                     mustPublish = true
                 }

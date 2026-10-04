@@ -395,6 +395,20 @@ private func text(_ row: RowSnapshot) -> String {
         #expect(throws: DeltaCodec.DecodeError.truncated) { try DeltaCodec.decode(w.bytes) }
     }
 
+    @Test func forgedSizesAndLineNumbersAreRejected() {
+        var huge = richDelta()
+        huge.columns = DeltaCodec.maxDimension + 1
+        #expect(throws: DeltaCodec.DecodeError.invalid("screen size")) {
+            try DeltaCodec.decode(DeltaCodec.encode(huge))
+        }
+        // The rows below the top line would count past the largest line number.
+        var late = richDelta()
+        late.viewportTopLine = UInt64.max
+        #expect(throws: DeltaCodec.DecodeError.invalid("line number")) {
+            try DeltaCodec.decode(DeltaCodec.encode(late))
+        }
+    }
+
     @Test func badHeadersAreRejected() {
         #expect(throws: DeltaCodec.DecodeError.badMagic) { try DeltaCodec.decode(Array("NOPE".utf8) + [1]) }
         var bytes = DeltaCodec.encode(richDelta())

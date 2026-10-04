@@ -73,27 +73,54 @@ extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
         guard let mirror = model?.mirror else { return false }
         let bytes = KeyEncoder.encode(keyEvent, modes: mirror.modes, kittyFlags: mirror.kittyFlags)
         guard !bytes.isEmpty else { return false }
-        // Typing clears the selection; a release or a modifier key alone does not.
+        // A release or a modifier key alone is a report, not typing: the selection and a
+        // scrolled-back view stay.
         var isModifier = false
         if case .modifier = keyEvent.key { isModifier = true }
-        if keyEvent.action != .release && !isModifier { clearSelection() }
-        session?.send(bytes)
+        if keyEvent.action == .release || isModifier {
+            session?.sendReport(bytes)
+        } else {
+            clearSelection()
+            session?.send(bytes)
+        }
         return true
+    }
+
+    /// Text that is not a key press, sent as it is.
+    private func sendText(_ text: String) {
+        clearSelection()
+        session?.send(Array(text.utf8))
     }
 
     // MARK: - NSTextInputClient
 
     public func insertText(_ string: Any, replacementRange: NSRange) {
         let text = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
+        let composed = hasMarkedText()
         clearMarkedText()
         guard !text.isEmpty else { return }
-        send(KeyRouting.textEvent(text, press: currentPress))
+        if composed || currentPress == nil {
+            // What an input method composed (Japanese, Korean, a dead key's accent), or what
+            // the emoji picker or dictation inserted, is text rather than the key that
+            // committed it: it goes as it is, whatever keyboard protocol the program asked
+            // for, as kitty sends it.
+            sendText(text)
+        } else {
+            send(KeyRouting.textEvent(text, press: currentPress))
+        }
     }
 
-    /// AppKit's editing commands (insertNewline:, deleteBackward:…): the keys that mean
-    /// something to a terminal were encoded before they got here, so there is nothing to do,
-    /// and doing nothing keeps AppKit from beeping.
-    override public func doCommand(by selector: Selector) {}
+    /// AppKit's editing commands (insertNewline:, deleteBackward:, moveLeft:…). Keys that mean
+    /// something to a terminal are encoded before they get here, unless an input method had
+    /// them first: then a key it hands back after committing its text (Return after a
+    /// Korean syllable or a dead key, an arrow) is encoded now. Otherwise doing nothing keeps
+    /// AppKit from beeping.
+    override public func doCommand(by selector: Selector) {
+        guard let press = currentPress, !hasMarkedText(),
+            case .encode(let keyEvent) = KeyRouting.route(press, optionAsMeta: optionAsMeta, composing: false)
+        else { return }
+        send(keyEvent)
+    }
 
     public func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         if let attributed = string as? NSAttributedString {

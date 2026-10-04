@@ -26,6 +26,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
     private(set) var workingDirectory: String?
     /// The user agreed to close this tab with a program running in it.
     private var closeConfirmed = false
+    /// A close is being confirmed: further close requests wait for its answer.
+    private var confirmingClose = false
     private let shellName: String
     private let onClose: (TerminalWindowController) -> Void
     private let onNewTab: (TerminalWindowController) -> Void
@@ -324,13 +326,20 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
     /// now and closes itself once it knows.
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard config.confirmClose, !closeConfirmed, let session, session.status == .running else { return true }
-        Task { await confirmClose() }
+        // Set before the question goes to the session, so a second click on the close button
+        // cannot ask twice.
+        guard !confirmingClose else { return false }
+        confirmingClose = true
+        Task {
+            await confirmClose()
+            confirmingClose = false
+        }
         return false
     }
 
     private func confirmClose() async {
-        guard let window, window.attachedSheet == nil else { return }
         guard let process = await session?.foregroundProcess(), !process.isShell else { return closeNow() }
+        guard let window else { return }
         let alert = NSAlert()
         alert.messageText = "Goodbye & Good Riddance?"
         alert.informativeText =

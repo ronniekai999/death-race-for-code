@@ -10,7 +10,7 @@ them. Read it before changing anything that moves bytes between the shell and th
 ```
  DeathRace.app (UI process)                           legendsd (Phase 7, LaunchAgent)
  ┌────────────────────────────────────────────┐       ┌───────────────────────────────┐
- │ DeathRaceApp  SwiftUI shell: WRLD sidebar, │       │ SessionHost over XPC          │
+ │ DeathRaceApp  AppKit shell: WRLD sidebar,  │       │ SessionHost over XPC          │
  │   tabs, splits, Hear Me Calling, settings, │       │  owns PTYs + VTCore engines   │
  │   LucidDreams panel                        │       │  survives quit/crash/update   │
  │ TerminalUI  NSView: keys/IME/mouse/select  │◀─────▶│  same ScreenDelta bytes       │
@@ -18,6 +18,8 @@ them. Read it before changing anything that moves bytes between the shell and th
  │ LegendsUI   tokens + Neon components       │
  │ MirrorGrid  screen copy the renderer draws │
  ├────────────────────────────────────────────┤
+ │ SurfaceCore  geometry · colors · frames    │  ◀─ portable: the view's logic, Linux-tested
+ │ ConfigKit   the settings file              │  ◀─ portable
  │ SessionKit  session thread: PTY + engine   │  ◀─ portable; moves into legendsd in Phase 7
  │ ScreenProtocol  ScreenDelta · DeltaCodec   │  ◀─ portable
  │ VTCore      parser · grid · scrollback     │  ◀─ portable, fuzzed, Linux-tested
@@ -42,9 +44,13 @@ UI half needs macOS.
 | `VTCore` | macOS, Linux | the engine: parser, screens and scrollback, reflow, SGR, modes, reports, OSC/DCS; key, mouse, focus and paste encoding |
 | `ScreenProtocol` | macOS, Linux | `ScreenDelta`, `DeltaBuilder` (session side), `MirrorGrid` (app side), `DeltaCodec` (bytes for XPC) |
 | `SessionKit` | macOS, Linux | `Session`: one thread per shell owning its PTY and engine, a locked mailbox for deltas and commands |
-| `vthost` | macOS, Linux | headless host CLI: `smoke` now; `run`, `replay`, `dump`, `bench`, esctest later |
+| `ConfigKit` | macOS, Linux | the settings file: `ConfigSchema` (one table drives the parser, the defaults and the template), `ConfigParser` with diagnostics, `Config`, `Theme` |
+| `SurfaceCore` | macOS, Linux | what the terminal view does apart from AppKit and Metal: `CellMetrics` and `GridLayout` now; colors, frames, selection and key routing next |
+| `vthost` | macOS, Linux | headless host CLI: `run`, `replay`, `dump`, `bench`, `smoke`; the terminal esctest and vttest drive |
 | `LegendsUI` | macOS | design system: tokens, `Wordmark999`, `NeonBorder`, `Starfield`, `Tagline` |
-| `DeathRaceApp` | macOS | the SwiftUI app; Phase 0 shows a first-lap window and checks the login shell |
+| `RenderKit` | macOS | `FontSet` (SF Mono or a named family, with real or slanted italics); the Metal renderer next |
+| `TerminalUI` | macOS | `TerminalSurfaceView`: lays out the grid; drawing and input next |
+| `DeathRaceApp` | macOS | the AppKit app: a window controller per tab (native tabs), menus, settings, About |
 | `DeathRace` | macOS | executable; `--smoke-test` runs the headless end-to-end check |
 
 ## Decisions
@@ -170,6 +176,26 @@ Teardown closes the master before waiting for the child, and never waits without
 macOS the last close of a terminal's slave side waits for unread output to drain while the
 master is open, so a shell whose final prompt nobody read cannot finish exiting: waiting for
 it first deadlocks. Linux does not drain on close, so only macOS CI catches this.
+
+### An AppKit shell, SwiftUI inside
+
+The app is an `NSApplication` with a window controller per tab, not SwiftUI's `App`. A
+terminal needs things only AppKit gives: native window tabs with a working + button
+(`newWindowForTab:`), close and quit confirmation sheets (`.terminateLater`), and a responder
+chain that carries Copy, Paste and Bigger/Smaller to the focused terminal view. SwiftUI still
+draws the Legends Never Die pieces (About now, the Pit Lane chrome in Phase 3), hosted in
+AppKit windows.
+
+### Settings are a file
+
+`~/.config/deathrace/config` (or `$XDG_CONFIG_HOME/deathrace/config`) holds `name = value`
+lines in Ghostty's style. One table, `ConfigSchema`, names every setting and knows how to read
+and write its value, so the parser, the defaults and the commented template Settings… creates
+cannot drift apart; a test reads the template back. A line that cannot be used is reported
+once, with a suggestion for a misspelled name, and leaves that setting at its default: nothing
+in the file can stop the app starting. Reload Configuration applies what changed to open
+windows; the settings under New tabs apply to tabs opened afterwards. The Settings window of
+Phase 3 edits the same file.
 
 ### Rendering
 

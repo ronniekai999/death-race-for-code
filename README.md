@@ -9,15 +9,33 @@ L E G E N D S   N E V E R   D I E
 
 ## Status
 
-Phase 1, the engine. The terminal engine covers the v1 scope and passes 95% of
-xterm's conformance suite on that scope (esctest, ratcheted in CI). It reflows on resize,
-handles Unicode 18 graphemes, encodes keys for the Kitty keyboard protocol, passes vttest's
-classic screens, and replays recorded vim, nvim, tmux, htop, fzf and nano sessions to their
-golden screens. It runs one
-thread per shell that publishes screen deltas, and it survives libFuzzer. The app still
-shows the first-lap window; the terminal surface arrives in Phase 2. See
+Phase 2, first pixels, is under way. The app is now an AppKit app with windows, native tabs,
+menus, a settings file and an About window; each tab lays out an empty terminal grid. The
+Metal renderer, input and live shells arrive over the next steps of this phase.
+
+Phase 1 built the engine. It covers the v1 scope and passes 95% of xterm's conformance suite
+on that scope (esctest, ratcheted in CI). It reflows on resize, handles Unicode 18 graphemes,
+encodes keys for the Kitty keyboard protocol, passes vttest's classic screens, and replays
+recorded vim, nvim, tmux, htop, fzf and nano sessions to their golden screens. It runs one
+thread per shell that publishes screen deltas, and it survives libFuzzer. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the roadmap and
 [docs/CONFORMANCE.md](docs/CONFORMANCE.md) for what is checked and how.
+
+## Settings
+
+Settings live in `~/.config/deathrace/config` (or `$XDG_CONFIG_HOME/deathrace/config`), one
+`name = value` per line. **Settings…** (⌘,) creates the file with every setting commented
+out at its default and explained, then opens it in your text editor; **Reload Configuration**
+(⌘⇧,) applies your changes to the open windows. A line Death Race cannot use is reported,
+with a suggestion when a name looks misspelled, and leaves that setting at its default.
+
+```ini
+font-family = SF Mono
+font-size = 14
+# Comments go on their own line: a # later in a line is part of the value, as in colors.
+option-as-meta = left
+palette = 1=#FF5277
+```
 
 - Mockups (12 boards): https://claude.ai/artifact/A7ti39oW56UDr8FyTqguVd
 - Design system, Legends Never Die: https://claude.ai/artifact/SYrFpKuxmKj2m6kTioXe6G
@@ -59,8 +77,12 @@ Packages/DeathRaceKit/   one SwiftPM package; macOS-only targets appear only on 
   Sources/VTCore/        the terminal engine: parser, screens, reflow, Unicode, input encoding
   Sources/ScreenProtocol/ screen deltas, the app's mirror, the byte codec
   Sources/SessionKit/    one thread per shell, publishing deltas
+  Sources/ConfigKit/     the settings file: schema, parser, diagnostics, template
+  Sources/SurfaceCore/   the terminal view's logic, apart from AppKit and Metal
   Sources/LegendsUI/     the design system in SwiftUI (macOS)
-  Sources/DeathRaceApp/  the app (macOS)
+  Sources/RenderKit/     fonts and the Metal renderer (macOS)
+  Sources/TerminalUI/    the terminal view (macOS)
+  Sources/DeathRaceApp/  the app: windows, tabs, menus, settings (macOS)
   Tools/vthost/          headless host for the engine: run, replay, bench, smoke
 Tools/VTFuzz/            libFuzzer target (a package of its own)
 Tools/VTDiff/            VTCore next to SwiftTerm, the referee (a package of its own)

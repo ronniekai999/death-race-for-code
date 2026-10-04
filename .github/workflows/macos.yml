@@ -55,6 +55,10 @@ jobs:
       - name: Test
         timeout-minutes: 10
         run: swift test --package-path Packages/DeathRaceKit --skip-build
+      # The recorded programs' screens drawn by the GPU, kept as an artifact for review.
+      - name: Render the corpus screens
+        timeout-minutes: 3
+        run: DEATHRACE_RENDER_PREVIEW="$PWD/build/render" swift test --package-path Packages/DeathRaceKit --skip-build --filter RenderGoldenTests
       - name: Bundle
         timeout-minutes: 10
         run: CONFIG=debug scripts/bundle.sh
@@ -76,5 +80,11 @@ jobs:
         with:
           name: smoke-frame-${{ github.sha }}
           path: build/smoke-frame.png
+          if-no-files-found: ignore
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: render-preview-${{ github.sha }}
+          path: build/render
           if-no-files-found: ignore
           retention-days: 7

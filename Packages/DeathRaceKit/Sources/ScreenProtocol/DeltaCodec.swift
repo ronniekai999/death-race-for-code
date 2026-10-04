@@ -60,6 +60,7 @@ public enum DeltaCodec {
         }
         w.u32(UInt32(delta.events.count))
         for event in delta.events { encode(event, into: &w) }
+        w.bool(delta.echoOff)
         return w.bytes
     }
 
@@ -222,6 +223,7 @@ public enum DeltaCodec {
         var events: [TerminalEvent] = []
         events.reserveCapacity(eventCount)
         for _ in 0..<eventCount { events.append(try decodeEvent(&r)) }
+        let echoOff = try r.bool()
         guard r.isAtEnd else { throw .invalid("trailing bytes") }
 
         return ScreenDelta(
@@ -231,7 +233,7 @@ public enum DeltaCodec {
             cursor: CursorSnapshot(
                 x: cursorX, y: cursorY, pendingWrap: pendingWrap, visible: visible, shape: shape, blinks: blinks),
             modes: modes, kittyFlags: kittyFlags, isAlternateScreen: isAlternateScreen, title: title,
-            palette: palette, events: events)
+            palette: palette, events: events, echoOff: echoOff)
     }
 
     private static func decodeRow(_ r: inout ByteReader) throws(DecodeError) -> RowSnapshot {

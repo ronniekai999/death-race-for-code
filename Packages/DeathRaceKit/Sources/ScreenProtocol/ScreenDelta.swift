@@ -102,12 +102,15 @@ public struct ScreenDelta: Sendable, Equatable {
     /// Included when it changed since the last delta the app took.
     public var palette: Palette?
     public var events: [TerminalEvent]
+    /// The program turned echo off, as password prompts do: the app turns on Secure
+    /// Keyboard Entry while it stays off.
+    public var echoOff: Bool
 
     public init(
         generation: UInt64, version: UInt64, isSnapshot: Bool, columns: Int, rows: Int, viewportOffset: Int,
         scrollbackCount: Int, rowIDs: [UInt64], changedRows: [RowSnapshot], cursor: CursorSnapshot,
         modes: TerminalModes, kittyFlags: UInt8, isAlternateScreen: Bool, title: String, palette: Palette?,
-        events: [TerminalEvent]
+        events: [TerminalEvent], echoOff: Bool = false
     ) {
         self.generation = generation
         self.version = version
@@ -125,6 +128,7 @@ public struct ScreenDelta: Sendable, Equatable {
         self.title = title
         self.palette = palette
         self.events = events
+        self.echoOff = echoOff
     }
 
     /// This delta in place of `unsent`, which the app never took: the screen state is this

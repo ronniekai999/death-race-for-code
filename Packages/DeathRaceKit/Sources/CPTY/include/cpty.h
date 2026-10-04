@@ -31,6 +31,11 @@ int cpty_get_size(int master_fd, unsigned short *rows, unsigned short *cols);
 /// termios reflects what the program on the slave asked for.
 int cpty_echo_disabled(int master_fd);
 
+/// A descriptor that becomes readable when process `pid` exits, for waiting on it with
+/// poll() alongside other descriptors: a kqueue with EVFILT_PROC on macOS, a pidfd on Linux.
+/// Close-on-exec. Returns -1 with errno set where neither is available.
+int cpty_exit_watch(pid_t pid);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,7 +1,8 @@
 name: linux
 
-# The portable half (CPTY, PTYKit, VTCore, vthost) on the swift.org toolchain that matches
-# the Swift in Xcode 26.6. Cheap enough to run on every pull request.
+# The portable half (CPTY, PTYKit, VTCore, ScreenProtocol, SessionKit, vthost) on the
+# swift.org toolchain that matches the Swift in Xcode 26.6. Cheap enough to run on every
+# pull request.
 
 on:
   pull_request:
@@ -36,3 +37,8 @@ jobs:
           Packages/DeathRaceKit/Tools Packages/DeathRaceKit/Package.swift
       - name: vthost smoke test
         run: swift run --package-path Packages/DeathRaceKit vthost smoke
+      # Session threads are the one place threads meet; check them for data races.
+      - name: Test under Thread Sanitizer
+        run: >-
+          swift test --package-path Packages/DeathRaceKit --sanitize=thread
+          --scratch-path Packages/DeathRaceKit/.build/tsan

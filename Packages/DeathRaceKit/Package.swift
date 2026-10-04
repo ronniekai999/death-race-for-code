@@ -18,6 +18,7 @@ var products: [Product] = [
     .library(name: "VTCore", targets: ["VTCore"]),
     .library(name: "PTYKit", targets: ["PTYKit"]),
     .library(name: "ScreenProtocol", targets: ["ScreenProtocol"]),
+    .library(name: "SessionKit", targets: ["SessionKit"]),
     .executable(name: "vthost", targets: ["vthost"]),
 ]
 
@@ -33,6 +34,8 @@ var targets: [Target] = [
     // What a session sends the app: screen deltas, the mirror that applies them, and the
     // byte codec the session daemon will use.
     .target(name: "ScreenProtocol", dependencies: ["VTCore"]),
+    // One thread per session owns its pseudo-terminal and engine, and publishes deltas.
+    .target(name: "SessionKit", dependencies: ["PTYKit", "VTCore", "ScreenProtocol"]),
     .executableTarget(
         name: "vthost",
         dependencies: ["VTCore", "PTYKit"],
@@ -41,6 +44,7 @@ var targets: [Target] = [
     .testTarget(name: "PTYKitTests", dependencies: ["PTYKit"]),
     .testTarget(name: "VTCoreTests", dependencies: ["VTCore"]),
     .testTarget(name: "ScreenProtocolTests", dependencies: ["ScreenProtocol", "VTCore"]),
+    .testTarget(name: "SessionKitTests", dependencies: ["SessionKit", "ScreenProtocol", "PTYKit", "VTCore"]),
 ]
 
 #if os(macOS)

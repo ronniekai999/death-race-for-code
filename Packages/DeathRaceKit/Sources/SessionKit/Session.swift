@@ -1,0 +1,175 @@
+import Foundation
+import PTYKit
+import ScreenProtocol
+import Synchronization
+import VTCore
+
+public enum SessionError: Error, Equatable {
+    case wakePipe(errno: Int32)
+}
+
+/// A shell on a pseudo-terminal, run by its own thread.
+///
+/// The thread owns the terminal and the engine; nothing is shared with the app except a
+/// small locked mailbox. It blocks in `poll` until the shell writes or the app asks for
+/// something, so an idle session costs nothing. After reading everything available it
+/// publishes one delta into the mailbox and, if the mailbox was empty, calls `onUpdate`;
+/// the app takes the delta on its next frame. A newer delta replaces one the app has not
+/// taken, so a flood of output never queues up work for the renderer.
+///
+/// All methods are safe to call from any thread.
+public final class Session: Sendable {
+    public enum Status: Sendable, Equatable {
+        case running
+        /// The shell exited; nil when its status could not be collected.
+        case exited(ExitStatus?)
+    }
+
+    let channel: SessionChannel
+
+    /// Starts `launch` on a new terminal. `onUpdate` runs on the session thread when a
+    /// delta or a status change is waiting; it should only schedule work.
+    public init(
+        launch: ShellLaunch,
+        configuration: Terminal.Configuration = Terminal.Configuration(),
+        onUpdate: @escaping @Sendable () -> Void
+    ) throws {
+        let size = TerminalSize(
+            rows: UInt16(clamping: configuration.rows), columns: UInt16(clamping: configuration.columns),
+            pixelWidth: UInt16(clamping: configuration.columns * configuration.cellPixelWidth),
+            pixelHeight: UInt16(clamping: configuration.rows * configuration.cellPixelHeight))
+        let pty = try PseudoTerminal.spawn(launch, size: size)
+        channel = SessionChannel(wake: try WakePipe(), onUpdate: onUpdate)
+        let loop = Transfer(SessionLoop(pty: pty, terminal: Terminal(configuration), channel: channel))
+        let thread = Thread { loop.value.run() }
+        thread.name = "Death Race session"
+        thread.stackSize = 1 << 20
+        thread.start()
+    }
+
+    deinit {
+        channel.send(.close)
+    }
+
+    // MARK: - Commands
+
+    /// Queues bytes for the shell (keys, pastes); typing also returns the view to the
+    /// bottom. Returns false when more than `SessionChannel.inputLimit` bytes are already
+    /// waiting, so a runaway paste cannot grow memory without bound.
+    @discardableResult
+    public func send(_ bytes: [UInt8]) -> Bool {
+        channel.sendInput(bytes)
+    }
+
+    /// Resizes the terminal and tells the program. Resizes that arrive faster than the
+    /// session can apply them coalesce into the last one.
+    public func resize(columns: Int, rows: Int, cellPixelWidth: Int = 0, cellPixelHeight: Int = 0) {
+        channel.send(.resize(columns: columns, rows: rows, cellWidth: cellPixelWidth, cellHeight: cellPixelHeight))
+    }
+
+    /// Scrolls the view `lines` back into history (negative: toward the output).
+    public func scroll(by lines: Int) {
+        channel.send(.scroll(lines))
+    }
+
+    public func scrollToBottom() {
+        channel.send(.scrollToBottom)
+    }
+
+    /// Asks for a delta with every row, after a mirror refused one.
+    public func requestSnapshot() {
+        channel.send(.snapshot)
+    }
+
+    /// A focused session's thread runs at user-initiated priority; others at utility, which
+    /// lets macOS keep them on the efficiency cores.
+    public func setFocused(_ focused: Bool) {
+        channel.send(.focus(focused))
+    }
+
+    /// Hangs up: closes the terminal, sends SIGHUP, and kills the shell if it lingers.
+    public func close() {
+        channel.send(.close)
+    }
+
+    // MARK: - Results
+
+    /// The waiting delta, if any. Taking it tells the session the app has it.
+    public func takeDelta() -> ScreenDelta? {
+        channel.mailbox.withLock { box in
+            guard let delta = box.pending else { return nil }
+            box.pending = nil
+            box.taken = delta
+            return delta
+        }
+    }
+
+    public var status: Status {
+        channel.mailbox.withLock { $0.status }
+    }
+}
+
+/// What the app and the session thread share: a mailbox under a lock, and the pipe that
+/// wakes the thread.
+final class SessionChannel: Sendable {
+    enum Command: Sendable {
+        case input([UInt8])
+        case resize(columns: Int, rows: Int, cellWidth: Int, cellHeight: Int)
+        case scroll(Int)
+        case scrollToBottom
+        case snapshot
+        case focus(Bool)
+        case close
+    }
+
+    struct Mailbox: Sendable {
+        var commands: [Command] = []
+        var queuedInput = 0
+        /// Published, not yet taken by the app.
+        var pending: ScreenDelta?
+        /// Taken by the app; the session thread records it as delivered.
+        var taken: ScreenDelta?
+        var status = Session.Status.running
+    }
+
+    /// Input bytes allowed to wait for the shell to read them.
+    static let inputLimit = 16 * 1024 * 1024
+
+    let mailbox = Mutex(Mailbox())
+    let wake: WakePipe
+    let onUpdate: @Sendable () -> Void
+
+    init(wake: WakePipe, onUpdate: @escaping @Sendable () -> Void) {
+        self.wake = wake
+        self.onUpdate = onUpdate
+    }
+
+    /// Queues a command for the session thread; once the session has ended there is no one
+    /// to run it, so it is dropped.
+    func send(_ command: Command) {
+        let queued = mailbox.withLock { box in
+            guard box.status == .running else { return false }
+            box.commands.append(command)
+            return true
+        }
+        if queued { wake.signal() }
+    }
+
+    func sendInput(_ bytes: [UInt8]) -> Bool {
+        guard !bytes.isEmpty else { return true }
+        let accepted = mailbox.withLock { box in
+            guard box.status == .running, box.queuedInput + bytes.count <= Self.inputLimit else { return false }
+            box.queuedInput += bytes.count
+            box.commands.append(.input(bytes))
+            return true
+        }
+        if accepted { wake.signal() }
+        return accepted
+    }
+}
+
+/// Moves a value to another thread that becomes its only user.
+struct Transfer<Value>: @unchecked Sendable {
+    let value: Value
+    init(_ value: Value) { self.value = value }
+}

@@ -181,6 +181,15 @@ public final class PseudoTerminal {
         cpty_echo_disabled(masterFD) == 1
     }
 
+    /// A descriptor that becomes readable when the child exits, to wait on with `poll`
+    /// next to the master (a kqueue on macOS, a pidfd on Linux); nil where neither exists.
+    /// The caller closes it. Exit shows up here even while a background job keeps the
+    /// terminal open, which end of file on the master would miss.
+    public func makeExitWatch() -> Int32? {
+        let fd = cpty_exit_watch(pid)
+        return fd >= 0 ? fd : nil
+    }
+
     /// Sends `signal` to the child's process group. Never after the child is reaped: its
     /// process group id may belong to someone else by then.
     public func signal(_ signal: Int32) {
@@ -230,7 +239,8 @@ public final class PseudoTerminal {
         return waitForExit(timeoutMilliseconds: graceMilliseconds)
     }
 
-    static func monotonicMilliseconds() -> Int {
+    /// Milliseconds on the monotonic clock, for deadlines.
+    public static func monotonicMilliseconds() -> Int {
         var now = timespec()
         clock_gettime(CLOCK_MONOTONIC, &now)
         return Int(now.tv_sec) * 1_000 + Int(now.tv_nsec) / 1_000_000

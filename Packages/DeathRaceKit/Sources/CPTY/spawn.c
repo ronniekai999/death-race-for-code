@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #if defined(__APPLE__)
+#include <sys/event.h>
 #include <util.h>
 #else
 #include <pty.h>
@@ -144,4 +145,27 @@ int cpty_echo_disabled(int master_fd) {
     struct termios t;
     if (tcgetattr(master_fd, &t) != 0) return -1;
     return (t.c_lflag & ECHO) ? 0 : 1;
+}
+
+int cpty_exit_watch(pid_t pid) {
+#if defined(__APPLE__)
+    int kq = kqueue();
+    if (kq < 0) return -1;
+    struct kevent change;
+    EV_SET(&change, (uintptr_t)pid, EVFILT_PROC, EV_ADD | EV_ONESHOT, NOTE_EXIT, 0, NULL);
+    if (kevent(kq, &change, 1, NULL, 0, NULL) < 0) {
+        int saved = errno;
+        close(kq);
+        errno = saved;
+        return -1;
+    }
+    (void)fcntl(kq, F_SETFD, FD_CLOEXEC);
+    return kq;
+#elif defined(__linux__) && defined(SYS_pidfd_open)
+    return (int)syscall(SYS_pidfd_open, pid, 0);  // close-on-exec by default
+#else
+    (void)pid;
+    errno = ENOSYS;
+    return -1;
+#endif
 }

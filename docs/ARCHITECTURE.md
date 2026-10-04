@@ -41,6 +41,7 @@ UI half needs macOS.
 | `PTYKit` | macOS, Linux | `PseudoTerminal` (non-blocking master, resize, echo state, reaping), `ShellLaunch`, `SmokeTest` |
 | `VTCore` | macOS, Linux | the engine: parser, screens and scrollback, reflow, SGR, modes, reports, OSC/DCS; key, mouse, focus and paste encoding |
 | `ScreenProtocol` | macOS, Linux | `ScreenDelta`, `DeltaBuilder` (session side), `MirrorGrid` (app side), `DeltaCodec` (bytes for XPC) |
+| `SessionKit` | macOS, Linux | `Session`: one thread per shell owning its PTY and engine, a locked mailbox for deltas and commands |
 | `vthost` | macOS, Linux | headless host CLI: `smoke` now; `run`, `replay`, `dump`, `bench`, esctest later |
 | `LegendsUI` | macOS | design system: tokens, `Wordmark999`, `NeonBorder`, `Starfield`, `Tagline` |
 | `DeathRaceApp` | macOS | the SwiftUI app; Phase 0 shows a first-lap window and checks the login shell |
@@ -76,6 +77,13 @@ parser barge back in and stall the main thread for seconds. So no engine is shar
    keyDown → KeyEncoder (mirrored modes) → session.send; never a blocking write on main
    cursor blink: a Core Animation layer animation, no app wakeups; stops after 30 s idle
 ```
+
+As built: the thread also polls a child-exit descriptor (a kqueue on macOS, a pidfd on Linux),
+so a shell's exit is seen even while a background job keeps the terminal open. Resizes
+coalesce to the last one and reach the engine before the program, so its redraw finds the new
+size. Typing returns a scrolled-back view to the bottom. Synchronized output holds a frame for
+at most a second. Queued input is capped at 16 MiB. Debug builds send every delta through
+`DeltaCodec`. The tests run real shells, and CI runs them under Thread Sanitizer.
 
 `CAMetalDisplayLink` on a background run loop is reported never to fire on macOS, so v1
 renders on main through `NSView.displayLink`. If p95 frame CPU on main exceeds 2 ms, encoding

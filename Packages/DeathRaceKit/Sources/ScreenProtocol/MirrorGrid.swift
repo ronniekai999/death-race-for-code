@@ -23,6 +23,7 @@ public struct MirrorGrid: Sendable {
     public private(set) var palette = Palette.legendsNeverDie
     public private(set) var viewportOffset = 0
     public private(set) var scrollbackCount = 0
+    public private(set) var echoOff = false
 
     public init() {}
 
@@ -63,6 +64,7 @@ public struct MirrorGrid: Sendable {
         if let newPalette = delta.palette { palette = newPalette }
         viewportOffset = delta.viewportOffset
         scrollbackCount = delta.scrollbackCount
+        echoOff = delta.echoOff
         return changed
     }
 }

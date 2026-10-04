@@ -139,12 +139,19 @@ public enum PaletteSearch {
         }
     }
 
-    /// A pane, for "Tabs and panes": its program and where it is.
+    /// A pane, for "Tabs and panes": its tab's label, where the tab is ("Tab 2"), and found
+    /// by its folder too.
     public static func pane(
-        _ pane: PaneID, in tab: TabID, title: String, directory: String?, tabNumber: Int
+        _ pane: PaneID, in tab: TabID, title: String, directory: String?, place: String, shortcut: String?
     ) -> PaletteItem {
         PaletteItem(
-            .pane(tab, pane), kind: .place, title: title, detail: directory,
-            shortcut: tabNumber <= 9 ? "⌘\(tabNumber)" : nil, keywords: ["tab", "pane"])
+            .pane(tab, pane), kind: .place, title: title, detail: place, shortcut: shortcut,
+            keywords: ["tab", "pane"] + [directory].compactMap { $0 })
+    }
+
+    /// The ⌘ key that shows the tab at `index` of `count`: ⌘1 to ⌘8, and ⌘9 for the last.
+    public static func tabShortcut(index: Int, count: Int) -> String? {
+        if index == count - 1, index >= 8 { return "⌘9" }
+        return index < 8 ? "⌘\(index + 1)" : nil
     }
 }

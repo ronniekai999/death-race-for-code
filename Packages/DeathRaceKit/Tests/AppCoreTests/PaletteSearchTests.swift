@@ -60,9 +60,21 @@ import Testing
     }
 
     @Test func panesShowWhereTheyAre() {
-        let pane = PaletteSearch.pane(PaneID(4), in: TabID(2), title: "vim", directory: "~/code", tabNumber: 3)
+        let pane = PaletteSearch.pane(
+            PaneID(4), in: TabID(2), title: "vim", directory: "~/code", place: "Tab 3",
+            shortcut: PaletteSearch.tabShortcut(index: 2, count: 3))
         #expect(pane.id == "pane.2.4")
         #expect(pane.shortcut == "⌘3")
+        #expect(pane.detail == "Tab 3")
         #expect(PaletteSearch.search("code", in: [pane]).map(\.item.title) == ["vim"])
+    }
+
+    @Test func tabShortcutsAreTheOnesThatWork() {
+        #expect(PaletteSearch.tabShortcut(index: 0, count: 1) == "⌘1")
+        #expect(PaletteSearch.tabShortcut(index: 7, count: 8) == "⌘8")
+        #expect(PaletteSearch.tabShortcut(index: 8, count: 9) == "⌘9")
+        // With ten tabs ⌘9 shows the last; the ninth has no key.
+        #expect(PaletteSearch.tabShortcut(index: 8, count: 10) == nil)
+        #expect(PaletteSearch.tabShortcut(index: 9, count: 10) == "⌘9")
     }
 }

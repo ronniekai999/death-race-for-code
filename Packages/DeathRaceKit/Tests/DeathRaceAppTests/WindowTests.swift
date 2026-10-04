@@ -49,6 +49,15 @@ final class TestHost: WindowHost {
 
     func windowClosed(_ controller: PitLaneWindowController) { closed.append(controller) }
     func inputStateChanged() {}
+
+    private(set) var recentPicks: [String] = []
+    private(set) var chosenThemes: [String] = []
+    private(set) var settingsPages: [SettingsCatalog.Page?] = []
+    func places(from controller: PitLaneWindowController) -> [PaletteItem] { controller.places(isCurrent: true) }
+    func focus(pane: PaneID, from controller: PitLaneWindowController) { controller.focus(pane: pane) }
+    func chooseTheme(_ id: String) throws { chosenThemes.append(id) }
+    func showSettings(page: SettingsCatalog.Page?) { settingsPages.append(page) }
+    func picked(_ id: String) { recentPicks = PaletteState.remembering(id, in: recentPicks) }
     func open(
         detached tab: TabModel, panes: [PaneController], area: PaneAreaView, from controller: PitLaneWindowController
     ) {

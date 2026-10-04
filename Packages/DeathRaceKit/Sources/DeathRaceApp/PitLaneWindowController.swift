@@ -2,6 +2,7 @@ import AppCore
 import AppKit
 import ConfigKit
 import Foundation
+import LegendsUI
 import SurfaceCore
 import TerminalUI
 import VTCore
@@ -33,6 +34,18 @@ protocol WindowHost: AnyObject {
     func inputStateChanged()
     func open(
         detached tab: TabModel, panes: [PaneController], area: PaneAreaView, from controller: PitLaneWindowController)
+
+    // Hear Me Calling's reach beyond its window.
+    /// Every window's panes, `controller`'s first.
+    func places(from controller: PitLaneWindowController) -> [PaletteItem]
+    /// Brings forward the window holding `pane` and gives the pane the keys.
+    func focus(pane: PaneID, from controller: PitLaneWindowController)
+    /// Writes `theme = id` for every window.
+    func chooseTheme(_ id: String) throws
+    func showSettings(page: SettingsCatalog.Page?)
+    /// Earlier picks, most recent first.
+    var recentPicks: [String] { get }
+    func picked(_ id: String)
 }
 
 /// One window: tabs of split panes under the Pit Lane chrome. The tabs and panes live in a
@@ -57,6 +70,10 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     /// The last branch read, by directory, so the status bar can draw at once.
     private var branches: [String: String] = [:]
     private var branchRead: [String: Date] = [:]
+    /// Hear Me Calling, while it is open.
+    private(set) var hearMeCalling: HearMeCallingOverlay?
+    /// The theme Hear Me Calling shows on this window while its row is highlighted.
+    private var previewThemeID: String?
 
     /// Shown while Secure Keyboard Entry is on and this is the key window.
     var showsSecureInput = false {
@@ -416,8 +433,137 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     @objc func clearToStart(_ sender: Any?) { activePane?.surface.clear(.toStart) }
     @objc func clearScrollback(_ sender: Any?) { activePane?.surface.clear(.scrollback) }
 
-    /// Hear Me Calling arrives in a later milestone.
-    @objc func showHearMeCalling(_ sender: Any?) {}
+    // MARK: - Hear Me Calling
+
+    /// ⇧⌘P or the title bar's button: opens Hear Me Calling over this window, or closes it.
+    @objc func showHearMeCalling(_ sender: Any?) {
+        if hearMeCalling != nil { return closeHearMeCalling() }
+        guard let host else { return }
+        // Found while the active pane has the keys, so the actions are the ones that would
+        // work on it.
+        let items =
+            paletteActions() + host.places(from: self) + PaletteSearch.themes(current: config.themeID)
+            + PaletteSearch.settingsPages
+        let model = HearMeCallingModel(
+            state: PaletteState(items: items, recent: host.recentPicks), palette: LegendsPalette(chrome))
+        let overlay = HearMeCallingOverlay(model: model, chrome: chrome)
+        model.onPreview = { [weak self] theme in self?.previewTheme(theme) }
+        model.onChoose = { [weak self] item in self?.choose(item) }
+        overlay.onDismiss = { [weak self] in self?.closeHearMeCalling() }
+        overlay.frame = root.bounds
+        root.addSubview(overlay)
+        hearMeCalling = overlay
+        overlay.layoutSubtreeIfNeeded()
+        window?.makeFirstResponder(overlay.field)
+    }
+
+    /// Closes Hear Me Calling: the window's own theme comes back unless one was chosen, and
+    /// the active pane has the keys again.
+    func closeHearMeCalling(restoringTheme: Bool = true) {
+        guard let overlay = hearMeCalling else { return }
+        hearMeCalling = nil
+        overlay.detach()
+        if restoringTheme { previewTheme(nil) }
+        if let pane = activePane { window?.makeFirstResponder(pane.surface) }
+    }
+
+    private func choose(_ item: PaletteItem) {
+        host?.picked(item.id)
+        switch item.target {
+        case .action(let id):
+            closeHearMeCalling()
+            let action = MainMenu.selector(id)
+            NSApp.sendAction(action, to: target(for: action), from: nil)
+        case .pane(_, let pane):
+            closeHearMeCalling()
+            host?.focus(pane: pane, from: self)
+        case .theme(let id):
+            // The preview becomes the setting, so there is nothing to put back.
+            previewThemeID = nil
+            closeHearMeCalling(restoringTheme: false)
+            do {
+                try host?.chooseTheme(id)
+            } catch {
+                apply(config)
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "Death Race could not save the theme"
+                alert.informativeText = error.localizedDescription
+                Task { _ = await present(alert) }
+            }
+        case .settings(let page):
+            closeHearMeCalling()
+            host?.showSettings(page: page)
+        }
+    }
+
+    /// The menus' actions that would do something now, as the menus would show them.
+    private func paletteActions() -> [PaletteItem] {
+        PaletteSearch.actions.filter { item in
+            guard case .action(let id) = item.target, id != .hearMeCalling else { return false }
+            let action = MainMenu.selector(id)
+            guard let target = target(for: action) else { return false }
+            let menuItem = NSMenuItem(title: item.title, action: action, keyEquivalent: "")
+            if let validator = target as? any NSMenuItemValidation { return validator.validateMenuItem(menuItem) }
+            if let validator = target as? any NSUserInterfaceValidations {
+                return validator.validateUserInterfaceItem(menuItem)
+            }
+            return true
+        }
+    }
+
+    /// Who takes `action` in this window, as a menu would find it: the responder chain from
+    /// the window's first responder, the window's delegate, then the app and its delegate.
+    private func target(for action: Selector) -> AnyObject? {
+        var responder: NSResponder? = window?.firstResponder
+        while let current = responder {
+            if current.responds(to: action) { return current }
+            responder = current.nextResponder
+        }
+        if let delegate = window?.delegate as? NSObject, delegate.responds(to: action) { return delegate }
+        if NSApp.responds(to: action) { return NSApp }
+        if let delegate = NSApp.delegate as? NSObject, delegate.responds(to: action) { return delegate }
+        return nil
+    }
+
+    private func previewTheme(_ id: String?) {
+        guard id != previewThemeID else { return }
+        previewThemeID = id
+        apply(config)
+    }
+
+    /// This window's panes for Hear Me Calling: each tab's label, where it is ("Tab 2,
+    /// pane 3"), and in the window in use a one-pane tab's ⌘ key.
+    func places(isCurrent: Bool) -> [PaletteItem] {
+        let count = model.tabs.count
+        return model.tabs.enumerated().flatMap { index, tab in
+            tab.panes.enumerated().compactMap { number, id -> PaletteItem? in
+                guard let pane = panes[id] else { return nil }
+                let title = TabLabel.text(
+                    title: pane.title, program: pane.programName ?? pane.shellName, directory: pane.directory,
+                    home: Self.home)
+                var place = "Tab \(index + 1)"
+                if tab.panes.count > 1 { place += ", pane \(number + 1)" }
+                if !isCurrent { place += " in another window" }
+                let shortcut =
+                    isCurrent && tab.panes.count == 1 ? PaletteSearch.tabShortcut(index: index, count: count) : nil
+                return PaletteSearch.pane(
+                    id, in: tab.id, title: title,
+                    directory: pane.directory.map { abbreviatingHome($0, home: Self.home) },
+                    place: place, shortcut: shortcut)
+            }
+        }
+    }
+
+    /// Hear Me Calling's pick: the pane's tab is shown, zoomed out if another pane filled
+    /// it, and the pane takes the keys.
+    func focus(pane id: PaneID) {
+        guard let tab = model.tab(containing: id) else { return }
+        if tab.id != model.activeTabID { select(tab.id) }
+        if let zoomed = tab.zoomedPane, zoomed != id { model.toggleZoom() }
+        model.activate(id)
+        focusActivePane()
+    }
 
     // MARK: - Splits
 
@@ -566,9 +712,10 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     /// Applies reloaded settings to every pane, and the theme to the chrome.
     func apply(_ newConfig: Config) {
         config = newConfig
-        for pane in panes.values { pane.apply(newConfig) }
-        if newConfig.namedTheme != chrome.theme {
-            chrome = Chrome(newConfig.namedTheme)
+        let shown = shownConfig
+        for pane in panes.values { pane.apply(shown) }
+        if shown.namedTheme != chrome.theme {
+            chrome = Chrome(shown.namedTheme)
             applyChrome()
         }
         for area in areas.values { area.showsStars = showsStars }
@@ -576,7 +723,16 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         refreshStatus()
     }
 
+    /// The settings, with the theme Hear Me Calling is previewing.
+    private var shownConfig: Config {
+        guard let previewThemeID else { return config }
+        var shown = config
+        shown.themeID = previewThemeID
+        return shown
+    }
+
     private func applyChrome() {
+        hearMeCalling?.setChrome(chrome)
         window?.appearance = chrome.appearance
         window?.backgroundColor = chrome.colors.ground.nsColor
         root.titleBar.setChrome(chrome)
@@ -720,6 +876,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     }
 
     func windowDidResignKey(_ notification: Notification) {
+        closeHearMeCalling()
         for pane in panes.values { pane.surface.focusChanged() }
         refreshCards()
         host?.inputStateChanged()
@@ -768,7 +925,8 @@ extension PitLaneWindowController: NSMenuItemValidation {
             #selector(moveDividerUp(_:)), #selector(moveDividerDown(_:)):
             return model.activeTab?.isSplit == true && model.activeTab?.zoomedPane == nil
         case #selector(showHearMeCalling(_:)):
-            return false
+            menuItem.state = hearMeCalling != nil ? .on : .off
+            return true
         default:
             return true
         }

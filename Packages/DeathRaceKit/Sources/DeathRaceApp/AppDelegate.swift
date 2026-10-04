@@ -21,11 +21,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     private(set) var settingsWindow: SettingsWindowController?
     let ids = IDSource()
     let makeSession: SessionMaker
+    /// Where Hear Me Calling's recent picks are kept.
+    private let defaults: UserDefaults
+    static let recentPicksKey = "HearMeCallingRecentPicks"
 
-    /// Tests pass sessions that run no shell and a settings file of their own.
-    init(makeSession: @escaping SessionMaker = PaneController.realSession, configStore: ConfigStore = ConfigStore()) {
+    /// Tests pass sessions that run no shell, and a settings file and defaults of their own.
+    init(
+        makeSession: @escaping SessionMaker = PaneController.realSession, configStore: ConfigStore = ConfigStore(),
+        defaults: UserDefaults = .standard
+    ) {
         self.makeSession = makeSession
         self.configStore = configStore
+        self.defaults = defaults
         super.init()
     }
 
@@ -213,7 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         let chrome = Chrome(configStore.config.namedTheme)
         let model = SettingsModel(
             config: configStore.config, palette: LegendsPalette(chrome), filePath: configStore.url.path)
-        model.onSet = { [weak self] setting, value in self?.write(setting, value) }
+        model.onSet = { [weak self] setting, value in self?.saveFromSettings(setting, value) }
         model.onOpenFile = { [weak self] in self?.openSettingsFile(nil) }
         model.onRevealFile = { [weak self] in self?.revealSettingsFile() }
         model.onReload = { [weak self] in self?.reloadConfiguration(nil) }
@@ -230,17 +237,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         return controller
     }
 
-    /// A control in Settings changed: that one line of the file, then everything follows the
-    /// file. If it cannot be written, the window says so and shows the file's value again.
-    private func write(_ setting: SettingsCatalog.Setting, _ value: SettingsCatalog.Value) {
+    /// Writes `value` for `setting`, that one line of the file; then everything follows the
+    /// file, which still holds the old value if it could not be written.
+    func save(_ setting: SettingsCatalog.Setting, _ value: SettingsCatalog.Value) throws {
+        defer { applyConfiguration() }
+        try configStore.update { SettingsCatalog.set(setting, to: value, in: $0) }
+    }
+
+    /// A control in Settings changed. If the file cannot be written, the window says so and
+    /// shows the file's value again.
+    private func saveFromSettings(_ setting: SettingsCatalog.Setting, _ value: SettingsCatalog.Value) {
         do {
-            try configStore.update { SettingsCatalog.set(setting, to: value, in: $0) }
+            try save(setting, value)
             settingsWindow?.model.problem = nil
         } catch {
             settingsWindow?.model.problem =
                 "Death Race could not save the change to \(configStore.url.path): \(error.localizedDescription)"
         }
-        applyConfiguration()
     }
 
     private func revealSettingsFile() {
@@ -283,6 +296,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     /// Frames drawn so far by the panes that are open, for the Energy page.
     private var framesDrawn: Int {
         allPanes.reduce(0) { $0 + $1.surface.frameStats.framesDrawn }
+    }
+
+    // MARK: - Hear Me Calling
+
+    func places(from controller: PitLaneWindowController) -> [PaletteItem] {
+        ([controller] + windows.filter { $0 !== controller }).flatMap { $0.places(isCurrent: $0 === controller) }
+    }
+
+    func focus(pane: PaneID, from controller: PitLaneWindowController) {
+        guard let owner = windows.first(where: { $0.panes[pane] != nil }) else { return }
+        if owner !== controller { owner.window?.makeKeyAndOrderFront(nil) }
+        owner.focus(pane: pane)
+    }
+
+    func chooseTheme(_ id: String) throws {
+        guard let setting = SettingsCatalog.setting("theme") else { return }
+        try save(setting, .text(id))
+    }
+
+    var recentPicks: [String] {
+        defaults.stringArray(forKey: Self.recentPicksKey) ?? []
+    }
+
+    func picked(_ id: String) {
+        defaults.set(PaletteState.remembering(id, in: recentPicks), forKey: Self.recentPicksKey)
     }
 }
 

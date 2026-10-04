@@ -208,6 +208,11 @@ public enum SettingsCatalog {
         Page.allCases.flatMap { groups(on: $0) }.flatMap(\.settings)
     }
 
+    /// The setting for `key`, if the window shows it.
+    public static func setting(_ key: String) -> Setting? {
+        allSettings.first { $0.key == key }
+    }
+
     // MARK: - Values
 
     /// A control's value.

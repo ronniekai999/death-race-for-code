@@ -188,6 +188,14 @@ import VTCore
         #expect(diagnostics.count == 1)
     }
 
+    @Test func lucidDreamsHotkey() {
+        #expect(Config().lucidDreamsHotkey == "⌥Space")
+        let (set, diagnostics) = Config.parse("lucid-dreams-hotkey = ⌃⌘T")
+        #expect(set.lucidDreamsHotkey == "⌃⌘T")
+        #expect(diagnostics.isEmpty)
+        #expect(Config.parse("lucid-dreams-hotkey = none").config.lucidDreamsHotkey == "none")
+    }
+
     @Test func emptyCommandsAreRefused() {
         let (config, diagnostics) = Config.parse("command = \"\"")
         #expect(config.command == nil)

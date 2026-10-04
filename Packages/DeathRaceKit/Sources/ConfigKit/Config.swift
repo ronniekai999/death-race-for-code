@@ -26,6 +26,10 @@ public struct Config: Sendable, Equatable {
     public var mouseScrollMultiplier = 3.0
     /// On the alternate screen (less, vim), the wheel sends arrow keys.
     public var mouseScrollAlternate = true
+    /// The global hotkey that shows and hides Lucid Dreams, the notch quick-terminal, written
+    /// as macOS writes shortcuts ("⌥Space"). "none" turns the hotkey off; the menu and the
+    /// menu-bar icon still open it. The app reads it with `KeyShortcut(parsing:)`.
+    public var lucidDreamsHotkey = "⌥Space"
 
     // Window
     /// Points between the window edges and the text.

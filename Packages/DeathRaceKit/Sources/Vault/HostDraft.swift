@@ -29,6 +29,8 @@ public struct HostDraft: Equatable, Sendable {
         /// A new key in this Mac's Secure Enclave, with Touch ID. The host logs in as usual
         /// until the key is on the server, which happens over that first connection.
         case newSecureEnclaveKey
+        /// A Secure Enclave key WRLD already holds.
+        case secureEnclaveKey(KeyID)
         case keyFile(String)
     }
 
@@ -93,6 +95,8 @@ public struct HostDraft: Equatable, Sendable {
         switch signIn {
         case .automatic, .newSecureEnclaveKey:
             identity = .automatic
+        case .secureEnclaveKey(let key):
+            identity = .secureEnclave(key)
         case .keyFile(let path):
             let path = trimmed(path)
             guard SSHValue.isPath(path) else { throw .keyFile }
@@ -105,6 +109,34 @@ public struct HostDraft: Equatable, Sendable {
                 Connection(
                     address: address, user: user.isEmpty ? nil : user, port: port, identity: identity,
                     jumpHostID: jumpHostID)))
+    }
+
+    /// The fields of a host WRLD describes itself, for the inspector; nil for one from
+    /// `~/.ssh/config`, which that file describes.
+    public init?(editing host: WRLDHost) {
+        guard let connection = host.connection else { return nil }
+        let signIn: SignIn =
+            switch connection.identity {
+            case .automatic: .automatic
+            case .secureEnclave(let key): .secureEnclaveKey(key)
+            case .keyFile(let path): .keyFile(path)
+            }
+        self.init(
+            name: host.name, address: connection.address, user: connection.user ?? "",
+            port: connection.port.map(String.init) ?? "", jumpHostID: connection.jumpHostID, signIn: signIn)
+    }
+
+    /// `host` with these fields: its name and how it's reached change, and everything else
+    /// about it (group, tags, Legend, tunnels, what it runs on connect, agent forwarding)
+    /// stays.
+    public func applied(to host: WRLDHost) throws(Problem) -> WRLDHost {
+        let edited = try self.host(id: host.id)
+        var result = host
+        result.name = edited.name
+        guard case .wrld(var connection) = edited.source else { return result }
+        connection.forwardAgent = host.connection?.forwardAgent ?? false
+        result.source = .wrld(connection)
+        return result
     }
 
     private func trimmed(_ text: String) -> String {

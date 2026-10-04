@@ -45,9 +45,14 @@ protocol HostConnecting: AnyObject, Sendable {
     /// What a session on `host` types first: its on-connect snippet, its fields at their
     /// defaults. Nil when it has none.
     func onConnectCommand(for host: HostRef) -> String?
+    /// A snippet was typed in: Wishing Well counts its uses.
+    func used(_ snippet: SnippetID)
 }
 
 extension Notification.Name {
     /// A tunnel opened or closed: status bars count them again.
     static let tunnelsChanged = Notification.Name("local.deathraceforcode.tunnelsChanged")
+    /// WRLD's hosts, groups, snippets or tunnels changed, or what it knows of them: the
+    /// sidebar and the WRLD window draw again.
+    static let wrldChanged = Notification.Name("local.deathraceforcode.wrldChanged")
 }

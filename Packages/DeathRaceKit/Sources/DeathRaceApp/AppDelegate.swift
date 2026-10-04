@@ -59,6 +59,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
             home: NSHomeDirectory(), helper: WRLDService.bundledHelper, secrets: KeychainSecretStore(),
             presence: DeviceOwnerPresence(), presenter: SheetPromptPresenter())
         self.wrld = wrld
+        wrld.checksHosts = configStore.config.checkHosts
+        wrld.readsHostOS = configStore.config.readHostOS
+        watchWRLDFiles(wrld)
         // Masters a crash left running hold their tunnels' ports: end them first.
         Task { await wrld.cleanUpLeftovers() }
         if windows.isEmpty { newWindow(nil) }
@@ -135,6 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
 
     func applicationWillTerminate(_ notification: Notification) {
         watcher?.stop()
+        for watcher in wrldWatchers { watcher.stop() }
         secureInput.update(appIsActive: false, focusedTabReadsPassword: false)
         for pane in allPanes { pane.shutDown() }
     }
@@ -143,6 +147,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
 
     /// The New Host sheet while it's open.
     private var newHostSheet: NewHostSheet?
+    /// wrld.json and ~/.ssh/config, watched.
+    private var wrldWatchers: [ConfigWatcher] = []
+
+    /// Hand edits to wrld.json and changes to ~/.ssh/config apply at once, as the settings
+    /// file's do.
+    private func watchWRLDFiles(_ wrld: WRLDService) {
+        wrldWatchers = [wrld.vaultPath, NSHomeDirectory() + "/.ssh/config"].map { path in
+            let watcher = ConfigWatcher(file: URL(fileURLWithPath: path))
+            watcher.onChange = { [weak wrld] in
+                wrld?.reload()
+                WRLDService.changed()
+            }
+            watcher.start()
+            return watcher
+        }
+    }
 
     /// "New Host…": a sheet on the window in front; the host opens in a new tab once added.
     @objc func newHost(_ sender: Any?) {
@@ -351,6 +371,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         secureInput.setMode(config.secureKeyboardEntry)
         updateSecureInput()
         settingsWindow?.update(config: config, chrome: Chrome(config.namedTheme))
+        wrld?.checksHosts = config.checkHosts
+        wrld?.readsHostOS = config.readHostOS
     }
 
     /// Frames drawn so far by the panes that are open, for the Energy page.

@@ -93,6 +93,9 @@ final class FakeConnections: HostConnecting {
     }
 
     func onConnectCommand(for host: HostRef) -> String? { onConnect }
+
+    private(set) var uses: [SnippetID] = []
+    func used(_ snippet: SnippetID) { uses.append(snippet) }
 }
 
 extension WindowTests {

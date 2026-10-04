@@ -24,6 +24,16 @@ final class WRLDService: HostConnecting {
     private let log = Logger(subsystem: "local.deathraceforcode.DeathRace", category: "WRLD")
 
     private(set) var vault = Vault()
+    /// What WRLD has learned as it's used: last connected, OS, latency, snippet uses.
+    private(set) var state: WRLDState
+    private let stateStore: WRLDStateStore
+    /// What the settings let WRLD find out by itself (`wrld-check-hosts`, `wrld-host-os`).
+    var checksHosts = true
+    var readsHostOS = true
+    /// Legends being checked now, and ones whose address turned out to be on the local
+    /// network before you'd connected (checked again once you have).
+    private var checking: Set<HostID> = []
+    private var skippedLocal: Set<HostID> = []
     /// Concrete names in ~/.ssh/config, for the palette and their control blocks.
     private(set) var discovered: [SSHConfigDiscovery.Alias] = []
     private(set) var generated: GeneratedConfig
@@ -50,9 +60,14 @@ final class WRLDService: HostConnecting {
         self.presenter = presenter
         paths = WRLDPaths.standard(home: home)
         store = VaultStore(path: VaultLocation.path(environment: environment, home: home))
+        stateStore = WRLDStateStore(path: paths.state)
+        state = stateStore.load()
         generated = GeneratedConfig(vault: Vault(), paths: paths)
         reload()
     }
+
+    /// wrld.json, wherever it is.
+    var vaultPath: String { store.path }
 
     /// `deathrace-askpass` beside the running executable: Contents/MacOS in the app, the
     /// build folder in a debug run.
@@ -141,6 +156,7 @@ final class WRLDService: HostConnecting {
         }
         switch await pool.connect(target, for: Self.user(pane), secrets: savedSecrets) {
         case .ready:
+            connected(host, alias: target.alias)
             if case .vault(let id) = host, let key = pendingKeys[id] {
                 Task { await install(key, on: id, alias: target.alias) }
             }
@@ -239,20 +255,140 @@ final class WRLDService: HostConnecting {
     func snippet(_ id: SnippetID) -> Snippet? { vault.snippet(id) }
 
     func save(_ snippet: Snippet) -> Bool {
+        edit { $0.save(snippet) }
+    }
+
+    func used(_ snippet: SnippetID) {
+        state.used(snippet)
+        saveState()
+    }
+
+    // MARK: - Changing WRLD
+
+    /// Makes `change` to the vault and saves it, then everything showing WRLD draws again;
+    /// false when it couldn't be saved, and nothing changed.
+    @discardableResult
+    func edit(_ change: (inout Vault) -> Void) -> Bool {
         var updated = vault
-        if let index = updated.snippets.firstIndex(where: { $0.id == snippet.id }) {
-            updated.snippets[index] = snippet
-        } else {
-            updated.snippets.append(snippet)
-        }
+        change(&updated)
+        guard updated != vault else { return true }
         do {
             try store.save(updated)
         } catch {
-            log.error("WRLD couldn't save the snippet: \(String(describing: error), privacy: .public)")
+            log.error("WRLD couldn't save its vault: \(String(describing: error), privacy: .public)")
             return false
         }
         reload()
+        Self.changed()
         return true
+    }
+
+    /// The sidebar and the WRLD window draw again.
+    static func changed() {
+        NotificationCenter.default.post(name: .wrldChanged, object: nil)
+    }
+
+    /// Hosts with a connection open, by `WRLDState.key(for:)`.
+    var connectedKeys: Set<String> { Set(pool?.connected ?? []) }
+
+    var openTunnelIDs: Set<TunnelID> { Set(board?.all.filter(\.isOpen).map(\.id) ?? []) }
+
+    /// "Found 12 hosts in ~/.ssh/config": the names WRLD doesn't hold, less those put away.
+    var importable: [String] {
+        WRLDBoard.importable(aliases: discovered.map(\.name), vault: vault, dismissed: state.dismissedImports)
+    }
+
+    /// "Not now": the names offered so far aren't offered again; new ones will be.
+    func dismissImports() {
+        state.dismissedImports = Array(Set(state.dismissedImports + importable)).sorted()
+        saveState()
+    }
+
+    // MARK: - What WRLD finds out by itself
+
+    private func record(_ host: HostRef, _ change: (inout WRLDState.HostFacts) -> Void) {
+        state.update(host, change)
+        saveState()
+    }
+
+    private func saveState() {
+        do {
+            try stateStore.save(state)
+        } catch {
+            log.error("WRLD couldn't save what it knows: \(String(describing: error), privacy: .public)")
+        }
+        Self.changed()
+    }
+
+    /// A connection to `host` came up: when it was, and, at most weekly, what it runs, read
+    /// over that connection.
+    private func connected(_ host: HostRef, alias: String) {
+        if case .vault(let id) = host { skippedLocal.remove(id) }
+        record(host) { $0.lastConnected = Date() }
+        guard readsHostOS, HostChecks.osIsDue(facts: state.facts(host), enabled: true, now: Date()) else { return }
+        let environment = LoginEnvironment.merging(login ?? [:], into: self.environment)
+        let config = paths.generatedConfig
+        Task {
+            let os = await HostChecks.readOS(
+                alias: alias, config: config, runner: SystemProcessRunner(), environment: environment)
+            record(host) { facts in
+                if let os { facts.os = os }
+                facts.osReadAt = Date()
+            }
+        }
+    }
+
+    /// Checks how quickly the Legends that are due answer (`HostChecks.latencyIsDue`): the
+    /// sidebar and the WRLD window ask while they show, every five minutes and when the
+    /// network changes.
+    func checkLatency(networkChangedAt: Date?) {
+        guard checksHosts else { return }
+        let now = Date()
+        for host in vault.hosts {
+            let facts = state.facts(.vault(host.id))
+            guard !checking.contains(host.id), !skippedLocal.contains(host.id), let connection = host.connection,
+                HostChecks.latencyIsDue(
+                    host, facts: facts, enabled: true, visible: true, networkChangedAt: networkChangedAt, now: now)
+            else { continue }
+            checking.insert(host.id)
+            let allowLocal = facts.lastConnected != nil
+            Task {
+                let answer = await HostChecks.latency(
+                    host: connection.address, port: connection.port ?? 22, allowLocal: allowLocal)
+                checking.remove(host.id)
+                switch answer {
+                case .answered(let milliseconds):
+                    record(.vault(host.id)) { facts in
+                        facts.latency = milliseconds
+                        facts.latencyCheckedAt = Date()
+                    }
+                case .silent:
+                    record(.vault(host.id)) { facts in
+                        facts.latency = nil
+                        facts.latencyCheckedAt = Date()
+                    }
+                case .skipped:
+                    skippedLocal.insert(host.id)
+                }
+            }
+        }
+    }
+
+    // MARK: - Known hosts
+
+    /// The file ssh trusts host keys from, which plain ssh shares.
+    var knownHostsPath: String { home + "/.ssh/known_hosts" }
+
+    func knownHosts() async -> [KnownHosts.Entry] {
+        await KnownHosts.list(path: knownHostsPath, runner: SystemProcessRunner(), environment: environment)
+    }
+
+    /// Forgets the keys ssh trusts for `name`: after a host's key changed and you've made
+    /// sure the new one is right.
+    func forgetKnownHost(_ name: String) async throws(KnownHosts.Failure) {
+        try await KnownHosts.forget(
+            name, path: knownHostsPath, runner: SystemProcessRunner(), environment: environment)
+        Self.changed()
     }
 
     func onConnectCommand(for host: HostRef) -> String? {
@@ -319,6 +455,7 @@ final class WRLDService: HostConnecting {
         }
         reload()
         if let newKey { pendingKeys[host.id] = newKey.id }
+        Self.changed()
         return host.id
     }
 

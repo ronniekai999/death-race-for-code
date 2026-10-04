@@ -871,9 +871,12 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     /// A Wishing Well snippet, into the active pane and every armed pane with it: at once,
     /// or once its fields are filled in.
     private func useSnippet(_ id: SnippetID, run: Bool) {
-        guard let snippet = host?.connections?.snippet(id) else { return }
+        guard let connections = host?.connections, let snippet = connections.snippet(id) else { return }
         let fill = SnippetFill(snippet.text)
-        guard !fill.fields.isEmpty else { return typeSnippet(fill.command, run: run) }
+        guard !fill.fields.isEmpty else {
+            connections.used(id)
+            return typeSnippet(fill.command, run: run)
+        }
         let sheet = WishingWellSheet(title: snippet.name, parent: window)
         wishingWellSheet = sheet
         sheet.show(
@@ -881,8 +884,12 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
                 sheet?.close()
                 self?.wishingWellSheet = nil
                 switch $0 {
-                case .insert(let command)?: self?.typeSnippet(command, run: false)
-                case .run(let command)?: self?.typeSnippet(command, run: true)
+                case .insert(let command)?:
+                    connections.used(id)
+                    self?.typeSnippet(command, run: false)
+                case .run(let command)?:
+                    connections.used(id)
+                    self?.typeSnippet(command, run: true)
                 case nil: break
                 }
                 self?.focusActivePane()

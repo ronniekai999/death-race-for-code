@@ -2,6 +2,7 @@ import AppCore
 import AppKit
 import ConfigKit
 import PTYKit
+import RenderKit
 import SessionKit
 
 /// Opens windows, owns their controllers, and answers the app-wide menu items.
@@ -22,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // The bundled fonts, for this process only, before any window asks for one.
+        FontRegistry.registerBundledFonts()
         // Tabs are the window's own: no native tab bar, Show All Tabs or Merge All Windows,
         // and the "prefer tabs" setting never merges Death Race windows.
         NSWindow.allowsAutomaticWindowTabbing = false

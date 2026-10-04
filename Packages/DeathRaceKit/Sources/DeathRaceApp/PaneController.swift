@@ -80,7 +80,9 @@ final class PaneController {
             config: config, directory: directory, appVersion: DeathRaceApplication.version)
         shellName = launch.executable.split(separator: "/").last.map(String.init) ?? "Shell"
         surface = TerminalSurfaceView(
-            fonts: FontSet(family: config.fontFamily, size: CGFloat(config.fontSize)), theme: config.theme,
+            fonts: FontSet(
+                family: config.fontFamily, size: CGFloat(config.fontSize), italicFamily: config.fontFamilyItalic),
+            theme: config.theme,
             padding: (config.windowPaddingX, config.windowPaddingY), scale: scale)
         applySettings()
         surface.onTitleChange = { [weak self] title in
@@ -264,7 +266,9 @@ final class PaneController {
     /// Applies reloaded settings: fonts, colors, padding, the cursor, keys and the mouse
     /// change at once; the rest waits for new panes.
     func apply(_ newConfig: Config) {
-        let fontChanged = newConfig.fontFamily != config.fontFamily || newConfig.fontSize != config.fontSize
+        let fontChanged =
+            newConfig.fontFamily != config.fontFamily || newConfig.fontSize != config.fontSize
+            || newConfig.fontFamilyItalic != config.fontFamilyItalic
         config = newConfig
         if fontChanged { applyFonts() }
         applySettings()
@@ -284,7 +288,10 @@ final class PaneController {
     }
 
     private func applyFonts() {
-        surface.setFonts(FontSet(family: config.fontFamily, size: CGFloat(fontSizeOverride ?? config.fontSize)))
+        surface.setFonts(
+            FontSet(
+                family: config.fontFamily, size: CGFloat(fontSizeOverride ?? config.fontSize),
+                italicFamily: config.fontFamilyItalic))
     }
 
     static let fontSizes = 6.0...144.0

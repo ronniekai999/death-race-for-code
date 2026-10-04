@@ -77,6 +77,22 @@ final class FakeConnections: HostConnecting {
         toggled.append(id)
         NotificationCenter.default.post(name: .tunnelsChanged, object: nil)
     }
+
+    /// Wishing Well, kept in memory.
+    private(set) var snippets: [Snippet] = []
+    /// The on-connect command for every host, when a test sets one.
+    var onConnect: String?
+
+    func paletteSnippets() -> [PaletteItem] { PaletteSearch.snippets(vault: Vault(snippets: snippets)) }
+    func snippet(_ id: SnippetID) -> Snippet? { snippets.first { $0.id == id } }
+
+    func save(_ snippet: Snippet) -> Bool {
+        snippets.removeAll { $0.id == snippet.id }
+        snippets.append(snippet)
+        return true
+    }
+
+    func onConnectCommand(for host: HostRef) -> String? { onConnect }
 }
 
 extension WindowTests {

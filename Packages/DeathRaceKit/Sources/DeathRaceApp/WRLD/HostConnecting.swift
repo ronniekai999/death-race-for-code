@@ -36,6 +36,15 @@ protocol HostConnecting: AnyObject, Sendable {
     func paletteTunnels() -> [PaletteItem]
     /// Turns a tunnel on, or off when it's open.
     func toggleTunnel(_ id: TunnelID) async
+    /// Hear Me Calling's snippets.
+    func paletteSnippets() -> [PaletteItem]
+    func snippet(_ id: SnippetID) -> Snippet?
+    /// Adds `snippet` to Wishing Well, or changes the one with its id; false when it
+    /// couldn't be saved.
+    func save(_ snippet: Snippet) -> Bool
+    /// What a session on `host` types first: its on-connect snippet, its fields at their
+    /// defaults. Nil when it has none.
+    func onConnectCommand(for host: HostRef) -> String?
 }
 
 extension Notification.Name {

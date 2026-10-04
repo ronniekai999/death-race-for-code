@@ -232,6 +232,39 @@ final class WRLDService: HostConnecting {
         Self.tunnelsChanged()
     }
 
+    // MARK: - Wishing Well
+
+    func paletteSnippets() -> [PaletteItem] { PaletteSearch.snippets(vault: vault) }
+
+    func snippet(_ id: SnippetID) -> Snippet? { vault.snippet(id) }
+
+    func save(_ snippet: Snippet) -> Bool {
+        var updated = vault
+        if let index = updated.snippets.firstIndex(where: { $0.id == snippet.id }) {
+            updated.snippets[index] = snippet
+        } else {
+            updated.snippets.append(snippet)
+        }
+        do {
+            try store.save(updated)
+        } catch {
+            log.error("WRLD couldn't save the snippet: \(String(describing: error), privacy: .public)")
+            return false
+        }
+        reload()
+        return true
+    }
+
+    func onConnectCommand(for host: HostRef) -> String? {
+        let saved: WRLDHost? =
+            switch host {
+            case .vault(let id): vault.host(id)
+            case .sshConfig(let alias): vault.hosts.first { $0.source == .sshConfig(alias: alias) }
+            }
+        guard let id = saved?.onConnectSnippetID, let snippet = vault.snippet(id) else { return nil }
+        return SnippetFill(snippet.text).command
+    }
+
     // MARK: - Adding hosts and keys
 
     enum AddFailure: Error, Equatable {

@@ -156,7 +156,7 @@ final class PaletteButtonView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
-        toolTip = "Search actions, tabs and themes"
+        toolTip = "Search actions, tabs, hosts, snippets, tunnels and themes"
     }
 
     @available(*, unavailable)

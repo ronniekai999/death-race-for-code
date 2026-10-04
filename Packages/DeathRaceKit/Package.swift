@@ -122,7 +122,7 @@ var targets: [Target] = [
             name: "DeathRaceAppTests",
             dependencies: [
                 "DeathRaceApp", "AppCore", "TerminalUI", "SurfaceCore", "SessionKit", "ScreenProtocol", "ConfigKit",
-                "PTYKit", "VTCore", "SSHKit",
+                "PTYKit", "VTCore", "SSHKit", "Vault",
             ]),
     ]
 #endif

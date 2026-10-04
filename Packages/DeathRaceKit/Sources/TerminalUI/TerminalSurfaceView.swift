@@ -110,6 +110,9 @@ public final class TerminalSurfaceView: NSView {
     /// Armed and Dangerous: the modes of the other panes a paste here goes to as well, so
     /// the paste question asks once, for all of them.
     public var pasteAlsoGoesTo: (() -> [TerminalModes])?
+    /// The app's items for the context menu, after Copy and Paste (Save Selection to
+    /// Wishing Well).
+    public var contextMenuItems: (() -> [NSMenuItem])?
     /// The link ⌘ is held over, underlined while the pointer is on it.
     public internal(set) var hoveredLink: LinkHit?
     /// How fast the view may draw (`follow-low-power-mode`, `output-frame-rate-cap`).

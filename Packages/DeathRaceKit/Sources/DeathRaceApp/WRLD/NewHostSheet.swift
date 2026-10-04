@@ -69,7 +69,7 @@ struct NewHostView: View {
     @State private var draft = HostDraft()
     @State private var signIn = SignInChoice.automatic
     @State private var keyFile = ""
-    @State private var problem: String?
+    @State private var problem: String? = nil
     @State private var working = false
 
     var body: some View {

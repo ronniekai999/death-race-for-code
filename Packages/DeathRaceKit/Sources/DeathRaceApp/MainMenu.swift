@@ -59,6 +59,8 @@ enum MainMenu {
         let menu = NSMenu(title: "Edit")
         add([.copy, .paste, .selectAll], to: menu)
         menu.addItem(.separator())
+        add([.saveSelectionToWishingWell], to: menu)
+        menu.addItem(.separator())
         add([.clearToStart, .clearScrollback], to: menu)
         return menu
     }
@@ -173,6 +175,7 @@ enum MainMenu {
         case .copy: #selector(NSText.copy(_:))
         case .paste: #selector(NSText.paste(_:))
         case .selectAll: #selector(NSText.selectAll(_:))
+        case .saveSelectionToWishingWell: #selector(PitLaneWindowController.saveSelectionToWishingWell(_:))
         case .clearToStart: #selector(PitLaneWindowController.clearToStart(_:))
         case .clearScrollback: #selector(PitLaneWindowController.clearScrollback(_:))
         case .hearMeCalling: #selector(PitLaneWindowController.showHearMeCalling(_:))

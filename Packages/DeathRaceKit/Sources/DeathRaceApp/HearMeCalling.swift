@@ -89,7 +89,7 @@ final class HearMeCallingOverlay: NSView, NSTextFieldDelegate {
     static let visibleRows = 8
     static let listPadding: CGFloat = 6
     static let footerHeight: CGFloat = 34
-    static let placeholder = "Search actions, tabs, hosts, tunnels, themes and settings"
+    static let placeholder = "Search actions, tabs, hosts, snippets, tunnels, themes and settings"
     static let font = NSFont.systemFont(ofSize: 18, weight: .regular)
     /// The mockup's dimming: rgba(8, 4, 20, 0.55).
     static let dim = NSColor(srgbRed: 8 / 255, green: 4 / 255, blue: 20 / 255, alpha: 0.55)
@@ -260,6 +260,7 @@ extension PaletteItem.Kind {
         case .action: "ACTION"
         case .place: "TAB"
         case .host: "HOST"
+        case .snippet: "SNIPPET"
         case .tunnel: "TUNNEL"
         case .theme: "THEME"
         case .settings: "SETTINGS"
@@ -427,6 +428,8 @@ struct PaletteGlyph: View {
             }
         case .pane: return "rectangle.split.2x1"
         case .host: return "server.rack"
+        // Wishing Well's », as on the boards.
+        case .snippet: return "chevron.right.2"
         case .tunnel: return "arrow.left.arrow.right"
         case .theme: return "paintpalette"
         case .settings(let page): return page.symbol

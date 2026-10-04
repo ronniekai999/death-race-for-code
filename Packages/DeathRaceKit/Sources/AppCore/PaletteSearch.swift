@@ -10,6 +10,7 @@ public struct PaletteItem: Sendable, Equatable, Identifiable {
         case action = "Actions"
         case place = "Tabs and panes"
         case host = "Hosts"
+        case snippet = "Snippets"
         case tunnel = "Tunnels"
         case theme = "Themes"
         case settings = "Settings"
@@ -21,6 +22,8 @@ public struct PaletteItem: Sendable, Equatable, Identifiable {
         case pane(TabID, PaneID)
         /// ↵ opens it in a new tab, ⌘↵ beside the current pane.
         case host(HostRef)
+        /// ↵ types it in, ⌘↵ runs it: after its fields, when it has any.
+        case snippet(SnippetID)
         /// ↵ turns it on or off.
         case tunnel(TunnelID)
         case theme(String)
@@ -45,6 +48,7 @@ public struct PaletteItem: Sendable, Equatable, Identifiable {
         case .pane(let tab, let pane): "pane.\(tab.rawValue).\(pane.rawValue)"
         case .host(.vault(let host)): "host.\(host.rawValue)"
         case .host(.sshConfig(let alias)): "host.alias.\(alias)"
+        case .snippet(let snippet): "snippet.\(snippet.rawValue)"
         case .tunnel(let tunnel): "tunnel.\(tunnel.rawValue)"
         case .theme(let theme): "theme.\(theme)"
         case .settings(let page): "settings.\(page.rawValue)"
@@ -172,6 +176,15 @@ public enum PaletteSearch {
                 keywords: ["ssh", "connect"], alternate: "Open Beside")
         }
         return saved + found
+    }
+
+    /// Wishing Well's snippets, found by their commands too.
+    public static func snippets(vault: Vault) -> [PaletteItem] {
+        vault.snippets.map { snippet in
+            PaletteItem(
+                .snippet(snippet.id), kind: .snippet, title: snippet.name, detail: WishingWell.preview(snippet.text),
+                keywords: [snippet.text, "snippet", "wishing well"], alternate: "Run")
+        }
     }
 
     /// Come & Go's tunnels, the open ones saying so, found by their ports and host.

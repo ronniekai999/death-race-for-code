@@ -83,6 +83,8 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     private(set) var hearMeCalling: HearMeCallingOverlay?
     /// The theme Hear Me Calling shows on this window while its row is highlighted.
     private var previewThemeID: String?
+    /// A Wishing Well sheet, while one is open.
+    private var wishingWellSheet: WishingWellSheet?
 
     /// Shown while Secure Keyboard Entry is on and this is the key window.
     var showsSecureInput = false {
@@ -188,6 +190,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         pane.onBannerChange = { [weak self] in self?.showBanner(of: id) }
         pane.surface.onTyped = { [weak self] input in self?.typed(input, in: id) }
         pane.surface.pasteAlsoGoesTo = { [weak self] in self?.armedModes(besides: id) ?? [] }
+        pane.surface.contextMenuItems = { [weak self] in self?.contextMenuItems(for: id) ?? [] }
         panes[id] = pane
     }
 
@@ -498,7 +501,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         // work on it.
         let items =
             paletteActions() + host.places(from: self) + (host.connections?.paletteHosts() ?? [])
-            + (host.connections?.paletteTunnels() ?? [])
+            + (host.connections?.paletteSnippets() ?? []) + (host.connections?.paletteTunnels() ?? [])
             + PaletteSearch.themes(current: config.themeID) + PaletteSearch.settingsPages
         let model = HearMeCallingModel(
             state: PaletteState(items: items, recent: host.recentPicks), palette: LegendsPalette(chrome))
@@ -554,6 +557,9 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         case .host(let ref):
             closeHearMeCalling()
             open(ref, beside: false)
+        case .snippet(let id):
+            closeHearMeCalling()
+            useSnippet(id, run: false)
         case .tunnel(let id):
             closeHearMeCalling()
             let connections = host?.connections
@@ -561,12 +567,21 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         }
     }
 
-    /// ⌘↵ on a row that has a second action: a host opens beside the active pane.
+    /// ⌘↵ on a row that has a second action: a host opens beside the active pane, and a
+    /// snippet runs.
     private func chooseAlternate(_ item: PaletteItem) {
-        guard case .host(let ref) = item.target else { return }
-        host?.picked(item.id)
-        closeHearMeCalling()
-        open(ref, beside: true)
+        switch item.target {
+        case .host(let ref):
+            host?.picked(item.id)
+            closeHearMeCalling()
+            open(ref, beside: true)
+        case .snippet(let id):
+            host?.picked(item.id)
+            closeHearMeCalling()
+            useSnippet(id, run: true)
+        default:
+            return
+        }
     }
 
     /// The menus' actions that would do something now, as the menus would show them.
@@ -845,6 +860,87 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         tab.armedPanes.compactMap { id in panes[id].map { $0.programName ?? $0.shellName } }
     }
 
+    // MARK: - Wishing Well
+
+    /// Where a snippet typed now goes: the active pane, and every armed pane with it.
+    private var snippetTargets: [PaneID] {
+        guard let active = model.activePane, let tab = model.activeTab else { return [] }
+        return [active] + tab.broadcastTargets(from: active)
+    }
+
+    /// A Wishing Well snippet, into the active pane and every armed pane with it: at once,
+    /// or once its fields are filled in.
+    private func useSnippet(_ id: SnippetID, run: Bool) {
+        guard let snippet = host?.connections?.snippet(id) else { return }
+        let fill = SnippetFill(snippet.text)
+        guard !fill.fields.isEmpty else { return typeSnippet(fill.command, run: run) }
+        let sheet = WishingWellSheet(title: snippet.name, parent: window)
+        wishingWellSheet = sheet
+        sheet.show(
+            SnippetFillView(name: snippet.name, panes: snippetTargets.count, fill: fill) { [weak self, weak sheet] in
+                sheet?.close()
+                self?.wishingWellSheet = nil
+                switch $0 {
+                case .insert(let command)?: self?.typeSnippet(command, run: false)
+                case .run(let command)?: self?.typeSnippet(command, run: true)
+                case nil: break
+                }
+                self?.focusActivePane()
+            })
+    }
+
+    /// `command` as if typed into the active pane and every armed pane with it, with Return
+    /// after it to `run` it. Each program gets it as a paste, so a shell takes it whole, and
+    /// no paste question asks: it was chosen and seen.
+    func typeSnippet(_ command: String, run: Bool) {
+        let inputs = TypedInput.snippet(command, run: run)
+        for target in snippetTargets {
+            guard let surface = panes[target]?.surface else { continue }
+            for input in inputs { surface.receive(input) }
+        }
+    }
+
+    /// Edit › Save Selection to Wishing Well…, or the context menu's: the selected text as a
+    /// new snippet, named and looked over in a sheet first.
+    @objc func saveSelectionToWishingWell(_ sender: Any?) {
+        guard let pane = pane(of: sender), let connections = host?.connections else { return }
+        Task {
+            guard let selected = await pane.surface.selectedText(), !selected.allSatisfy(\.isWhitespace) else {
+                return
+            }
+            let sheet = WishingWellSheet(title: "Save to Wishing Well", parent: window)
+            wishingWellSheet = sheet
+            sheet.show(
+                SaveSnippetView(
+                    name: WishingWell.suggestedName(for: selected),
+                    text: WishingWell.snippetText(fromSelection: selected), save: { connections.save($0) },
+                    done: { [weak self, weak sheet] in
+                        sheet?.close()
+                        self?.wishingWellSheet = nil
+                        self?.focusActivePane()
+                    }))
+        }
+    }
+
+    /// The pane a context menu item was for, else the active one.
+    private func pane(of sender: Any?) -> PaneController? {
+        if let raw = (sender as? NSMenuItem)?.representedObject as? Int, let pane = panes[PaneID(raw)] {
+            return pane
+        }
+        return activePane
+    }
+
+    /// What the app adds to `pane`'s context menu: Save Selection to Wishing Well.
+    private func contextMenuItems(for pane: PaneID) -> [NSMenuItem] {
+        guard host?.connections != nil else { return [] }
+        let item = NSMenuItem(
+            title: ActionCatalog.action(.saveSelectionToWishingWell).menuTitle,
+            action: #selector(saveSelectionToWishingWell(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = pane.rawValue
+        return [item]
+    }
+
     // MARK: - Settings and theme
 
     /// Applies reloaded settings to every pane, and the theme to the chrome.
@@ -1087,6 +1183,8 @@ extension PitLaneWindowController: NSMenuItemValidation {
         case #selector(toggleArmed(_:)):
             menuItem.state = model.activeTab?.isArmed == true ? .on : .off
             return model.activeTab?.isSplit == true
+        case #selector(saveSelectionToWishingWell(_:)):
+            return host?.connections != nil && pane(of: menuItem)?.surface.hasSelection == true
         default:
             return true
         }

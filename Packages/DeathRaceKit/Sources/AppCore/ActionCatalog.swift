@@ -7,7 +7,7 @@ public enum ActionID: String, CaseIterable, Sendable {
     // Shell
     case newWindow, newTab, newHost, splitRight, splitDown, armedAndDangerous, closePane, closeTab, closeWindow
     // Edit
-    case copy, paste, selectAll, clearToStart, clearScrollback
+    case copy, paste, selectAll, saveSelectionToWishingWell, clearToStart, clearScrollback
     // View
     case hearMeCalling, bigger, smaller, actualSize, zoomPane, equalizePanes
     // Window
@@ -143,6 +143,9 @@ public enum ActionCatalog {
         Action(.copy, "Copy", "Copy", .edit, KeyShortcut(.character("c")), inPalette: false),
         Action(.paste, "Paste", "Paste", .edit, KeyShortcut(.character("v")), inPalette: false),
         Action(.selectAll, "Select All", "Select all", .edit, KeyShortcut(.character("a")), inPalette: false),
+        Action(
+            .saveSelectionToWishingWell, "Save Selection to Wishing Well…", "Save selection to Wishing Well", .edit,
+            keywords: ["snippet", "save command", "wishing well"]),
         Action(
             .clearToStart, "Clear to Start", "Clear to start", .edit, KeyShortcut(.character("k")),
             keywords: ["clear screen", "reset", "cls"]),

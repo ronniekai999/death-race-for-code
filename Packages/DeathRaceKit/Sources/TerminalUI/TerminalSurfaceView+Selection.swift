@@ -101,6 +101,19 @@ extension TerminalSurfaceView {
 
     // MARK: - Copying
 
+    /// Whether text is selected, for the app's menus.
+    public var hasSelection: Bool { selectionRange != nil }
+
+    /// The selected text: from the mirror when it is all in view, otherwise from the
+    /// session, which has the history. Nil without a selection.
+    public func selectedText() async -> String? {
+        guard let range = selectionRange, let mirror = model?.mirror, let generation = mirror.generation else {
+            return nil
+        }
+        if let text = mirror.text(in: range) { return text }
+        return await session?.text(in: range, generation: generation)
+    }
+
     /// Edit › Copy (⌘C).
     @objc func copy(_ sender: Any?) {
         guard let range = selectionRange else { return }

@@ -148,6 +148,11 @@ final class PaneController {
             case .ready(let launch):
                 self.setBanner(nil)
                 self.start(launch)
+                // The host's on-connect snippet, typed as the session starts: through the
+                // master there's no login in the pane for it to answer by mistake.
+                if let command = connections.onConnectCommand(for: host) {
+                    for input in TypedInput.snippet(command, run: true) { self.surface.receive(input) }
+                }
             case .failed(let failure):
                 self.setBanner(.failed(failure, host: name, address: connections.address(of: host)))
             }

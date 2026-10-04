@@ -54,7 +54,10 @@ final class LucidDreamsController: NSObject, NSWindowDelegate {
     /// Live-reload: font, theme and the rest reach the one pane and its card.
     func apply(_ config: Config) {
         pane?.apply(config)
-        card?.setChrome(Chrome(config.namedTheme))
+        let chrome = Chrome(config.namedTheme)
+        card?.setChrome(chrome)
+        // Follow a light/dark theme change too, not just the card's colours.
+        panel?.appearance = chrome.appearance
     }
 
     /// At quit: the one place the session is actually closed.
@@ -104,9 +107,14 @@ final class LucidDreamsController: NSObject, NSWindowDelegate {
             panel.animator().setFrame(panel.frame.offsetBy(dx: 0, dy: 20), display: true)
             panel.animator().alphaValue = 0
         } completionHandler: { [weak self] in
-            panel.orderOut(nil)
-            panel.alphaValue = 1
-            self?.state.didFinishHiding()
+            guard let self else { return }
+            self.state.didFinishHiding()
+            // A quick re-summon can overtake this hide (hide, then show before it finishes);
+            // only order the panel out if the state machine still says it's away.
+            if !self.state.isOnScreen {
+                panel.orderOut(nil)
+                panel.alphaValue = 1
+            }
         }
     }
 

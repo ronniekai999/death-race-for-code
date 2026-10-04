@@ -34,13 +34,15 @@ final class HotKeyController {
     /// that isn't a usable shortcut turns the hotkey off. Returns whether a hotkey is now live.
     @discardableResult
     func apply(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        let wanted: KeyShortcut? =
+            (trimmed.isEmpty || trimmed.lowercased() == "none") ? nil : KeyShortcut(parsing: trimmed)
+        // Leave an unchanged registration in place: a config reload shouldn't tear down and
+        // reinstall the Carbon handler (needless churn, and a window where the hotkey is dead).
+        if wanted == active { return active != nil }
         registrar.unregister()
         active = nil
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, trimmed.lowercased() != "none",
-            let shortcut = KeyShortcut(parsing: trimmed),
-            let keyCode = Self.keyCode(for: shortcut.key)
-        else { return false }
+        guard let shortcut = wanted, let keyCode = Self.keyCode(for: shortcut.key) else { return false }
         if registrar.register(
             keyCode: keyCode, modifiers: Self.carbonModifiers(shortcut.modifiers), onPress: onTrigger)
         {
@@ -119,6 +121,10 @@ final class CarbonHotKeyRegistrar: HotKeyRegistrar {
         self.onPress = onPress
         var type = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         let context = Unmanaged.passUnretained(self).toOpaque()
+        // One global hotkey today, so the handler fires onPress for any kEventHotKeyPressed it
+        // receives. If a second CarbonHotKeyRegistrar is ever added, match the event's
+        // EventHotKeyID (GetEventParameter, kEventParamDirectObject) against `id` here first,
+        // or every registrar would fire on every hotkey.
         let installed = InstallEventHandler(
             GetApplicationEventTarget(),
             { _, _, userData in

@@ -34,8 +34,9 @@ Phase 5 is done when all of these hold on the M5:
       quitting is the only thing that ends it.
 - [ ] **On a notchless display** (or an external monitor) it sits top-centre and fully on
       screen; moving the pointer to another display and summoning opens it there.
-- [ ] **The menu-bar moon** and **View › Lucid Dreams** both toggle it, and the menu item shows
-      a check while it is open.
+- [ ] **The menu-bar moon** and **View › Lucid Dreams** both toggle it — the moon must *hide* an
+      open panel, not merely re-show it, and opening a menu while the panel is up must not
+      dismiss it on its own. The menu item shows a check while it is open.
 - [ ] **`lucid-dreams-hotkey`** set to another shortcut (say `⌃⌘T`) re-registers on save;
       `none` turns the hotkey off while the menu and moon still work.
 - [ ] **A busy program** (say `top`) keeps running while the panel is hidden, and its output is

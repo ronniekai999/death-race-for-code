@@ -93,24 +93,15 @@ public enum DeathRaceSmokeTest {
         guard missing.isEmpty else { throw Failure("missing \(missing.joined(separator: ", "))") }
 
         let fonts = FontSet(family: "SF Mono", size: 13)
-        let folder: UInt32 = 0xF07B
-        guard
-            let attributed = CFAttributedStringCreate(
-                nil, String(Character(UnicodeScalar(folder)!)) as CFString,
-                [kCTFontAttributeName: fonts.regular] as CFDictionary)
-        else { throw Failure("no attributed string") }
-        let runs = CTLineGetGlyphRuns(CTLineCreateWithAttributedString(attributed)) as? [CTRun] ?? []
-        let used = runs.compactMap { run -> String? in
-            let attributes = CTRunGetAttributes(run) as NSDictionary
-            guard let value = attributes[kCTFontAttributeName as String] else { return nil }
-            return CTFontCopyFamilyName(value as! CTFont) as String
-        }
-        guard used == [FontRegistry.symbolsFamily] else {
+        let folder = GlyphKey(scalar: 0xF07B)
+        let rasterizer = GlyphRasterizer(fonts: fonts, cell: fonts.cellMetrics(scale: 2))
+        let used = CTFontCopyFamilyName(rasterizer.face(for: folder)) as String
+        guard used == FontRegistry.symbolsFamily else {
             throw Failure("the folder icon came from \(used), not \(FontRegistry.symbolsFamily)")
         }
-        let icon = GlyphRasterizer(fonts: fonts, cell: fonts.cellMetrics(scale: 2))
-            .rasterize(GlyphKey(scalar: folder))
-        guard icon.pixels.contains(where: { $0 > 128 }) else { throw Failure("the folder icon drew nothing") }
+        guard rasterizer.rasterize(folder).pixels.contains(where: { $0 > 128 }) else {
+            throw Failure("the folder icon drew nothing")
+        }
         return "\(report.registered.count) files from \(directory.lastPathComponent); a prompt's icon draws from"
             + " \(FontRegistry.symbolsFamily)"
     }

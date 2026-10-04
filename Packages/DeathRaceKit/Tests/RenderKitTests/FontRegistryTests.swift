@@ -1,5 +1,6 @@
 import AppKit
 import CoreText
+import SurfaceCore
 import Testing
 
 @testable import RenderKit
@@ -48,8 +49,16 @@ let bundledFontsFetched = FontRegistry.directory() != nil
         }
         // Letters still come from the face itself.
         #expect(family(drawing: 0x61, with: fonts.regular) == "Monaspace Neon")
-        // SF Mono gets the icons too.
-        #expect(
-            family(drawing: 0xF07B, with: FontSet(family: "SF Mono", size: 13).regular) == FontRegistry.symbolsFamily)
+        // SF Mono gets the icons too, though CoreText does not apply a fallback list to the
+        // system's monospaced font: the rasterizer draws private-use characters from the
+        // symbols font itself.
+        let mono = FontSet(family: "SF Mono", size: 13)
+        let rasterizer = GlyphRasterizer(fonts: mono, cell: mono.cellMetrics(scale: 2))
+        func drawnFrom(_ scalar: UInt32) -> String {
+            CTFontCopyFamilyName(rasterizer.face(for: GlyphKey(scalar: scalar))) as String
+        }
+        #expect(drawnFrom(0xF07B) == FontRegistry.symbolsFamily)
+        #expect(drawnFrom(0x61) != FontRegistry.symbolsFamily)
+        #expect(rasterizer.rasterize(GlyphKey(scalar: 0xF07B)).pixels.contains { $0 > 128 })
     }
 }

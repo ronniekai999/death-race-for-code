@@ -37,8 +37,31 @@ public struct GlyphRasterizer: GlyphRasterizing, Sendable {
         return drawText(key)
     }
 
+    /// The font a glyph is drawn from before CoreText's own fallbacks: the style's face, or
+    /// for private-use characters (a prompt's icons) Symbols Nerd Font Mono when it has them.
+    /// The faces' fallback lists also put it first, but CoreText does not apply such a list
+    /// to the system's own monospaced font, SF Mono.
+    public func face(for key: GlyphKey) -> CTFont {
+        let face = fonts.face(bold: key.bold, italic: key.italic)
+        let scalars = key.scalars
+        guard let symbols = fonts.symbols, !scalars.isEmpty, scalars.allSatisfy(Self.isPrivateUse) else { return face }
+        var characters: [UniChar] = []
+        for scalar in scalars {
+            guard let value = Unicode.Scalar(scalar) else { return face }
+            characters.append(contentsOf: Character(value).utf16)
+        }
+        var glyphs = [CGGlyph](repeating: 0, count: characters.count)
+        return CTFontGetGlyphsForCharacters(symbols, characters, &glyphs, characters.count) ? symbols : face
+    }
+
+    /// The Private Use Areas, where icon fonts put their icons.
+    static func isPrivateUse(_ scalar: UInt32) -> Bool {
+        (0xE000...0xF8FF).contains(scalar) || (0xF_0000...0xF_FFFD).contains(scalar)
+            || (0x10_0000...0x10_FFFD).contains(scalar)
+    }
+
     private func drawText(_ key: GlyphKey) -> RasterizedGlyph {
-        let font = fonts.face(bold: key.bold, italic: key.italic)
+        let font = face(for: key)
         var attributes: [CFString: Any] = [
             kCTFontAttributeName: font,
             kCTForegroundColorFromContextAttributeName: true,

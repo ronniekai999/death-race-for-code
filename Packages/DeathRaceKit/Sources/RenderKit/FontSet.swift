@@ -11,6 +11,9 @@ public struct FontSet: @unchecked Sendable {
     public let bold: CTFont
     public let italic: CTFont
     public let boldItalic: CTFont
+    /// Symbols Nerd Font Mono at this size, when the bundled fonts are registered: private-use
+    /// characters (a prompt's icons) are drawn from it first.
+    public let symbols: CTFont?
     /// Points.
     public let size: CGFloat
     /// The family the faces came from: the one asked for, or SF Mono when it is not
@@ -55,6 +58,7 @@ public struct FontSet: @unchecked Sendable {
             boldItalic = (boldNamed ?? named) as CTFont
         }
         let symbols = FontRegistry.symbolsDescriptor
+        self.symbols = symbols.map { CTFontCreateWithFontDescriptor($0, size, nil) }
         self.regular = Self.withSymbolsFirst(regular as CTFont, symbols: symbols)
         self.bold = Self.withSymbolsFirst(bold as CTFont, symbols: symbols)
         self.italic = Self.withSymbolsFirst(italic, symbols: symbols)

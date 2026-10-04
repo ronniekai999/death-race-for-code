@@ -284,6 +284,39 @@ struct MasterLogTests {
                 == .hostKeyChanged(fingerprint: "SHA256:newprint", knownHostsLine: "/Users/r/.ssh/known_hosts:3"))
     }
 
+    /// As OpenSSH 9.6 says it, with how to forget the old key.
+    @Test func aChangedKeySaysHowToForgetIt() {
+        let text = """
+            @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            @    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
+            @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!
+            The fingerprint for the ED25519 key sent by the remote host is
+            SHA256:FU1Wqc2Wy3RrVIyOrqSx70ofZxsmLE2tx24DjBhvhkE.
+            Please contact your system administrator.
+            Add correct host key in /Users/r/.ssh/known_hosts to get rid of this message.
+            Offending ED25519 key in /Users/r/.ssh/known_hosts:1
+              remove with:
+              ssh-keygen -f '/Users/r/.ssh/known_hosts' -R '[127.0.0.1]:2222'
+            Host key for [127.0.0.1]:2222 has changed and you have requested strict checking.
+            Host key verification failed.
+
+            """
+        let removal = KeyRemoval(file: "/Users/r/.ssh/known_hosts", name: "[127.0.0.1]:2222")
+        #expect(
+            failure(text)
+                == .hostKeyChanged(
+                    fingerprint: "SHA256:FU1Wqc2Wy3RrVIyOrqSx70ofZxsmLE2tx24DjBhvhkE",
+                    knownHostsLine: "/Users/r/.ssh/known_hosts:1", removal: removal))
+        // Older ssh quoted with double quotes; a path with a space stays one word.
+        #expect(
+            KeyRemoval(parsing: #"  ssh-keygen -f "/Users/r s/.ssh/known_hosts" -R "nas.local""#)
+                == KeyRemoval(file: "/Users/r s/.ssh/known_hosts", name: "nas.local"))
+        #expect(KeyRemoval(parsing: "ssh-keygen -f relative/known_hosts -R host") == nil)
+        #expect(KeyRemoval(parsing: "ssh-keygen -f /k -R -f") == nil)
+        #expect(KeyRemoval(parsing: "Please contact your system administrator.") == nil)
+    }
+
     @Test func thePostQuantumWarningIsAChipNotALine() {
         var log = MasterLog()
         log.append("** WARNING: connection is not using a post-quantum key exchange algorithm.\n")

@@ -108,6 +108,9 @@ public enum KnownHosts {
         guard !name.isEmpty, !name.hasPrefix("-"), !name.contains(where: \.isNewline) else {
             throw .refused("That isn't a host name.")
         }
+        guard path.hasPrefix("/"), !path.contains(where: \.isNewline) else {
+            throw .refused("That isn't a known_hosts file.")
+        }
         let result = try? await runner.run(Command([sshKeygen, "-R", name, "-f", path], environment: environment))
         guard let result, result.succeeded else {
             throw .refused(SecureEnclaveKeys.lastLine(of: result?.errorText ?? "") ?? "ssh-keygen didn't run.")

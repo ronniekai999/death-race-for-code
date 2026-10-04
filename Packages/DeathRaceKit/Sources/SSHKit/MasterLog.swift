@@ -17,8 +17,9 @@ public enum ConnectionFailure: Equatable, Sendable {
     /// "Could not resolve hostname …".
     case unknownHost
     /// "REMOTE HOST IDENTIFICATION HAS CHANGED": the key ssh was sent isn't the one
-    /// known_hosts holds, with the line holding the old one ("…/known_hosts:3").
-    case hostKeyChanged(fingerprint: String?, knownHostsLine: String?)
+    /// known_hosts holds, with the line holding the old one ("…/known_hosts:3"), and how
+    /// ssh says to forget it.
+    case hostKeyChanged(fingerprint: String?, knownHostsLine: String?, removal: KeyRemoval? = nil)
     /// "Host key verification failed." for any other reason (you said no, say).
     case hostKeyRejected
     /// "Connection closed by …", "Connection reset by peer".
@@ -73,6 +74,65 @@ public enum ConnectionOffer: Equatable, Sendable {
     case plainSSH
     /// macOS's Local Network setting, where Death Race is allowed or not.
     case allowLocalNetwork
+    /// After a host's key changed: forget the old one, once you've checked the new one.
+    case forgetHostKey
+}
+
+/// What `ssh-keygen -R` needs to forget a host's key: the file and the name the key is
+/// filed under, as ssh's own message says to run it.
+public struct KeyRemoval: Equatable, Sendable {
+    public var file: String
+    public var name: String
+
+    public init(file: String, name: String) {
+        self.file = file
+        self.name = name
+    }
+
+    /// From ssh's "remove with:" line: `ssh-keygen -f '/Users/r/.ssh/known_hosts' -R
+    /// '[10.0.4.21]:2222'`, single or double quotes.
+    public init?(parsing line: String) {
+        let words = Self.words(line)
+        guard let keygen = words.firstIndex(where: { $0.hasSuffix("ssh-keygen") }) else { return nil }
+        var file: String?
+        var name: String?
+        var index = keygen + 1
+        while index + 1 < words.count {
+            switch words[index] {
+            case "-f": file = words[index + 1]
+            case "-R": name = words[index + 1]
+            default: break
+            }
+            index += 1
+        }
+        guard let file, file.hasPrefix("/"), let name, !name.isEmpty, !name.hasPrefix("-") else { return nil }
+        self.init(file: file, name: name)
+    }
+
+    /// Words as a shell would split them, quotes taken off.
+    static func words(_ line: String) -> [String] {
+        var words: [String] = []
+        var word = ""
+        var quote: Character?
+        var inWord = false
+        for character in line {
+            if let open = quote {
+                if character == open { quote = nil } else { word.append(character) }
+            } else if character == "'" || character == "\"" {
+                quote = character
+                inWord = true
+            } else if character == " " || character == "\t" {
+                if inWord { words.append(word) }
+                word = ""
+                inWord = false
+            } else {
+                word.append(character)
+                inWord = true
+            }
+        }
+        if inWord { words.append(word) }
+        return words
+    }
 }
 
 extension ConnectionFailure {
@@ -84,6 +144,8 @@ extension ConnectionFailure {
         }
         switch self {
         // Plain ssh would stop at the same host key, or ask the question you just declined.
+        // Forgetting the old key is its own, confirmed step; then ssh asks about the new one.
+        case .hostKeyChanged(_, _, .some): return [.forgetHostKey, .reconnect]
         case .hostKeyChanged, .hostKeyRejected, .cancelled: return [.reconnect]
         default: return [.reconnect, .plainSSH]
         }
@@ -145,7 +207,9 @@ public struct MasterLog: Equatable, Sendable {
     public var failure: ConnectionFailure? {
         let text = lines.joined(separator: "\n")
         if text.contains("REMOTE HOST IDENTIFICATION HAS CHANGED") {
-            return .hostKeyChanged(fingerprint: fingerprint(in: lines), knownHostsLine: offendingLine(in: lines))
+            return .hostKeyChanged(
+                fingerprint: fingerprint(in: lines), knownHostsLine: offendingLine(in: lines),
+                removal: lines.lazy.compactMap { KeyRemoval(parsing: $0) }.first)
         }
         if text.contains("Host key verification failed") { return .hostKeyRejected }
         if text.contains("Too many authentication failures") { return .tooManyAuthenticationFailures }

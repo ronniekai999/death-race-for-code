@@ -57,6 +57,10 @@ protocol HostConnecting: AnyObject, Sendable {
     /// while anything does, and not otherwise.
     func shown(by viewer: AnyObject)
     func hidden(by viewer: AnyObject)
+    /// The keys ssh trusts under `removal`'s name, in its file.
+    func knownKeys(_ removal: KeyRemoval) async -> [KnownHosts.Entry]
+    /// Forgets them, as ssh said to; why not, when it couldn't.
+    func forgetKey(_ removal: KeyRemoval) async -> String?
 }
 
 extension Notification.Name {

@@ -481,6 +481,23 @@ final class WRLDService: HostConnecting {
 
     // MARK: - Known hosts
 
+    func knownKeys(_ removal: KeyRemoval) async -> [KnownHosts.Entry] {
+        await KnownHosts.find(removal.name, path: removal.file, runner: SystemProcessRunner(), environment: environment)
+    }
+
+    func forgetKey(_ removal: KeyRemoval) async -> String? {
+        do {
+            try await KnownHosts.forget(
+                removal.name, path: removal.file, runner: SystemProcessRunner(), environment: environment)
+            Self.changed()
+            return nil
+        } catch {
+            switch error {
+            case .refused(let why): return why
+            }
+        }
+    }
+
     /// The file ssh trusts host keys from, which plain ssh shares.
     var knownHostsPath: String { home + "/.ssh/known_hosts" }
 

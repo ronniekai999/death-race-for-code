@@ -163,6 +163,15 @@ struct ConnectionOfferTests {
         #expect(
             ConnectionFailure.hostKeyChanged(fingerprint: nil, knownHostsLine: nil).offers(address: nil) == [.reconnect]
         )
+        let removal = KeyRemoval(file: "/Users/r/.ssh/known_hosts", name: "10.0.4.21")
+        #expect(
+            ConnectionFailure.hostKeyChanged(fingerprint: nil, knownHostsLine: nil, removal: removal)
+                .offers(address: nil) == [.forgetHostKey, .reconnect])
+        #expect(
+            PaneBanner.failed(
+                .hostKeyChanged(fingerprint: nil, knownHostsLine: nil, removal: removal), host: "prod-api",
+                address: nil
+            ).buttons.map(\.title) == ["Forget the Old Key…", "Reconnect"])
         #expect(
             ConnectionFailure.authenticationFailed(methods: ["password"]).offers(address: "10.0.0.1")
                 == [.reconnect, .plainSSH])

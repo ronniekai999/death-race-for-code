@@ -232,7 +232,8 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
 
     private func pressed(_ button: PaneBanner.Button, in id: PaneID) {
         guard let pane = panes[id], let tab = model.tab(containing: id) else { return }
-        if button != .cancel && button != .allowLocalNetwork {
+        // These ask or wait first: the tab's mark stays until something is tried again.
+        if button != .cancel && button != .allowLocalNetwork && button != .forgetHostKey {
             activity[tab.id]?.failure = nil
             refreshTabs()
         }

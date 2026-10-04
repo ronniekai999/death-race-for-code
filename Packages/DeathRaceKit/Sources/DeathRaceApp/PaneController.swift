@@ -44,6 +44,8 @@ final class PaneController {
     private let connections: (any HostConnecting)?
     /// What the pane says along its bottom: connecting, why it couldn't, how it ended.
     private(set) var banner: PaneBanner?
+    /// Why the last connection didn't come up, for what its banner's buttons do.
+    private var failure: ConnectionFailure?
     private var connecting: Task<Void, Never>?
 
     /// The title the program set (OSC 0/2), or empty.
@@ -154,6 +156,7 @@ final class PaneController {
                     for input in TypedInput.snippet(command, run: true) { self.surface.receive(input) }
                 }
             case .failed(let failure):
+                self.failure = failure
                 self.setBanner(.failed(failure, host: name, address: connections.address(of: host)))
             }
         }
@@ -189,6 +192,39 @@ final class PaneController {
             restart()
         case .allowLocalNetwork:
             NSWorkspace.shared.open(Self.localNetworkSettings)
+        case .forgetHostKey:
+            forgetHostKey()
+        }
+    }
+
+    /// After a host's key changed: both keys side by side, a plain warning, and only then
+    /// the old key forgotten and the connection tried again, where ssh asks about the new
+    /// key as for a host it has never seen.
+    private func forgetHostKey() {
+        guard case .hostKeyChanged(let fingerprint, _, let removal?) = failure, let connections else { return }
+        let name = hostName ?? shellName
+        Task {
+            let old = await connections.knownKeys(removal).map { "\($0.fingerprint) (\($0.type))" }
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Forget the key ssh trusted for \(name)?"
+            alert.informativeText = [
+                "It trusted: \(old.isEmpty ? "a key no longer in the file" : old.joined(separator: ", ")).",
+                "It was sent: \(fingerprint ?? "a different key").",
+                "A server that was reinstalled gets a new key. So does one someone is pretending to be: check the new one with whoever runs \(name) before you trust it. ssh asks about it as you reconnect.",
+            ].joined(separator: "\n\n")
+            alert.addButton(withTitle: "Forget the Old Key")
+            alert.addButton(withTitle: "Cancel")
+            alert.buttons.first?.hasDestructiveAction = true
+            guard await presentAlert?(alert) == .alertFirstButtonReturn else { return }
+            if let problem = await connections.forgetKey(removal) {
+                let failed = NSAlert()
+                failed.messageText = "ssh-keygen didn’t forget the key"
+                failed.informativeText = problem
+                _ = await presentAlert?(failed)
+                return
+            }
+            restart()
         }
     }
 
@@ -228,6 +264,7 @@ final class PaneController {
 
     /// A new shell in the same place after the last one ended badly, or a new connection.
     func restart() {
+        failure = nil
         session?.close()
         title = ""
         foreground = nil

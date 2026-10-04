@@ -5,6 +5,7 @@
     import ImageIO
     import PTYKit
     import RenderKit
+    import SSHKit
     import ScreenProtocol
     import SessionKit
     import SurfaceCore
@@ -324,6 +325,8 @@
             func remove(_ host: HostID) async {}
             func shown(by viewer: AnyObject) {}
             func hidden(by viewer: AnyObject) {}
+            func knownKeys(_ removal: KeyRemoval) async -> [KnownHosts.Entry] { [] }
+            func forgetKey(_ removal: KeyRemoval) async -> String? { nil }
         }
 
         // MARK: - Pictures

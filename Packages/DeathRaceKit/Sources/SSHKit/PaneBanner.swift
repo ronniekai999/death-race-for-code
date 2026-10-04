@@ -12,6 +12,8 @@ public struct PaneBanner: Equatable, Sendable {
         case allowLocalNetwork
         /// A new shell, for a local pane.
         case restart
+        /// After a host's key changed: asks first, then forgets the old key and reconnects.
+        case forgetHostKey
 
         public var title: String {
             switch self {
@@ -20,6 +22,7 @@ public struct PaneBanner: Equatable, Sendable {
             case .plainSSH: "Try Plain ssh"
             case .allowLocalNetwork: "Allow Local Network Access…"
             case .restart: "Restart"
+            case .forgetHostKey: "Forget the Old Key…"
             }
         }
     }
@@ -48,6 +51,7 @@ public struct PaneBanner: Equatable, Sendable {
                 case .reconnect: .reconnect
                 case .plainSSH: .plainSSH
                 case .allowLocalNetwork: .allowLocalNetwork
+                case .forgetHostKey: .forgetHostKey
                 }
             })
     }

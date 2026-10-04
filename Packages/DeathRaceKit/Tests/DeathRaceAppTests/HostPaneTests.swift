@@ -110,6 +110,13 @@ final class FakeConnections: HostConnecting {
     func remove(_ host: HostID) async { vault.removeHost(host) }
     func shown(by viewer: AnyObject) { viewers += 1 }
     func hidden(by viewer: AnyObject) { viewers -= 1 }
+
+    private(set) var forgotten: [KeyRemoval] = []
+    func knownKeys(_ removal: KeyRemoval) async -> [KnownHosts.Entry] { [] }
+    func forgetKey(_ removal: KeyRemoval) async -> String? {
+        forgotten.append(removal)
+        return nil
+    }
 }
 
 extension WindowTests {

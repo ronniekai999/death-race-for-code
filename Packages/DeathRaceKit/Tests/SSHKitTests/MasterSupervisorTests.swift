@@ -154,7 +154,7 @@ struct MasterSupervisorTests {
             [WRLDHost(id: id, name: "closed", source: .wrld(Connection(address: "127.0.0.1", port: 1)))])
         let master = try master(id, in: config)
         // A socket nothing listens on: what a master killed with SIGKILL leaves.
-        close(try UnixSocket.listen(at: master.controlPath))
+        try deadSocket(at: master.controlPath)
         #expect(FileManager.default.fileExists(atPath: master.controlPath))
         try master.start()
         #expect(await settle(master) == .ended(.failed(.refused)))
@@ -195,11 +195,11 @@ struct MasterSupervisorTests {
     @Test func leftoverCleanupTouchesOnlyControlSockets() async throws {
         defer { try? FileManager.default.removeItem(atPath: folder) }
         let dead = paths.controlPath(for: "h-dead")
-        close(try UnixSocket.listen(at: dead))
+        try deadSocket(at: dead)
         let notASocket = paths.controlFolder + "/0123456789abcdef"
         try "x".write(toFile: notASocket, atomically: true, encoding: .utf8)
         let otherName = paths.controlFolder + "/mine.sock"
-        close(try UnixSocket.listen(at: otherName))
+        try deadSocket(at: otherName)
 
         let ended = await MasterSupervisor.cleanUpLeftovers(
             in: paths.controlFolder, runner: SystemProcessRunner(), environment: ["PATH": "/usr/bin:/bin"])
@@ -350,3 +350,15 @@ struct TunnelControllerTests {
 #else
     let streamSocketType = Int32(SOCK_STREAM.rawValue)
 #endif
+
+/// A socket file nothing listens on, as a master killed with SIGKILL leaves one. Bound and
+/// never listened on: a socket that listened and was then closed could still answer for a
+/// moment, held by a child another test forked meanwhile, until that child closes what it
+/// copied.
+func deadSocket(at path: String) throws {
+    let fd = try UnixSocket.make()
+    defer { close(fd) }
+    unlink(path)
+    let bound = try UnixSocket.withAddress(path) { address, length in bind(fd, address, length) }
+    try #require(bound == 0, "bind \(path): errno \(errno)")
+}

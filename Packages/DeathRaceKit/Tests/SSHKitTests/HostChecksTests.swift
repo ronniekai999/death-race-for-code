@@ -67,14 +67,14 @@ struct HostChecksTests {
         #expect(HostChecks.osIsDue(facts: read, enabled: true, now: now))
     }
 
-    @Test func aListeningPortAnswersAndAClosedOneDoesnt() async throws {
+    /// A TCP socket on 127.0.0.1, at a port of the system's choosing; `listens` or not.
+    func localSocket(listens: Bool) throws -> (fd: Int32, port: Int) {
         #if canImport(Darwin)
             let fd = socket(AF_INET, SOCK_STREAM, 0)
         #else
             let fd = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
         #endif
         try #require(fd >= 0)
-        defer { close(fd) }
         var address = sockaddr_in()
         address.sin_family = sa_family_t(AF_INET)
         address.sin_addr.s_addr = inet_addr("127.0.0.1")
@@ -84,21 +84,28 @@ struct HostChecksTests {
                 bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
-        try #require(bound == 0 && listen(fd, 4) == 0)
+        try #require(bound == 0 && (!listens || listen(fd, 4) == 0))
         var size = socklen_t(MemoryLayout<sockaddr_in>.size)
         _ = withUnsafeMutablePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &size) }
         }
-        let port = Int(UInt16(bigEndian: address.sin_port))
+        return (fd, Int(UInt16(bigEndian: address.sin_port)))
+    }
 
-        let answer = await HostChecks.latency(host: "127.0.0.1", port: port, allowLocal: false)
+    @Test func aListeningPortAnswersAndAClosedOneDoesnt() async throws {
+        let listening = try localSocket(listens: true)
+        defer { close(listening.fd) }
+        let answer = await HostChecks.latency(host: "127.0.0.1", port: listening.port, allowLocal: false)
         guard case .answered(let milliseconds) = answer else {
             Issue.record("expected an answer, got \(answer)")
             return
         }
         #expect((1...2_000).contains(milliseconds))
-        close(fd)
-        #expect(await HostChecks.latency(host: "127.0.0.1", port: port, allowLocal: false) == .silent)
+        // Bound and held, but never listened on: refused, and no other test can take the
+        // port meanwhile (or answer on it from a child it forked).
+        let closed = try localSocket(listens: false)
+        defer { close(closed.fd) }
+        #expect(await HostChecks.latency(host: "127.0.0.1", port: closed.port, allowLocal: false) == .silent)
     }
 
     @Test func aLANAddressIsNotTouchedWithoutLeave() async {

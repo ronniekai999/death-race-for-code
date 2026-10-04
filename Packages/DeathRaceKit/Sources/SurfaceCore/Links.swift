@@ -64,6 +64,32 @@ public enum LinkPolicy {
         return comparable(shownHost) != comparable(targetHost)
     }
 
+    /// A URI as it is safe to show, in the status bar or a question: characters that are
+    /// invisible, separate lines or reorder text are percent-encoded (U+202E can make
+    /// `example.com/gpj.exe` read as `example.com/exe.jpg`), and a long one ends in "…".
+    public static func shown(_ uri: String, limit: Int = 200) -> String {
+        let hex = Array("0123456789ABCDEF")
+        var out = ""
+        for (count, scalar) in uri.unicodeScalars.enumerated() {
+            guard count < limit else {
+                out += "…"
+                break
+            }
+            switch scalar.properties.generalCategory {
+            case .control, .format, .lineSeparator, .paragraphSeparator, .spaceSeparator, .unassigned, .privateUse,
+                .surrogate:
+                for byte in String(scalar).utf8 {
+                    out.append("%")
+                    out.append(hex[Int(byte >> 4)])
+                    out.append(hex[Int(byte & 0xF)])
+                }
+            default:
+                out.unicodeScalars.append(scalar)
+            }
+        }
+        return out
+    }
+
     /// The scheme, lowercased: letters, then letters, digits, + . or -, then a colon.
     static func scheme(of uri: String) -> String? {
         guard let colon = uri.firstIndex(of: ":") else { return nil }

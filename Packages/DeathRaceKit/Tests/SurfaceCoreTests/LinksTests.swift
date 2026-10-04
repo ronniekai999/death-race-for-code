@@ -120,3 +120,12 @@ import Testing
         #expect(range == FrameRatePolicy.Range(minimum: 60, maximum: 120, preferred: 120))
     }
 }
+
+@Suite struct LinkShownTests {
+    @Test func invisibleAndReorderingCharactersAreSpelledOut() {
+        #expect(LinkPolicy.shown("https://example.com/\u{202E}gpj.exe") == "https://example.com/%E2%80%AEgpj.exe")
+        #expect(LinkPolicy.shown("https://a.example/a\u{200B}b c") == "https://a.example/a%E2%80%8Bb%20c")
+        #expect(LinkPolicy.shown("https://a.example/中文") == "https://a.example/中文")
+        #expect(LinkPolicy.shown(String(repeating: "x", count: 10), limit: 4) == "xxxx…")
+    }
+}

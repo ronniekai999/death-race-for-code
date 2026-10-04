@@ -156,6 +156,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             self?.host?.inputStateChanged()
         }
         pane.onPasswordInputChange = { [weak self] in self?.host?.inputStateChanged() }
+        pane.onLinkHover = { [weak self] in self?.refreshStatus() }
         pane.presentAlert = { [weak self] alert in await self?.present(alert) }
         panes[id] = pane
     }
@@ -815,6 +816,10 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         facts.program = pane.programName
         facts.secureInput = showsSecureInput
         facts.settingsProblems = settingsProblems
+        // Where the link ⌘ is held over goes, in whichever pane it is.
+        facts.hoveredLink = panes.values.lazy.compactMap { $0.surface.hoveredLink }.first.map {
+            LinkPolicy.shown($0.uri)
+        }
         if let directory = pane.directory {
             facts.branch = branches[directory]
             if rereadBranch || branchIsStale(directory) { readBranch(at: directory) }

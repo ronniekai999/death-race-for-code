@@ -101,10 +101,11 @@ public final class FrameBuilder {
 
     /// The frame for `mirror` drawn with `theme` at `cell`, with `selection` highlighted and
     /// an input method's composing text (`preedit`) drawn over the cells it covers, underlined.
-    /// With `starfield`, each row's empty end is marked for the shader's stars.
+    /// With `starfield`, each row's empty end is marked for the shader's stars. `link`, the
+    /// one ⌘ is held over, is underlined.
     public func build(
         mirror: MirrorGrid, theme: Theme, cell: CellMetrics, selection: TextRegion?, glyphs: any GlyphSource,
-        preedit: PreeditLayout? = nil, starfield: Bool = false
+        preedit: PreeditLayout? = nil, starfield: Bool = false, link: LinkHit? = nil
     ) -> Frame {
         let current = Inputs(
             palette: mirror.palette, theme: theme, reverseVideo: mirror.modes.reverseVideo, cell: cell,
@@ -154,8 +155,31 @@ public final class FrameBuilder {
         if let preedit {
             overlay(preedit, on: &frame, resolver: resolver, cell: cell, glyphs: glyphs, shelves: &shelves)
         }
+        if let link { underline(link, on: &frame, mirror: mirror, resolver: resolver, cell: cell) }
         glyphs.markUsed(shelves: Array(shelves))
         return frame
+    }
+
+    /// The hovered link's underline, in each span's text color. Added to the frame each
+    /// time, like composing text, so hovering rebuilds no rows.
+    private func underline(
+        _ link: LinkHit, on frame: inout Frame, mirror: MirrorGrid, resolver: ColorResolver, cell: CellMetrics
+    ) {
+        let thickness = cell.underlineThickness
+        for span in link.spans where span.row >= 0 && span.row < frame.rows {
+            let columns = span.columns.clamped(to: 0..<frame.columns)
+            guard !columns.isEmpty else { continue }
+            let line = mirror.lines[span.row]
+            let first = line.cells.indices.contains(columns.lowerBound) ? line.cells[columns.lowerBound] : Cell.empty
+            frame.decorations.append(
+                DecorationInstance(
+                    cellX: UInt16(clamping: columns.lowerBound), cellY: UInt16(clamping: span.row),
+                    cellCount: UInt16(clamping: columns.count), kind: DecorationKind.underline.rawValue,
+                    thickness: UInt8(clamping: thickness),
+                    top: Int16(clamping: min(cell.underlineTop, cell.height - thickness)),
+                    height: Int16(clamping: thickness),
+                    color: resolver.resolve(line.style(of: first)).foreground.packed))
+        }
     }
 
     /// Composing text, drawn fresh each frame (it is never cached with the rows): the

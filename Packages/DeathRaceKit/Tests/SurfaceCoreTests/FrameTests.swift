@@ -377,6 +377,24 @@ private struct Surface {
         #expect(without.decorations.isEmpty)
     }
 
+    @Test func aHoveredLinkIsUnderlinedWithoutRebuildingRows() {
+        let surface = Surface(columns: 8, rows: 2)
+        surface.feed("ab\u{1B}[32mhttps://x.example")
+        _ = surface.frame()
+        let link = LinkHit(
+            uri: "https://x.example", text: "https://x.example",
+            spans: [LinkHit.Span(row: 0, columns: 2..<8), LinkHit.Span(row: 1, columns: 0..<9)], isExplicit: false)
+        let frame = surface.builder.build(
+            mirror: surface.model.mirror, theme: surface.theme, cell: Surface.cell, selection: nil,
+            glyphs: surface.glyphs, link: link)
+        #expect(surface.builder.rebuiltRows == 0)
+        // Clamped to the screen's width, in the link text's own color.
+        #expect(
+            frame.decorations.map { [Int($0.cellX), Int($0.cellY), Int($0.cellCount)] } == [[2, 0, 6], [0, 1, 8]])
+        #expect(frame.decorations.first?.color == Palette.legendsNeverDie.colors[2].packed)
+        #expect(surface.frame().decorations.isEmpty)
+    }
+
     /// The structs the shaders read have the sizes the shaders expect.
     @Test func instanceLayouts() {
         #expect(MemoryLayout<GlyphInstance>.size == 24)

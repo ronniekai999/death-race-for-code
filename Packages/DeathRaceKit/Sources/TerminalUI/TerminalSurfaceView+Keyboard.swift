@@ -27,6 +27,7 @@ extension KeyPress {
 extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
     override public func keyDown(with event: NSEvent) {
         guard model != nil else { return }
+        noteInput()
         // The cursor shows at once and blinks again from here.
         restartBlink = true
         updateCursor()
@@ -60,6 +61,8 @@ extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
 
     /// A modifier key alone, for programs that asked the Kitty protocol for every key.
     override public func flagsChanged(with event: NSEvent) {
+        // ⌘ down over a link shows it; ⌘ up hides it.
+        updateHoveredLink(commandHeld: event.modifierFlags.contains(.command))
         guard model != nil, !hasMarkedText() else { return }
         // A flagsChanged event has no characters: asking for them raises an exception.
         let press = KeyPress(

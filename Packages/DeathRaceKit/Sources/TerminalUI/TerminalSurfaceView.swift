@@ -100,6 +100,16 @@ public final class TerminalSurfaceView: NSView {
     public var onOutput: (() -> Void)?
     /// Return was pressed: a command may have started, or the directory changed.
     public var onReturnKey: (() -> Void)?
+    /// The link ⌘ is held over changed: where it goes, or nil.
+    public var onHoverLink: ((String?) -> Void)?
+    /// A ⌘-click or Open Link chose a link; the app decides what that does.
+    public var onOpenLink: ((LinkHit) -> Void)?
+    /// The link ⌘ is held over, underlined while the pointer is on it.
+    public internal(set) var hoveredLink: LinkHit?
+    /// How fast the view may draw (`follow-low-power-mode`, `output-frame-rate-cap`).
+    public var frameRatePolicy = FrameRatePolicy() {
+        didSet { if frameRatePolicy != oldValue { applyFrameRate() } }
+    }
 
     public private(set) var grid: GridLayout
     public private(set) var model: SurfaceModel?
@@ -142,6 +152,16 @@ public final class TerminalSurfaceView: NSView {
     /// The left button went down as a report to the program, so its drags and release go
     /// there too, whatever Shift does meanwhile.
     var leftButtonReported = false
+    /// Link state kept by the link extension: the cell the hover was last looked for in, the
+    /// link the button went down on with ⌘ held, and the one a context menu is about.
+    var hoverCell: (column: Int, row: Int)?
+    var pressedLink: LinkHit?
+    var menuLink: LinkHit?
+    /// When the last key press, scroll or selection drag happened (CACurrentMediaTime).
+    var lastInputTime: CFTimeInterval = -.infinity
+    /// The display's full rate is on for recent input.
+    private var inputBoosted = false
+    private var appliedFrameRate: FrameRatePolicy.Range?
     /// Selection state kept by the selection extension.
     var selection: Selection?
     var selectionGeneration: UInt64?
@@ -174,10 +194,20 @@ public final class TerminalSurfaceView: NSView {
         cursorLayer.isHidden = true
         // Motion with no button held is reported in any-event mode (1003), which needs
         // mouse-moved events. With `inVisibleRect` the area follows the view's visible rect.
+        // Entering and leaving end a link's hover.
         addTrackingArea(
             NSTrackingArea(
-                rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil))
+                rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                owner: self, userInfo: nil))
         registerForDraggedTypes(Self.droppedTypes)
+        // Low Power Mode and the thermal state change how fast output may draw.
+        let center = NotificationCenter.default
+        center.addObserver(
+            self, selector: #selector(energyConditionsChanged(_:)), name: .NSProcessInfoPowerStateDidChange,
+            object: nil)
+        center.addObserver(
+            self, selector: #selector(energyConditionsChanged(_:)), name: ProcessInfo.thermalStateDidChangeNotification,
+            object: nil)
     }
 
     @available(*, unavailable)
@@ -316,11 +346,15 @@ public final class TerminalSurfaceView: NSView {
             let link = displayLink(target: self, selector: #selector(displayLinkFired(_:)))
             link.add(to: .main, forMode: .common)
             self.link = link
+            appliedFrameRate = nil
         }
         link?.isPaused = false
+        applyFrameRate()
     }
 
     @objc private func displayLinkFired(_ link: CADisplayLink) {
+        // Typing stopped a second ago: back to the rate for output.
+        if inputBoosted && CACurrentMediaTime() - lastInputTime >= FrameRatePolicy.inputWindow { applyFrameRate() }
         let changed = drain()
         let drew = (changed || needsFrame) && drawFrame()
         if !pacer.tick(drew: drew) {
@@ -349,9 +383,11 @@ public final class TerminalSurfaceView: NSView {
         defer { Signposts.signposter.endInterval("Frame", signpost) }
 
         glyphs.beginFrame()
+        // The screen may have moved under a hovered link.
+        if hoveredLink != nil { updateHoveredLink(redrawing: false) }
         let frame = builder.build(
             mirror: model.mirror, theme: theme, cell: cell, selection: selectionRange, glyphs: glyphs,
-            preedit: preedit, starfield: starfield)
+            preedit: preedit, starfield: starfield, link: hoveredLink)
         guard let drawable = metalLayer.nextDrawable(), let commandBuffer = context.queue.makeCommandBuffer() else {
             needsFrame = true
             return true
@@ -585,6 +621,7 @@ public final class TerminalSurfaceView: NSView {
     }
 
     private func focusChanged(firstResponder: Bool) {
+        if window?.isKeyWindow != true || !NSApp.isActive { updateHoveredLink(commandHeld: false) }
         let focused = firstResponder && window?.isKeyWindow == true && NSApp.isActive
         guard focused != isFocused else { return }
         isFocused = focused
@@ -596,6 +633,40 @@ public final class TerminalSurfaceView: NSView {
         }
         if !focused { discardComposition() }
         updateCursor()
+    }
+
+    // MARK: - Frame rate
+
+    /// A key press, a scroll or a selection drag: the display's full rate for a second.
+    func noteInput() {
+        lastInputTime = CACurrentMediaTime()
+        if !inputBoosted { applyFrameRate() }
+    }
+
+    /// Sets the display link's frame rate range from `frameRatePolicy`, only when the answer
+    /// changed.
+    func applyFrameRate() {
+        let recent = CACurrentMediaTime() - lastInputTime < FrameRatePolicy.inputWindow
+        inputBoosted = recent
+        guard let link else { return }
+        var policy = frameRatePolicy
+        if let fastest = window?.screen?.maximumFramesPerSecond, fastest > 0 { policy.displayMaximum = Double(fastest) }
+        let info = ProcessInfo.processInfo
+        let range = policy.range(
+            for: FrameRatePolicy.Conditions(
+                recentInput: recent, lowPowerMode: info.isLowPowerModeEnabled,
+                thermal: FrameRatePolicy.Thermal(rawValue: info.thermalState.rawValue) ?? .nominal))
+        guard range != appliedFrameRate else { return }
+        appliedFrameRate = range
+        link.preferredFrameRateRange = CAFrameRateRange(
+            minimum: Float(range.minimum), maximum: Float(range.maximum), preferred: Float(range.preferred))
+    }
+
+    /// Posted on whatever thread noticed the change: the view hears of it on the main one.
+    @objc nonisolated private func energyConditionsChanged(_ notification: Notification) {
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated { self?.applyFrameRate() }
+        }
     }
 
     // MARK: - Size

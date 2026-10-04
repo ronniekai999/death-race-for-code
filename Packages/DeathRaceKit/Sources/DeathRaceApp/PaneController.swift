@@ -62,6 +62,8 @@ final class PaneController {
     var onFocusChange: (() -> Void)?
     /// The program started or stopped reading a password.
     var onPasswordInputChange: (() -> Void)?
+    /// The link ⌘ is held over changed.
+    var onLinkHover: (() -> Void)?
     /// Shows a sheet on the pane's window; nil without one.
     var presentAlert: (@MainActor (NSAlert) async -> NSApplication.ModalResponse?)?
 
@@ -99,6 +101,8 @@ final class PaneController {
         }
         surface.onOutput = { [weak self] in self?.onOutput?() }
         surface.onReturnKey = { [weak self] in self?.refreshSoon() }
+        surface.onHoverLink = { [weak self] _ in self?.onLinkHover?() }
+        surface.onOpenLink = { [weak self] link in self?.open(link) }
         start(launch)
     }
 
@@ -261,6 +265,71 @@ final class PaneController {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
+    // MARK: - Links
+
+    /// A ⌘-clicked link, as the link policy says: web and mail links open; a file on this Mac
+    /// is shown in Finder, never opened; another scheme asks first, naming the app it would
+    /// open; the rest are refused, saying why. A program's link whose text names another
+    /// site than the one it opens asks first too.
+    func open(_ link: LinkHit) {
+        let shown = LinkPolicy.shown(link.uri)
+        switch LinkPolicy.action(for: link.uri, localHostNames: [ProcessInfo.processInfo.hostName]) {
+        case .open(let uri):
+            guard let url = URL(string: uri) else { return refuse(link, "It is not an address a browser takes.") }
+            if link.isExplicit && LinkPolicy.misleads(text: link.text, target: uri) {
+                confirm(
+                    "This link goes somewhere other than its text says",
+                    detail: "Its text says “\(PasteWarning.visible(link.text, limit: 120))”, but it opens \(shown).",
+                    button: "Open Link"
+                ) { NSWorkspace.shared.open(url) }
+            } else {
+                NSWorkspace.shared.open(url)
+            }
+        case .reveal(let path):
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+        case .confirm(let scheme):
+            guard let url = URL(string: link.uri), let app = NSWorkspace.shared.urlForApplication(toOpen: url) else {
+                return refuse(link, "No app on this Mac opens \(scheme): links.")
+            }
+            let name = FileManager.default.displayName(atPath: app.path)
+            confirm("Open this link in \(name)?", detail: shown, button: "Open in \(name)") {
+                NSWorkspace.shared.open(url)
+            }
+        case .refuse(let reason):
+            refuse(link, Self.reason(reason))
+        }
+    }
+
+    private static func reason(_ refusal: LinkRefusal) -> String {
+        switch refusal {
+        case .malformed: "It is not a complete address."
+        case .tooLong: "It is longer than any browser takes."
+        case .script: "Links that run code in a browser (javascript: and data:) are never opened."
+        case .otherComputer(let host): "It is a file on \(host), not on this Mac."
+        }
+    }
+
+    private func refuse(_ link: LinkHit, _ why: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Death Race won’t open this link"
+        alert.informativeText = "\(why)\n\n\(LinkPolicy.shown(link.uri))"
+        Task { _ = await presentAlert?(alert) }
+    }
+
+    private func confirm(_ question: String, detail: String, button: String, then open: @escaping @MainActor () -> Void)
+    {
+        let alert = NSAlert()
+        alert.messageText = question
+        alert.informativeText = detail
+        alert.addButton(withTitle: button)
+        alert.addButton(withTitle: "Cancel")
+        Task {
+            guard await presentAlert?(alert) == .alertFirstButtonReturn else { return }
+            open()
+        }
+    }
+
     // MARK: - Settings
 
     /// Applies reloaded settings: fonts, colors, padding, the cursor, keys and the mouse
@@ -286,6 +355,8 @@ final class PaneController {
         surface.pasteProtection = config.pasteProtection
         surface.copyOnSelect = config.copyOnSelect
         surface.starfield = config.starfield && config.namedTheme.hasStars
+        surface.frameRatePolicy = FrameRatePolicy(
+            followsLowPowerMode: config.followLowPowerMode, capsOutput: config.outputFrameRateCap)
     }
 
     private func applyFonts() {

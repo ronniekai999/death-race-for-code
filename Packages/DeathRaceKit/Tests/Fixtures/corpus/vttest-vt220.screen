@@ -1,0 +1,632 @@
+==== before keys 1, after 765 bytes ====
+
+
+         VT100 test program, version 2.7 (20230201)
+         Screen size 24x80 (80 max) Line speed 38400bd
+         Choose test type:
+
+          0. Exit
+          1. Test of cursor movements
+          2. Test of screen features
+          3. Test of character sets
+          4. Test of double-sized characters
+          5. Test of keyboard
+          6. Test of terminal reports
+          7. Test of VT52 mode
+          8. Test of VT102 features (Insert/Delete Char/Line)
+          9. Test of known bugs
+          10. Test of reset and self-test
+          11. Test non-VT100 (e.g., VT220, XTERM) terminals
+          12. Modify test-parameters
+
+          Enter choice number (0 - 12):
+
+
+
+---- cursor 21;41 ----
+==== before keys 2, after 1220 bytes ====
+
+
+         Menu 11: Non-VT100 Tests
+
+         Choose test type:
+
+          0. Exit
+          1. Test of VT220 features
+          2. Test of VT320 features
+          3. Test of VT420 features
+          4. Test of VT520 features
+          5. Test ISO-6429 cursor-movement
+          6. Test ISO-6429 colors
+          7. Test other ISO-6429 features
+          8. Test XTERM special features
+
+          Enter choice number (0 - 8):
+
+
+
+
+
+
+
+---- cursor 17;40 ----
+==== before keys 3, after 1665 bytes ====
+
+
+         Menu 11.1: VT220 Tests
+
+         Choose test type:
+
+          0. Exit
+          1. Test reporting functions
+          2. Test screen-display functions
+          3. Test 8-bit controls (S7C1T/S8C1T)
+          4. Test Printer (MC)
+          5. Test Soft Character Sets (DECDLD)
+          6. Test Soft Terminal Reset (DECSTR)
+          7. Test User-Defined Keys (DECUDK)
+
+          Enter choice number (0 - 7):
+
+
+
+
+
+
+
+
+---- cursor 16;40 ----
+==== before keys 4, after 1855 bytes ====
+
+
+         Menu 11.1.1: VT220 Reports
+
+         Choose test type:
+
+          0. Exit
+          1. Test Device Status Report (DSR)
+
+          Enter choice number (0 - 1):
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+---- cursor 10;40 ----
+==== before keys 5, after 2150 bytes ====
+
+
+         Menu 11.1.1.1: VT220 Device Status Reports
+
+         Choose test type:
+
+          0. Exit
+          1. Test Keyboard Status
+          2. Test Operating Status
+          3. Test Printer Status
+          4. Test UDK Status
+
+          Enter choice number (0 - 4):
+
+
+
+
+
+
+
+
+
+
+
+---- cursor 13;40 ----
+==== before keys 6, after 2279 bytes ====
+Testing DSR: Test Keyboard Status
+
+          <27> [ ? 2 7 ; 1 n  North American/ASCII
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Push <RETURN>
+
+---- cursor 23;14 ----
+---- styles ----
+3: 10-29 7
+==== before keys 7, after 2569 bytes ====
+
+
+         Menu 11.1.1.1: VT220 Device Status Reports
+
+         Choose test type:
+
+          0. Exit
+          1. Test Keyboard Status
+          2. Test Operating Status
+          3. Test Printer Status
+          4. Test UDK Status
+
+          Enter choice number (0 - 4):
+
+
+
+
+
+
+
+
+
+
+
+---- cursor 13;40 ----
+==== before keys 8, after 2708 bytes ====
+Testing DSR: Test Operating Status
+
+          <27> [ 0 n  Terminal is in good operating condition
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Push <RETURN>
+
+---- cursor 23;14 ----
+---- styles ----
+3: 10-21 7
+==== before keys 9, after 2998 bytes ====
+
+
+         Menu 11.1.1.1: VT220 Device Status Reports
+
+         Choose test type:
+
+          0. Exit
+          1. Test Keyboard Status
+          2. Test Operating Status
+          3. Test Printer Status
+          4. Test UDK Status
+
+          Enter choice number (0 - 4):
+
+
+
+
+
+
+
+
+
+
+
+---- cursor 13;40 ----
+==== before keys 10, after 3112 bytes ====
+Testing DSR: Test Printer Status
+
+          <27> [ ? 1 3 n  No printer
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Push <RETURN>
+
+---- cursor 23;14 ----
+---- styles ----
+3: 10-25 7
+==== before keys 11, after 3402 bytes ====
+
+
+         Menu 11.1.1.1: VT220 Device Status Reports
+
+         Choose test type:
+
+          0. Exit
+          1. Test Keyboard Status
+          2. Test Operating Status
+          3. Test Printer Status
+          4. Test UDK Status
+
+          Enter choice number (0 - 4):
+
+
+
+
+
+
+
+
+
+
+
+---- cursor 13;40 ----
+==== before keys 12, after 3515 bytes ====
+Testing DSR: Test UDK Status
+
+          <27> [ ? 2 0 n  UDKs unlocked
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Push <RETURN>
+
+---- cursor 23;14 ----
+---- styles ----
+3: 10-25 7
+==== before keys 13, after 3805 bytes ====
+
+
+         Menu 11.1.1.1: VT220 Device Status Reports
+
+         Choose test type:
+
+          0. Exit
+          1. Test Keyboard Status
+          2. Test Operating Status
+          3. Test Printer Status
+          4. Test UDK Status
+
+          Enter choice number (0 - 4):
+
+
+
+
+
+
+
+
+
+
+
+---- cursor 13;40 ----
+==== before keys 14, after 3995 bytes ====
+
+
+         Menu 11.1.1: VT220 Reports
+
+         Choose test type:
+
+          0. Exit
+          1. Test Device Status Report (DSR)
+
+          Enter choice number (0 - 1):
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+---- cursor 10;40 ----
+==== before keys 15, after 4440 bytes ====
+
+
+         Menu 11.1: VT220 Tests
+
+         Choose test type:
+
+          0. Exit
+          1. Test reporting functions
+          2. Test screen-display functions
+          3. Test 8-bit controls (S7C1T/S8C1T)
+          4. Test Printer (MC)
+          5. Test Soft Character Sets (DECDLD)
+          6. Test Soft Terminal Reset (DECSTR)
+          7. Test User-Defined Keys (DECUDK)
+
+          Enter choice number (0 - 7):
+
+
+
+
+
+
+
+
+---- cursor 16;40 ----
+==== before keys 16, after 4774 bytes ====
+
+
+         Menu 11.1.2: VT220 Screen-Display Tests
+
+         Choose test type:
+
+          0. Exit
+          1. Test Send/Receive mode (SRM)
+          2. Test Visible/Invisible Cursor (DECTCEM)
+          3. Test Erase Char (ECH)
+          4. Test Protected-Areas (DECSCA)
+
+          Enter choice number (0 - 4):
+
+
+
+
+
+
+
+
+
+
+
+---- cursor 13;40 ----
+==== before keys 17, after 4839 bytes ====
+The cursor should be invisible
+Push <RETURN>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+---- cursor 2;14 hidden ----
+==== before keys 18, after 4897 bytes ====
+The cursor should be invisible
+Push <RETURN>
+The cursor should be visible again
+Push <RETURN>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+---- cursor 4;14 ----
+==== before keys 19, after 5226 bytes ====
+
+
+         Menu 11.1.2: VT220 Screen-Display Tests
+
+         Choose test type:
+
+          0. Exit
+          1. Test Send/Receive mode (SRM)
+          2. Test Visible/Invisible Cursor (DECTCEM)
+          3. Test Erase Char (ECH)
+          4. Test Protected-Areas (DECSCA)
+
+          Enter choice number (0 - 4):
+
+
+
+
+
+
+
+
+
+
+
+---- cursor 13;40 ----
+==== before keys 20, after 6032 bytes ====
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE **
+                                                 diagonal: ^^ (clear)
+ECH test: there should be E's with a gap before diagonal of **'s
+The lower-right diagonal region should be cleared.  Nothing else.
+Push <RETURN>
+
+---- cursor 23;14 ----
+==== before keys 21, after 6361 bytes ====
+
+
+         Menu 11.1.2: VT220 Screen-Display Tests
+
+         Choose test type:
+
+          0. Exit
+          1. Test Send/Receive mode (SRM)
+          2. Test Visible/Invisible Cursor (DECTCEM)
+          3. Test Erase Char (ECH)
+          4. Test Protected-Areas (DECSCA)
+
+          Enter choice number (0 - 4):
+
+
+
+
+
+
+
+
+
+
+
+---- cursor 13;40 ----
+==== before keys 22, after 8418 bytes ====
+
+
+
+
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+
+
+
+If your terminal supports DEC protected areas (DECSCA, DECSED, DECSEL),
+there will be an solid box made of *'s in the middle of the screen.
+Push <RETURN>
+
+---- cursor 23;14 ----
+==== before keys 23, after 12025 bytes ====
+
+
+
+
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+
+
+
+If your terminal supports DEC protected areas (DECSCA, ignoring EL/ED),
+there will be an solid box made of *'s in the middle of the screen.
+Push <RETURN>
+
+---- cursor 23;14 ----
+==== at the end, after 14833 bytes ====
+
+
+
+
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+                    *****************************************
+
+
+
+If your terminal supports DEC protected areas (DECSCA, ignoring ECH/ICH/DCH),
+there will be an solid box made of *'s in the middle of the screen.
+Push <RETURN>
+
+---- cursor 23;14 ----

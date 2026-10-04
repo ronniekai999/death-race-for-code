@@ -5,11 +5,11 @@ How we know `VTCore` behaves like a terminal. Every check runs on Linux in CI.
 | Check | What it proves | Status |
 | --- | --- | --- |
 | Unit tests | each sequence and edge case we implement | parser, terminal, reflow, input, deltas, sessions |
-| esctest | xterm-compatible behavior, through `vthost` answering its queries | 356 pass; ratchet in CI |
-| vttest | the classic VT100/VT220 screens, driven through `vthost` against goldens | Phase 1 |
+| esctest | xterm-compatible behavior, through `vthost` answering its queries | 358 pass; ratchet in CI |
+| vttest | the classic VT100/VT220 screens, each checked against what vttest says it should show | 10 suites, 139 screens |
 | libFuzzer | no crashes or hangs on arbitrary input; deltas replay to the same screen | 1 min per PR, 30 min weekly |
 | SwiftTerm differential | same input, same screen, with a reviewed list of known divergences | Phase 1 |
-| Recorded corpus | real programs' output replays to golden screens: text, cursor and styles, whole and in pieces | 9 sessions; btop and lazygit to come |
+| Recorded corpus | real programs' output replays to golden screens: text, cursor and styles, at every key press, whole and in pieces | 9 programs; btop and lazygit to come |
 
 ## esctest
 
@@ -17,16 +17,18 @@ How we know `VTCore` behaves like a terminal. Every check runs on Linux in CI.
 --checksums` (an 80×25 terminal that answers DECRQCRA), and compares the failing tests with
 `Packages/DeathRaceKit/Tests/Fixtures/esctest-known-failures.txt`. We test against current
 xterm: `--expected-terminal xterm --xterm-checksum 334 --xterm-reverse-wrap 383
---max-vt-level 5`.
+--max-vt-level 5 --options xtermWinopsEnabled`. Without the last option, esctest expects
+xterm to fail the tests that need window operations and files our failures there as xterm's
+known bugs; with it, our deliberate refusals count as failures and DECNCSM counts as a pass.
 
 | | Tests |
 | --- | ---: |
-| Pass | 356 |
-| Marked by esctest as known xterm bugs | 40 |
+| Pass | 358 |
+| Marked by esctest as known xterm bugs | 33 |
 | Fail: features scheduled for later | 156 |
-| Fail: deliberate differences from xterm | 15 |
+| Fail: deliberate differences from xterm | 20 |
 
-That is 356 of 371 (96%) on the v1 scope, counting the deliberate differences as failures.
+That is 358 of 378 (95%) on the v1 scope, counting the deliberate differences as failures.
 
 **Scheduled for later** (from the plan's "Later" list): left/right margins, DECSLRM (66
 tests); rectangle operations, DECCRA, DECERA, DECFRA, DECSERA (22); special colors, OSC
@@ -39,24 +41,59 @@ SPA/EPA (5).
 - **We say we are a VT220** (DA1 `?62;22c`, DA2 `>1;10;0c`, DECSCL 62). xterm claims VT420
   or VT525 features we do not have, and programs act on those claims (6 tests).
 - **The window owns its size.** Programs cannot resize it (DECSLPP, DECSNLS, `CSI 8 t`) or
-  switch it to 132 columns (DECCOLM) (5 tests).
+  switch it to 132 columns (DECCOLM) (5 tests). Once a program allows the switch (mode
+  40), DECCOLM still clears the screen (unless DECNCSM), resets the margins and homes the
+  cursor, as xterm does when the window manager refuses the resize.
 - **Titles cannot be read back** (`CSI 20 t`, `CSI 21 t`). Title reports are a well-known
-  way to type text into a shell (1 test).
+  way to type text into a shell (5 tests).
+- **The clipboard cannot be read** (OSC 52 with `?`): a program would see whatever the user
+  last copied (1 test).
 - **DECSCL does not change the conformance level** (1 test), and **mode 41**, xterm's
   workaround for an old `more(1)` bug, is not implemented (1 test).
 - **DECARM can be set and queried.** esctest expects xterm to fail this test, so passing it
   counts as a failure (1 test).
 
+## vttest
+
+vttest draws a screen and says what it should look like ("a frame of E's around this text
+with one free position", "the right column should be staggered by one"). It runs inside
+`vthost run` like the corpus programs below, and every screen it draws, at every key press,
+is a golden (`vttest-*` in the corpus). Each screen was checked against vttest's own words and
+against vttest's source where the words leave room.
+
+| Suite | Covers |
+| --- | --- |
+| vttest-cursor | cursor movement, autowrap with controls mixed in, controls inside sequences, leading zeros |
+| vttest-screen | wrap-around, tab stops, reverse video, soft and jump scrolling in regions, origin mode, renditions, save/restore cursor |
+| vttest-charsets | the VT100 character sets (British, DEC Special Graphics), SI/SO |
+| vttest-reports | DSR, DA1, DA2, DA3 |
+| vttest-insdel | the VT102 accordion, insert mode, ICH, DCH |
+| vttest-wrap | wrap-around with cursor addressing |
+| vttest-vt220 | VT220 status reports, DECTCEM, ECH, DECSCA with DECSED/DECSEL |
+| vttest-iso6429 | HPA, CBT, CHA, CHT, HPR, VPA, CNL, CPL, VPR, REP, SD, SU |
+| vttest-colors | the 8×8 color matrix, SGR 0, background color erase through ED, EL, ECH and scrolling, SGR 22–27 |
+| vttest-altscreen | modes 47, 1047 and 1049 |
+
+vttest runs as `vttest 24x80.80`: programs cannot switch the window to 132 columns here, so
+its 132-column passes run at 80. Left out: double-size lines (DECDWL, DECDHL; vttest's
+stagger test uses them, so its second pass shows single-width lines), VT52, 8-bit and national
+character sets, the keyboard tests, and two reports vttest waits for and we do not send: the
+ENQ answerback (empty, as in xterm) and DECREQTPARM (which xterm answers only as a VT100).
+
+vttest found a bug esctest does not test: REP repeated after another REP. A control sequence,
+REP included, now ends what REP can repeat, as xterm does.
+
 ## Recorded corpus
 
 `scripts/record-corpus.sh` runs real programs inside `vthost run --record`, at 80×24, typing
 scripted keys once the screen settles: vim (plain and with syntax colors), nvim with a
-vertical split, less searching, tmux with three panes, htop, fzf's inline mode, nano and a
-file of CJK, emoji, flags and combining marks. Each recording sits in
-`Packages/DeathRaceKit/Tests/Fixtures/corpus/` with its golden, the screen `vthost replay`
-prints: every row's text, the cursor, and each run of styled cells as SGR parameters.
-`CorpusTests` replays every recording whole, a byte at a time and in random pieces, and
-each must match its golden exactly.
+vertical split, less searching, tmux with three panes, htop, fzf's inline mode, nano, a
+file of CJK, emoji, flags and combining marks, and the vttest suites above. Each recording
+sits in `Packages/DeathRaceKit/Tests/Fixtures/corpus/` with its marks (how much output came
+before each key press) and its golden, the screens `vthost replay --marks` prints: at every
+key press and at the end, every row's text, the cursor, screen-wide reverse video, and each
+run of styled cells as SGR parameters. `CorpusTests` replays every recording whole, a byte
+at a time and in random pieces, and each must match its golden exactly.
 
 Recordings depend on program versions, so they are recorded once and checked in. After a
 deliberate engine change, `scripts/record-corpus.sh --goldens` rewrites the goldens from

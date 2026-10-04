@@ -1,0 +1,115 @@
+[0c[?1l[?3l[?4l[?5l[?6l[?7h[?8l[?40h[?45l[r[0m[2J[3;10HVT100 test program, version 2.7 (20230201)[4;10HScreen size 24x80 (80 max) Line speed 38400bd [5;10HChoose test type:
+[6;1H[0J
+          0. Exit
+          1. Test of cursor movements
+          2. Test of screen features
+          3. Test of character sets
+          4. Test of double-sized characters
+          5. Test of keyboard
+          6. Test of terminal reports
+          7. Test of VT52 mode
+          8. Test of VT102 features (Insert/Delete Char/Line)
+          9. Test of known bugs
+          10. Test of reset and self-test
+          11. Test non-VT100 (e.g., VT220, XTERM) terminals
+          12. Modify test-parameters
+
+          Enter choice number (0 - 12): 11
+[2J[2J[3;10HMenu 11: Non-VT100 Tests[5;10HChoose test type:
+[6;1H[0J
+          0. Exit
+          1. Test of VT220 features
+          2. Test of VT320 features
+          3. Test of VT420 features
+          4. Test of VT520 features
+          5. Test ISO-6429 cursor-movement
+          6. Test ISO-6429 colors
+          7. Test other ISO-6429 features
+          8. Test XTERM special features
+
+          Enter choice number (0 - 8): 8
+[2J[2J[3;10HMenu 11.8: XTERM special features
+[5;10HChoose test type:
+[6;1H[0J
+          0. Exit
+          1. Test VT520 features
+          2. Test reporting functions
+          3. Set window title
+          4. Font features
+          5. Mouse features
+          6. Tektronix 4014 features
+          7. Alternate-Screen features (xterm)
+          8. Window modify-operations (dtterm)
+          9. Window report-operations (dtterm)
+
+          Enter choice number (0 - 9): 7
+[2J[2J[3;10HMenu 11.8.7: XTERM Alternate-Screen features
+[5;10HChoose test type:
+[6;1H[0J
+          0. Exit
+          1. Do not color after switching to alternate
+          2. Use DECALN after switching to alternate
+          3. Switch to/from alternate screen (xterm)
+          4. Improved alternate screen (XFree86 xterm mode 1047)
+          5. Better alternate screen (XFree86 xterm mode 1049)
+
+          Enter choice number (0 - 5): 3
+[2J[1;1HSwitch to/from alternate screen (xterm)
+[3;1HTest private setmode 47 (to/from alternate screen)
+[4;1HThe next screen will be filled with E's down to the prompt.
+[7;5H7[22;1HPush <RETURN>
+[?47h[12;1HThis message should not be here.
+#8[15;7H7[22;1H[0JPush <RETURN>
+[?47l8[6n[7;1H[2Kcursor save/restore ok[4;1H[2KThe original screen should be restored except for this line.
+[22;1HPush <RETURN>
+[2J[3;10HMenu 11.8.7: XTERM Alternate-Screen features
+[5;10HChoose test type:
+[6;1H[0J
+          0. Exit
+          1. Do not color after switching to alternate
+          2. Use DECALN after switching to alternate
+          3. Switch to/from alternate screen (xterm)
+          4. Improved alternate screen (XFree86 xterm mode 1047)
+          5. Better alternate screen (XFree86 xterm mode 1049)
+
+          Enter choice number (0 - 5): 4
+[2J[1;1HImproved alternate screen (XFree86 xterm mode 1047)
+[3;1HTest private setmode 1047 (to/from alternate screen)
+[4;1HThe next screen will be filled with E's down to the prompt.
+[5;1Hunless titeInhibit resource is set, or alternate-screen is disabled.
+[7;5H7[9;7H[?1048h[22;1HPush <RETURN>
+[?1047h[12;1HThis message should not be here.
+#8[15;7H7[22;1H[0JPush <RETURN>
+[?1047l8[?1048l[6n[9;1H[2Kcursor save/restore ok[4;1H[2KThe original screen should be restored except for this line.
+[22;1HPush <RETURN>
+[2J[3;10HMenu 11.8.7: XTERM Alternate-Screen features
+[5;10HChoose test type:
+[6;1H[0J
+          0. Exit
+          1. Do not color after switching to alternate
+          2. Use DECALN after switching to alternate
+          3. Switch to/from alternate screen (xterm)
+          4. Improved alternate screen (XFree86 xterm mode 1047)
+          5. Better alternate screen (XFree86 xterm mode 1049)
+
+          Enter choice number (0 - 5): 5
+[2J[1;1HBetter alternate screen (XFree86 xterm mode 1049)
+[3;1HTest private setmode 1049 (to/from alternate screen)
+[4;1HThe next screen will be filled with E's down to the prompt.
+[5;1Hunless titeInhibit resource is set, or alternate-screen is disabled.
+[7;5H7[22;1HPush <RETURN>
+[?1049h[12;1HThis message should not be here.
+#8[22;1H[0JPush <RETURN>
+[?1049l8[6n[23;1H[2Kcursor save/restore ok[4;1H[2KThe original screen should be restored except for this line.
+[22;1HPush <RETURN>
+[2J[3;10HMenu 11.8.7: XTERM Alternate-Screen features
+[5;10HChoose test type:
+[6;1H[0J
+          0. Exit
+          1. Do not color after switching to alternate
+          2. Use DECALN after switching to alternate
+          3. Switch to/from alternate screen (xterm)
+          4. Improved alternate screen (XFree86 xterm mode 1047)
+          5. Better alternate screen (XFree86 xterm mode 1049)
+
+          Enter choice number (0 - 5): 

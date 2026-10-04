@@ -1,0 +1,416 @@
+==== before keys 1, after 765 bytes ====
+
+
+         VT100 test program, version 2.7 (20230201)
+         Screen size 24x80 (80 max) Line speed 38400bd
+         Choose test type:
+
+          0. Exit
+          1. Test of cursor movements
+          2. Test of screen features
+          3. Test of character sets
+          4. Test of double-sized characters
+          5. Test of keyboard
+          6. Test of terminal reports
+          7. Test of VT52 mode
+          8. Test of VT102 features (Insert/Delete Char/Line)
+          9. Test of known bugs
+          10. Test of reset and self-test
+          11. Test non-VT100 (e.g., VT220, XTERM) terminals
+          12. Modify test-parameters
+
+          Enter choice number (0 - 12):
+
+
+
+---- cursor 21;41 ----
+==== before keys 2, after 1220 bytes ====
+
+
+         Menu 11: Non-VT100 Tests
+
+         Choose test type:
+
+          0. Exit
+          1. Test of VT220 features
+          2. Test of VT320 features
+          3. Test of VT420 features
+          4. Test of VT520 features
+          5. Test ISO-6429 cursor-movement
+          6. Test ISO-6429 colors
+          7. Test other ISO-6429 features
+          8. Test XTERM special features
+
+          Enter choice number (0 - 8):
+
+
+
+
+
+
+
+---- cursor 17;40 ----
+==== before keys 3, after 1717 bytes ====
+
+
+         Menu 11.8: XTERM special features
+
+         Choose test type:
+
+          0. Exit
+          1. Test VT520 features
+          2. Test reporting functions
+          3. Set window title
+          4. Font features
+          5. Mouse features
+          6. Tektronix 4014 features
+          7. Alternate-Screen features (xterm)
+          8. Window modify-operations (dtterm)
+          9. Window report-operations (dtterm)
+
+          Enter choice number (0 - 9):
+
+
+
+
+
+
+---- cursor 18;40 ----
+==== before keys 4, after 2176 bytes ====
+
+
+         Menu 11.8.7: XTERM Alternate-Screen features
+
+         Choose test type:
+
+          0. Exit
+          1. Do not color after switching to alternate
+          2. Use DECALN after switching to alternate
+          3. Switch to/from alternate screen (xterm)
+          4. Improved alternate screen (XFree86 xterm mode 1047)
+          5. Better alternate screen (XFree86 xterm mode 1049)
+
+          Enter choice number (0 - 5):
+
+
+
+
+
+
+
+
+
+
+---- cursor 14;40 ----
+==== before keys 5, after 2386 bytes ====
+Switch to/from alternate screen (xterm)
+
+Test private setmode 47 (to/from alternate screen)
+The next screen will be filled with E's down to the prompt.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Push <RETURN>
+
+
+---- cursor 22;14 ----
+==== before keys 6, after 2472 bytes ====
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+Push <RETURN>
+
+
+---- cursor 22;14 ----
+==== before keys 7, after 2611 bytes ====
+Switch to/from alternate screen (xterm)
+
+Test private setmode 47 (to/from alternate screen)
+The original screen should be restored except for this line.
+
+
+cursor save/restore ok
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Push <RETURN>
+
+
+---- cursor 22;14 ----
+==== before keys 8, after 3065 bytes ====
+
+
+         Menu 11.8.7: XTERM Alternate-Screen features
+
+         Choose test type:
+
+          0. Exit
+          1. Do not color after switching to alternate
+          2. Use DECALN after switching to alternate
+          3. Switch to/from alternate screen (xterm)
+          4. Improved alternate screen (XFree86 xterm mode 1047)
+          5. Better alternate screen (XFree86 xterm mode 1049)
+
+          Enter choice number (0 - 5):
+
+
+
+
+
+
+
+
+
+
+---- cursor 14;40 ----
+==== before keys 9, after 3380 bytes ====
+Improved alternate screen (XFree86 xterm mode 1047)
+
+Test private setmode 1047 (to/from alternate screen)
+The next screen will be filled with E's down to the prompt.
+unless titeInhibit resource is set, or alternate-screen is disabled.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Push <RETURN>
+
+
+---- cursor 22;14 ----
+==== before keys 10, after 3468 bytes ====
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+Push <RETURN>
+
+
+---- cursor 22;14 ----
+==== before keys 11, after 3617 bytes ====
+Improved alternate screen (XFree86 xterm mode 1047)
+
+Test private setmode 1047 (to/from alternate screen)
+The original screen should be restored except for this line.
+unless titeInhibit resource is set, or alternate-screen is disabled.
+
+
+
+cursor save/restore ok
+
+
+
+
+
+
+
+
+
+
+
+
+Push <RETURN>
+
+
+---- cursor 22;14 ----
+==== before keys 12, after 4071 bytes ====
+
+
+         Menu 11.8.7: XTERM Alternate-Screen features
+
+         Choose test type:
+
+          0. Exit
+          1. Do not color after switching to alternate
+          2. Use DECALN after switching to alternate
+          3. Switch to/from alternate screen (xterm)
+          4. Improved alternate screen (XFree86 xterm mode 1047)
+          5. Better alternate screen (XFree86 xterm mode 1049)
+
+          Enter choice number (0 - 5):
+
+
+
+
+
+
+
+
+
+
+---- cursor 14;40 ----
+==== before keys 13, after 4370 bytes ====
+Better alternate screen (XFree86 xterm mode 1049)
+
+Test private setmode 1049 (to/from alternate screen)
+The next screen will be filled with E's down to the prompt.
+unless titeInhibit resource is set, or alternate-screen is disabled.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Push <RETURN>
+
+
+---- cursor 22;14 ----
+==== before keys 14, after 4449 bytes ====
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+Push <RETURN>
+
+
+---- cursor 22;14 ----
+==== before keys 15, after 4591 bytes ====
+Better alternate screen (XFree86 xterm mode 1049)
+
+Test private setmode 1049 (to/from alternate screen)
+The original screen should be restored except for this line.
+unless titeInhibit resource is set, or alternate-screen is disabled.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Push <RETURN>
+cursor save/restore ok
+
+---- cursor 22;14 ----
+==== at the end, after 5045 bytes ====
+
+
+         Menu 11.8.7: XTERM Alternate-Screen features
+
+         Choose test type:
+
+          0. Exit
+          1. Do not color after switching to alternate
+          2. Use DECALN after switching to alternate
+          3. Switch to/from alternate screen (xterm)
+          4. Improved alternate screen (XFree86 xterm mode 1047)
+          5. Better alternate screen (XFree86 xterm mode 1049)
+
+          Enter choice number (0 - 5):
+
+
+
+
+
+
+
+
+
+
+---- cursor 14;40 ----

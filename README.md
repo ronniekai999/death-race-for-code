@@ -9,10 +9,11 @@ L E G E N D S   N E V E R   D I E
 
 ## Status
 
-Phase 1, the engine. The terminal engine covers the v1 scope and passes 96% of
+Phase 1, the engine. The terminal engine covers the v1 scope and passes 95% of
 xterm's conformance suite on that scope (esctest, ratcheted in CI). It reflows on resize,
-handles Unicode 18 graphemes, encodes keys for the Kitty keyboard protocol, and replays
-recorded vim, nvim, tmux, htop, fzf and nano sessions to their golden screens. It runs one
+handles Unicode 18 graphemes, encodes keys for the Kitty keyboard protocol, passes vttest's
+classic screens, and replays recorded vim, nvim, tmux, htop, fzf and nano sessions to their
+golden screens. It runs one
 thread per shell that publishes screen deltas, and it survives libFuzzer. The app still
 shows the first-lap window; the terminal surface arrives in Phase 2. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the roadmap and

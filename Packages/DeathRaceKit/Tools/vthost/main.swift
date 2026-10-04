@@ -22,16 +22,18 @@ func usage() -> Never {
         """
         usage:
           vthost run [--columns N] [--rows N] [--checksums] [--dump] [--record FILE]
-                     [--keys TEXT]... -- program [args...]
+                     [--marks FILE] [--keys TEXT]... -- program [args...]
               Runs program on a pseudo-terminal with VTCore as the terminal, answering its
               queries, until it exits. --checksums answers DECRQCRA (for esctest); --dump
               prints the final screen; --record saves the program's output. Each --keys is
               typed once the output has been quiet for a moment (\\e \\r \\n \\t \\xHH
               escapes); after the last one and another quiet moment, the run ends with a
-              hang-up. Exits with the program's status.
-          vthost replay [--columns N] [--rows N] [--scrollback] file
+              hang-up. --marks saves how much output came before each --keys, one count a
+              line. Exits with the program's status.
+          vthost replay [--columns N] [--rows N] [--scrollback] [--marks FILE] file
               Feeds a recorded byte stream to the engine and prints the screen: its text,
-              the cursor and the styled runs, the form the corpus goldens hold.
+              the cursor and the styled runs, the form the corpus goldens hold. With
+              --marks, prints the screen at each mark too, as it was when keys were typed.
           vthost bench [--seconds S] [--only ascii|sgr|unicode|cursor] [file...]
               Measures throughput on built-in workloads, or on the given recordings.
           vthost smoke
@@ -67,6 +69,7 @@ struct Options {
     var seconds = 1.0
     var only: String?
     var record: String?
+    var marks: String?
     var keys: [[UInt8]] = []
     var rest: [String] = []
 
@@ -87,6 +90,7 @@ struct Options {
             case "--seconds": seconds = Double(value()) ?? seconds
             case "--only": only = value()
             case "--record": record = value()
+            case "--marks": marks = value()
             case "--keys": keys.append(unescape(value()))
             case "--":
                 rest = Array(arguments[(index + 1)...])
@@ -130,6 +134,8 @@ func runCommand(_ arguments: [String]) -> Int32 {
     var buffer = [UInt8](repeating: 0, count: 64 * 1024)
     var outgoing: [UInt8] = []
     var recording: [UInt8] = []
+    var recorded = 0  // bytes of output so far, recorded or not
+    var marks: [Int] = []
     var keys = options.keys[...]
     let settle = 300  // ms of quiet output before typing the next keys
     var lastOutput = PseudoTerminal.monotonicMilliseconds()
@@ -152,6 +158,7 @@ func runCommand(_ arguments: [String]) -> Int32 {
             case .bytes(let n):
                 buffer.withUnsafeBufferPointer { terminal.feed(UnsafeBufferPointer(rebasing: $0[0..<n])) }
                 if options.record != nil { recording += buffer[0..<n] }
+                recorded += n
                 outgoing += terminal.takeReplies()
                 lastOutput = PseudoTerminal.monotonicMilliseconds()
             case .wouldBlock:
@@ -164,6 +171,7 @@ func runCommand(_ arguments: [String]) -> Int32 {
         if scripted && PseudoTerminal.monotonicMilliseconds() - lastOutput >= settle {
             if let next = keys.popFirst() {
                 outgoing += next
+                marks.append(recorded)
                 lastOutput = PseudoTerminal.monotonicMilliseconds()
             } else {
                 scripted = false
@@ -178,6 +186,9 @@ func runCommand(_ arguments: [String]) -> Int32 {
     }
 
     if let path = options.record, !writeFile(path, recording) {
+        printError("vthost: cannot write \(path)")
+    }
+    if let path = options.marks, !writeFile(path, Array(marks.map { "\($0)\n" }.joined().utf8)) {
         printError("vthost: cannot write \(path)")
     }
     let status = pty.waitForExit(timeoutMilliseconds: options.keys.isEmpty ? 1_000 : 0) ?? pty.hangUp()
@@ -211,8 +222,28 @@ func replayCommand(_ arguments: [String]) -> Int32 {
         printError("vthost: cannot read \(file)")
         return 1
     }
+    var marks: [Int] = []
+    if let path = options.marks {
+        guard let text = readFile(path) else {
+            printError("vthost: cannot read \(path)")
+            return 1
+        }
+        marks = String(decoding: text, as: UTF8.self).split(separator: "\n").compactMap { Int($0) }
+        guard marks.allSatisfy({ $0 <= bytes.count }), marks == marks.sorted() else {
+            printError("vthost: \(path) does not fit \(file)")
+            return 1
+        }
+    }
     let terminal = Terminal(Terminal.Configuration(columns: options.columns, rows: options.rows))
-    terminal.feed(bytes)
+    var fed = 0
+    for (index, mark) in marks.enumerated() {
+        terminal.feed(Array(bytes[fed..<mark]))
+        fed = mark
+        print("==== before keys \(index + 1), after \(mark) bytes ====")
+        print(terminal.dump(), terminator: "")
+    }
+    terminal.feed(Array(bytes[fed...]))
+    if !marks.isEmpty { print("==== at the end, after \(bytes.count) bytes ====") }
     print(terminal.dump(scrollback: options.scrollback), terminator: "")
     return 0
 }

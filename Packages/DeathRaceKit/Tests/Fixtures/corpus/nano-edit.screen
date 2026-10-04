@@ -1,3 +1,66 @@
+==== before keys 1, after 662 bytes ====
+  GNU nano 7.2                       notes.txt
+one
+two
+three
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                [ Read 3 lines ]
+^G Help      ^O Write Out ^W Where Is  ^K Cut       ^T Execute   ^C Location
+^X Exit      ^R Read File ^\ Replace   ^U Paste     ^J Justify   ^/ Go To Line
+---- cursor 2;1 ----
+---- styles ----
+1: 1-80 7
+22: 33-48 7
+23: 1-2 7 · 14-15 7 · 27-28 7 · 40-41 7 · 53-54 7 · 66-67 7
+24: 1-2 7 · 14-15 7 · 27-28 7 · 40-41 7 · 53-54 7 · 66-67 7
+==== before keys 2, after 761 bytes ====
+  GNU nano 7.2                       notes.txt                        Modified
+Hello from nano
+one
+two
+three
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                [ Read 3 lines ]
+^G Help      ^O Write Out ^W Where Is  ^K Cut       ^T Execute   ^C Location
+^X Exit      ^R Read File ^\ Replace   ^U Paste     ^J Justify   ^/ Go To Line
+---- cursor 3;1 ----
+---- styles ----
+1: 1-80 7
+22: 33-48 7
+23: 1-2 7 · 14-15 7 · 27-28 7 · 40-41 7 · 53-54 7 · 66-67 7
+24: 1-2 7 · 14-15 7 · 27-28 7 · 40-41 7 · 53-54 7 · 66-67 7
+==== at the end, after 815 bytes ====
   GNU nano 7.2                       notes.txt                        Modified
 Hello from nano
 two

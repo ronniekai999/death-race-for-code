@@ -1,0 +1,104 @@
+==== before keys 1, after 765 bytes ====
+
+
+         VT100 test program, version 2.7 (20230201)
+         Screen size 24x80 (80 max) Line speed 38400bd
+         Choose test type:
+
+          0. Exit
+          1. Test of cursor movements
+          2. Test of screen features
+          3. Test of character sets
+          4. Test of double-sized characters
+          5. Test of keyboard
+          6. Test of terminal reports
+          7. Test of VT52 mode
+          8. Test of VT102 features (Insert/Delete Char/Line)
+          9. Test of known bugs
+          10. Test of reset and self-test
+          11. Test non-VT100 (e.g., VT220, XTERM) terminals
+          12. Modify test-parameters
+
+          Enter choice number (0 - 12):
+
+
+
+---- cursor 21;41 ----
+==== before keys 2, after 1898 bytes ====
+Test of known bugs in the DEC VT100 series. The numbering of some of
+the bugs (A-F) refers to the article 'VT100 MAGIC' by Sami Tabih in
+the 'Proceedings of the DEC Users Society' at St. Louis, Missouri, May
+1983. To understand some of the tests, you have to look at the source
+code or the article. Of course, a good VT100-compatible terminal
+should not have these bugs (or have some means of disabling them)! If
+a bug appears, you might want to RESET the terminal before continuing
+the test. There is a test of the RESET function in the main menu.
+
+          0. Exit to main menu
+          1. Bug A: Smooth scroll to jump scroll
+          2. Bug B: Scrolling region
+          3. Bug C: Wide to narrow screen
+          4. Bug D: Narrow to wide screen
+          5. Bug E: Cursor move from double- to single-wide line
+          6. Bug F: Column mode escape sequence
+          7. Wrap around with cursor addressing
+          8. Erase right half of double width lines
+          9. Funny scroll regions
+
+          Enter choice number (0 - 9):
+
+
+
+---- cursor 21;40 ----
+==== before keys 3, after 2583 bytes ====
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++*
+                                                                               *
+                                                                               *
+                                                                               *
+                                                                               *
+                                                                               *
+                                                                               *
+                                                                               *
+                                                                               *
+                                                                               *
+                                                                               *
+                                                                               *
+                                                                               *
+                                                                               *
+                                                                               *
+   This illustrates the "wrap around bug" which exists on a                    *
+   standard VT100. At the top of the screen there should be                    *
+   a row of +'s, and the rightmost column should be filled                     *
+   with *'s. But if the bug is present, some of the *'s may                    *
+   be placed in other places, e.g. in the leftmost column,                     *
+   and the top line of +'s may be scrolled away.                               *
+                                                                               *
+                                                                               *
+Push <RETURN>                                                                  *
+---- cursor 24;14 ----
+==== at the end, after 3711 bytes ====
+Test of known bugs in the DEC VT100 series. The numbering of some of
+the bugs (A-F) refers to the article 'VT100 MAGIC' by Sami Tabih in
+the 'Proceedings of the DEC Users Society' at St. Louis, Missouri, May
+1983. To understand some of the tests, you have to look at the source
+code or the article. Of course, a good VT100-compatible terminal
+should not have these bugs (or have some means of disabling them)! If
+a bug appears, you might want to RESET the terminal before continuing
+the test. There is a test of the RESET function in the main menu.
+
+          0. Exit to main menu
+          1. Bug A: Smooth scroll to jump scroll
+          2. Bug B: Scrolling region
+          3. Bug C: Wide to narrow screen
+          4. Bug D: Narrow to wide screen
+          5. Bug E: Cursor move from double- to single-wide line
+          6. Bug F: Column mode escape sequence
+          7. Wrap around with cursor addressing
+          8. Erase right half of double width lines
+          9. Funny scroll regions
+
+          Enter choice number (0 - 9):
+
+
+
+---- cursor 21;40 ----

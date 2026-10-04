@@ -20,17 +20,32 @@ import Testing
         .map { String($0.dropLast(4)) }
         .sorted()
 
-    private func load(_ name: String) throws -> (recording: [UInt8], golden: String) {
+    private func load(_ name: String) throws -> (recording: [UInt8], marks: [Int], golden: String) {
         let recording = try #require(FileManager.default.contents(atPath: Self.directory + name + ".bin"))
         let golden = try #require(FileManager.default.contents(atPath: Self.directory + name + ".screen"))
-        return ([UInt8](recording), String(decoding: golden, as: UTF8.self))
+        let marks = FileManager.default.contents(atPath: Self.directory + name + ".marks").map {
+            String(decoding: $0, as: UTF8.self).split(separator: "\n").compactMap { Int($0) }
+        }
+        return ([UInt8](recording), marks ?? [], String(decoding: golden, as: UTF8.self))
     }
 
-    /// The goldens are 80x24, the size the programs were recorded at.
-    private func replay(_ chunks: [ArraySlice<UInt8>]) -> String {
+    /// What `vthost replay --marks` prints: the screen at every mark (where keys were typed),
+    /// then at the end. The goldens are 80x24, the size the programs were recorded at; each
+    /// stretch of output is fed in the pieces `split` makes of it.
+    private func replay(
+        _ recording: [UInt8], marks: [Int], split: (ArraySlice<UInt8>) -> [ArraySlice<UInt8>] = { [$0] }
+    ) -> String {
         let terminal = Terminal(Terminal.Configuration(columns: 80, rows: 24))
-        for chunk in chunks { terminal.feed(Array(chunk)) }
-        return terminal.dump()
+        var out = ""
+        var fed = 0
+        for (index, mark) in marks.enumerated() {
+            for piece in split(recording[fed..<mark]) { terminal.feed(Array(piece)) }
+            fed = mark
+            out += "==== before keys \(index + 1), after \(mark) bytes ====\n" + terminal.dump()
+        }
+        for piece in split(recording[fed...]) { terminal.feed(Array(piece)) }
+        if !marks.isEmpty { out += "==== at the end, after \(recording.count) bytes ====\n" }
+        return out + terminal.dump()
     }
 
     @Test func corpusIsThere() {
@@ -39,26 +54,29 @@ import Testing
 
     @Test(arguments: names)
     func replayMatchesGolden(_ name: String) throws {
-        let (recording, golden) = try load(name)
-        expectSame(replay([recording[...]]), golden, name)
+        let (recording, marks, golden) = try load(name)
+        expectSame(replay(recording, marks: marks), golden, name)
     }
 
     /// Programs' output arrives in arbitrary pieces: splitting it anywhere, inside escape
     /// sequences and UTF-8 characters included, must not change the screen.
     @Test(arguments: names)
     func replayInPiecesMatchesGolden(_ name: String) throws {
-        let (recording, golden) = try load(name)
-        let bytes = recording.map { [$0][...] }
-        expectSame(replay(bytes), golden, "\(name), a byte at a time")
+        let (recording, marks, golden) = try load(name)
+        let bytes = replay(recording, marks: marks) { stretch in stretch.indices.map { stretch[$0...$0] } }
+        expectSame(bytes, golden, "\(name), a byte at a time")
         var random = SplitMix64(seed: 999)
-        var chunks: [ArraySlice<UInt8>] = []
-        var start = 0
-        while start < recording.count {
-            let end = min(start + Int(random.next() % 64) + 1, recording.count)
-            chunks.append(recording[start..<end])
-            start = end
+        let pieces = replay(recording, marks: marks) { stretch in
+            var pieces: [ArraySlice<UInt8>] = []
+            var start = stretch.startIndex
+            while start < stretch.endIndex {
+                let end = min(start + Int(random.next() % 64) + 1, stretch.endIndex)
+                pieces.append(stretch[start..<end])
+                start = end
+            }
+            return pieces
         }
-        expectSame(replay(chunks), golden, "\(name), in random pieces")
+        expectSame(pieces, golden, "\(name), in random pieces")
     }
 
     /// Compares line by line, so a failure names the first line that differs.

@@ -1,0 +1,87 @@
+[0c[?1l[?3l[?4l[?5l[?6l[?7h[?8l[?40h[?45l[r[0m[2J[3;10HVT100 test program, version 2.7 (20230201)[4;10HScreen size 24x80 (80 max) Line speed 38400bd [5;10HChoose test type:
+[6;1H[0J
+          0. Exit
+          1. Test of cursor movements
+          2. Test of screen features
+          3. Test of character sets
+          4. Test of double-sized characters
+          5. Test of keyboard
+          6. Test of terminal reports
+          7. Test of VT52 mode
+          8. Test of VT102 features (Insert/Delete Char/Line)
+          9. Test of known bugs
+          10. Test of reset and self-test
+          11. Test non-VT100 (e.g., VT220, XTERM) terminals
+          12. Modify test-parameters
+
+          Enter choice number (0 - 12): 6
+[2J[2J[3;10HMenu 6: Terminal Reports/Responses[5;10HChoose test type:
+[6;1H[0J
+          0. Exit
+          1. <ENQ> (AnswerBack Message)
+          2. Set/Reset Mode - LineFeed / Newline
+          3. Device Status Report (DSR)                 VT100 & up
+          4. Primary Device Attributes (DA)             VT100 & up
+          5. Secondary Device Attributes (DA)           VT220 & up
+          6. Tertiary Device Attributes (DA)            VT420
+          7. Request Terminal Parameters (DECREQTPARM)  VT100
+
+          Enter choice number (0 - 7): 3
+[2J[1;1HTest of Device Status Report 5 (report terminal status).[2;1H[5n[2;1H[0KReport is:[7m <27> [ 0 n [m -- means "TERMINAL OK"[4;1HTest of Device Status Report 6 (report cursor position).
+[5;1H[6n[5;1H[0KReport is:[7m <27> [ 5 ; 1 R [m -- OK[?6h[4;18r[5;1H[6n[5;1H[0KReport is:[7m <27> [ 5 ; 1 R [m -- OK[?6l[r[23;1HPush <RETURN>
+[2J[3;10HMenu 6: Terminal Reports/Responses[5;10HChoose test type:
+[6;1H[0J
+          0. Exit
+          1. <ENQ> (AnswerBack Message)
+          2. Set/Reset Mode - LineFeed / Newline
+          3. Device Status Report (DSR)                 VT100 & up
+          4. Primary Device Attributes (DA)             VT100 & up
+          5. Secondary Device Attributes (DA)           VT220 & up
+          6. Tertiary Device Attributes (DA)            VT420
+          7. Request Terminal Parameters (DECREQTPARM)  VT100
+
+          Enter choice number (0 - 7): 4
+[2J[1;1HTest of Device Attributes report (what are you)
+[0c[3;1H[0KReport is:[7m <27> [ ? 6 2 ; 2 2 c [m VT200 family
+    22 = color
+[23;1HPush <RETURN>
+[2J[3;10HMenu 6: Terminal Reports/Responses[5;10HChoose test type:
+[6;1H[0J
+          0. Exit
+          1. <ENQ> (AnswerBack Message)
+          2. Set/Reset Mode - LineFeed / Newline
+          3. Device Status Report (DSR)                 VT100 & up
+          4. Primary Device Attributes (DA)             VT100 & up
+          5. Secondary Device Attributes (DA)           VT220 & up
+          6. Tertiary Device Attributes (DA)            VT420
+          7. Request Terminal Parameters (DECREQTPARM)  VT100
+
+          Enter choice number (0 - 7): 5
+[2J[1;1HTesting Secondary Device Attributes (Firmware version)
+[>c[3;10H[7m <27> [ > 1 ; 1 0 ; 0 c [m[4;10HPp=1 (VT220)[5;10HPv=10, firmware version 1.0[6;10HPc=0, ROM cartridge registration number ok[23;1HPush <RETURN>
+[2J[3;10HMenu 6: Terminal Reports/Responses[5;10HChoose test type:
+[6;1H[0J
+          0. Exit
+          1. <ENQ> (AnswerBack Message)
+          2. Set/Reset Mode - LineFeed / Newline
+          3. Device Status Report (DSR)                 VT100 & up
+          4. Primary Device Attributes (DA)             VT100 & up
+          5. Secondary Device Attributes (DA)           VT220 & up
+          6. Tertiary Device Attributes (DA)            VT420
+          7. Request Terminal Parameters (DECREQTPARM)  VT100
+
+          Enter choice number (0 - 7): 6
+[2J[1;1HTesting Tertiary Device Attributes (unit ID)
+[=c[3;10H[7m <27> P ! | 0 0 0 0 0 0 0 0 <27> \ [m ok[23;1HPush <RETURN>
+[2J[3;10HMenu 6: Terminal Reports/Responses[5;10HChoose test type:
+[6;1H[0J
+          0. Exit
+          1. <ENQ> (AnswerBack Message)
+          2. Set/Reset Mode - LineFeed / Newline
+          3. Device Status Report (DSR)                 VT100 & up
+          4. Primary Device Attributes (DA)             VT100 & up
+          5. Secondary Device Attributes (DA)           VT220 & up
+          6. Tertiary Device Attributes (DA)            VT420
+          7. Request Terminal Parameters (DECREQTPARM)  VT100
+
+          Enter choice number (0 - 7): 

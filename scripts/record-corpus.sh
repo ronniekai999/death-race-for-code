@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Records real programs through vthost into Packages/DeathRaceKit/Tests/Fixtures/corpus/:
-# NAME.bin is the program's output, NAME.screen the screen VTCore makes of it (80x24). The
-# corpus tests replay every .bin and compare with its .screen, so a change that alters how real
-# programs look shows up as a failing test.
+# NAME.bin is the program's output, NAME.marks how much of it came before each scripted key
+# press, and NAME.screen the screens VTCore makes of it (80x24): one at every key press, then
+# the last. The corpus tests replay every .bin and compare with its .screen, so a change that
+# alters how real programs look shows up as a failing test.
 #
 #   scripts/record-corpus.sh             record everything again, then write the goldens
 #   scripts/record-corpus.sh --goldens   rewrite the goldens from the existing recordings,
@@ -10,7 +11,7 @@
 #
 # Recordings depend on the programs' versions, so they are recorded once and checked in;
 # re-recording is for adding programs, not for routine runs. Needs vim, nvim, less, tmux,
-# htop, nano and fzf.
+# htop, nano, fzf and vttest.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -21,7 +22,9 @@ VTHOST="$(swift build --package-path "$PKG" --show-bin-path)/vthost"
 
 goldens() {
   for bin in "$CORPUS"/*.bin; do
-    "$VTHOST" replay --columns 80 --rows 24 "$bin" > "${bin%.bin}.screen"
+    local marks=()
+    [ -f "${bin%.bin}.marks" ] && marks=(--marks "${bin%.bin}.marks")
+    "$VTHOST" replay --columns 80 --rows 24 "${marks[@]}" "$bin" > "${bin%.bin}.screen"
   done
   echo "wrote $(ls "$CORPUS"/*.screen | wc -l) goldens"
 }
@@ -54,8 +57,23 @@ printf '中文字符 日本語 한국어\ncafé naïve résumé — “quotes”
 
 record() {
   local name=$1; shift
-  "$VTHOST" run --columns 80 --rows 24 --record "$CORPUS/$name.bin" "$@" >/dev/null || true
+  "$VTHOST" run --columns 80 --rows 24 --record "$CORPUS/$name.bin" --marks "$CORPUS/$name.marks" "$@" \
+    >/dev/null || true
+  [ -s "$CORPUS/$name.marks" ] || rm -f "$CORPUS/$name.marks"
   echo "recorded $name ($(wc -c < "$CORPUS/$name.bin") bytes)"
+}
+
+# vttest, the classic VT100/VT220 test, menu by menu. Every screen it draws says what it should
+# look like, and each golden was checked against that. vttest is told the truth about the
+# width (24x80.80: programs cannot switch the window to 132 columns here), so its 132-column
+# passes run at 80. Left out: what needs double-size lines, VT52 or 8-bit and national
+# character sets (not in v1), the keyboard tests, and reports vttest waits for and we do not
+# send (ENQ answerback, DECREQTPARM, which a VT220 does not answer either).
+vttest() {
+  local name=$1; shift
+  local keys=()
+  for k in "$@"; do keys+=(--keys "$k"); done
+  record "$name" "${keys[@]}" -- vttest 24x80.80
 }
 
 export LANG=C.UTF-8
@@ -81,4 +99,23 @@ record htop --keys '' -- bash -c 'exec htop -p $$'
 record fzf-inline --keys '42' -- bash -c 'seq 1 500 | fzf --height=12 --border --no-mouse'
 record nano-edit --keys 'Hello from nano\r' --keys '\x0b' -- nano -I notes.txt
 record unicode-cat -- cat unicode.txt
+
+n() { local i; for i in $(seq 1 "$1"); do printf '%s\n' '\r'; done; }
+# Menu 1: cursor movements. Menu 2: screen features. Menu 3: the VT100 character sets, SI/SO.
+mapfile -t six < <(n 6); vttest vttest-cursor '1\r' "${six[@]}"
+mapfile -t fifteen < <(n 15); vttest vttest-screen '2\r' "${fifteen[@]}"
+vttest vttest-charsets '3\r' '8\r' '\r' '9\r' '\r'
+# Menu 6: status and attribute reports. Menu 8: VT102 insert and delete.
+vttest vttest-reports '6\r' '3\r' '\r' '4\r' '\r' '5\r' '\r' '6\r' '\r'
+mapfile -t fourteen < <(n 14); vttest vttest-insdel '8\r' "${fourteen[@]}"
+# Menu 9: wrap-around with cursor addressing.
+vttest vttest-wrap '9\r' '7\r' '\r'
+# Menu 11: VT220 reports and screen display; ISO 6429 cursor movement, REP, SD, SU and colors;
+# xterm's alternate screens.
+vttest vttest-vt220 '11\r' '1\r' '1\r' '1\r' '1\r' '\r' '2\r' '\r' '3\r' '\r' '4\r' '\r' '0\r' '0\r' \
+  '2\r' '2\r' '\r' '\r' '3\r' '\r' '4\r' '\r' '\r'
+mapfile -t nine < <(n 9)
+vttest vttest-iso6429 '11\r' '5\r' '*\r' "${nine[@]}" '0\r' '7\r' '2\r' '\r' '3\r' '\r' '6\r' '\r'
+vttest vttest-colors '11\r' '6\r' '2\r' '\r' '3\r' '\r' '4\r' '\r' '\r' '5\r' '\r' '\r' '9\r' '\r' '\r' '\r'
+vttest vttest-altscreen '11\r' '8\r' '7\r' '3\r' '\r' '\r' '\r' '4\r' '\r' '\r' '\r' '5\r' '\r' '\r' '\r'
 goldens

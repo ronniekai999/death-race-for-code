@@ -1,3 +1,82 @@
+==== before keys 1, after 1177 bytes ====
+line 1 of a long file, with a needle on line 1
+line 2 of a long file, with a needle on line 2
+line 3 of a long file, with a needle on line 3
+line 4 of a long file, with a needle on line 4
+line 5 of a long file, with a needle on line 5
+line 6 of a long file, with a needle on line 6
+line 7 of a long file, with a needle on line 7
+line 8 of a long file, with a needle on line 8
+line 9 of a long file, with a needle on line 9
+line 10 of a long file, with a needle on line 10
+line 11 of a long file, with a needle on line 11
+line 12 of a long file, with a needle on line 12
+line 13 of a long file, with a needle on line 13
+line 14 of a long file, with a needle on line 14
+line 15 of a long file, with a needle on line 15
+line 16 of a long file, with a needle on line 16
+line 17 of a long file, with a needle on line 17
+line 18 of a long file, with a needle on line 18
+line 19 of a long file, with a needle on line 19
+line 20 of a long file, with a needle on line 20
+line 21 of a long file, with a needle on line 21
+line 22 of a long file, with a needle on line 22
+line 23 of a long file, with a needle on line 23
+long.txt
+---- cursor 24;9 ----
+---- styles ----
+24: 1-8 7
+==== before keys 2, after 4019 bytes ====
+line 1 of a long file, with a needle on line 1
+line 2 of a long file, with a needle on line 2
+line 3 of a long file, with a needle on line 3
+line 4 of a long file, with a needle on line 4
+line 5 of a long file, with a needle on line 5
+line 6 of a long file, with a needle on line 6
+line 7 of a long file, with a needle on line 7
+line 8 of a long file, with a needle on line 8
+line 9 of a long file, with a needle on line 9
+line 10 of a long file, with a needle on line 10
+line 11 of a long file, with a needle on line 11
+line 12 of a long file, with a needle on line 12
+line 13 of a long file, with a needle on line 13
+line 14 of a long file, with a needle on line 14
+line 15 of a long file, with a needle on line 15
+line 16 of a long file, with a needle on line 16
+line 17 of a long file, with a needle on line 17
+line 18 of a long file, with a needle on line 18
+line 19 of a long file, with a needle on line 19
+line 20 of a long file, with a needle on line 20
+line 21 of a long file, with a needle on line 21
+line 22 of a long file, with a needle on line 22
+line 23 of a long file, with a needle on line 23
+:
+---- cursor 24;2 ----
+---- styles ----
+1: 31-36 7
+2: 31-36 7
+3: 31-36 7
+4: 31-36 7
+5: 31-36 7
+6: 31-36 7
+7: 31-36 7
+8: 31-36 7
+9: 31-36 7
+10: 32-37 7
+11: 32-37 7
+12: 32-37 7
+13: 32-37 7
+14: 32-37 7
+15: 32-37 7
+16: 32-37 7
+17: 32-37 7
+18: 32-37 7
+19: 32-37 7
+20: 32-37 7
+21: 32-37 7
+22: 32-37 7
+23: 32-37 7
+==== at the end, after 5413 bytes ====
 line 38 of a long file, with a needle on line 38
 line 39 of a long file, with a needle on line 39
 line 40 of a long file, with a needle on line 40

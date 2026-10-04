@@ -1,7 +1,6 @@
 import Foundation
 import PTYKit
 import ScreenProtocol
-import Synchronization
 import VTCore
 
 public enum SessionError: Error, Equatable {
@@ -136,7 +135,7 @@ final class SessionChannel: Sendable {
     /// Input bytes allowed to wait for the shell to read them.
     static let inputLimit = 16 * 1024 * 1024
 
-    let mailbox = Mutex(Mailbox())
+    let mailbox = Locked(Mailbox())
     let wake: WakePipe
     let onUpdate: @Sendable () -> Void
 

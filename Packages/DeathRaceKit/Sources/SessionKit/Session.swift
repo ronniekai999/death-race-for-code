@@ -106,6 +106,12 @@ public final class Session: Sendable {
         channel.send(.setBasePalette(palette))
     }
 
+    /// Clears for the user, as Terminal's ⌘K (`.toStart`) and ⌥⌘K (`.scrollback`) do. The
+    /// alternate screen is left alone.
+    public func clear(_ kind: Terminal.ClearKind) {
+        channel.send(.clear(kind))
+    }
+
     // MARK: - Questions
 
     /// The text of `range`, read on the session thread, so it reaches into history the app
@@ -153,6 +159,7 @@ final class SessionChannel: Sendable {
         case snapshot
         case focus(Bool)
         case setBasePalette(Palette)
+        case clear(Terminal.ClearKind)
         case query(Query)
         case close
     }

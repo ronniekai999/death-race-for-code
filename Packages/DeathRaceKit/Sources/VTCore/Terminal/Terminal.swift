@@ -154,6 +154,41 @@ public final class Terminal {
         emit(.colorsChanged)
     }
 
+    // MARK: - Clearing
+
+    public enum ClearKind: Sendable {
+        /// Terminal's Clear to Start (⌘K): the cursor's line, the prompt, moves to the top;
+        /// the lines above it and the history go.
+        case toStart
+        /// Clear Scrollback (⌥⌘K): only the history goes.
+        case scrollback
+    }
+
+    /// Clears for the user (⌘K, ⌥⌘K). The alternate screen is left alone: clearing under a
+    /// full-screen program would leave its idea of the screen wrong until it redraws.
+    /// False when there was nothing to do.
+    @discardableResult
+    public func clear(_ kind: ClearKind) -> Bool {
+        guard !isAlternateScreen else { return false }
+        let s = primary
+        var changed = !s.scrollback.isEmpty
+        s.clearScrollback()
+        if kind == .toStart {
+            // The whole logical line stays: a long command wraps onto the cursor's row from
+            // the rows above it.
+            var top = s.cursor.y
+            while top > 0 && s.active[top - 1].isWrapped { top -= 1 }
+            if top > 0 {
+                s.discardTopRows(top, fill: .default)
+                changed = true
+            }
+        }
+        guard changed else { return false }
+        lastGraphic = nil
+        bumpGeneration()
+        return true
+    }
+
     // MARK: - Resize
 
     /// Resizes both screens. The primary reflows: soft-wrapped lines are wrapped again at the

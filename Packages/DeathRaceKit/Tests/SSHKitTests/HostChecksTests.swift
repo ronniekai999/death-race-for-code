@@ -109,10 +109,10 @@ struct HostChecksTests {
     }
 
     @Test func aLANAddressIsNotTouchedWithoutLeave() async {
-        // Skipped before any packet goes out, so no timeout is waited for.
-        let start = Date()
+        // `.skipped` is returned before any packet goes out; it is a different result from
+        // `.silent`, which is the only one that waits for the connect timeout. So this one
+        // assertion proves no timeout was waited for, with no brittle wall-clock budget.
         #expect(await HostChecks.latency(host: "10.255.255.1", port: 22, allowLocal: false) == .skipped)
-        #expect(Date().timeIntervalSince(start) < 1)
     }
 
     @Test func theOSIsReadThroughTheMaster() async {

@@ -14,11 +14,25 @@ public struct HostChain: Equatable, Sendable {
         public var alias: String
         /// `user@host` as its prompts say it: `HostKeyAlias` when set, else the host name.
         public var prompt: AskpassPrompt.Hop
+        /// The name ssh files this hop's key under in `known_hosts`, and the files it keeps
+        /// them in — from `ssh -G`. "Forget the Old Key" trusts a changed-key warning only
+        /// when its host and file match one of these, never the server's own words.
+        public var knownHostsName: String?
+        public var knownHostsFiles: [String]
 
-        public init(alias: String, prompt: AskpassPrompt.Hop) {
+        public init(
+            alias: String, prompt: AskpassPrompt.Hop, knownHostsName: String? = nil, knownHostsFiles: [String] = []
+        ) {
             self.alias = alias
             self.prompt = prompt
+            self.knownHostsName = knownHostsName
+            self.knownHostsFiles = knownHostsFiles
         }
+    }
+
+    /// Each hop's `known_hosts` identity, for `KeyRemoval.isConfirmed(by:)`.
+    public var knownHostsHops: [(name: String?, files: [String])] {
+        hops.map { ($0.knownHostsName, $0.knownHostsFiles) }
     }
 
     public enum Failure: Error, Equatable, Sendable {
@@ -68,7 +82,8 @@ public struct HostChain: Equatable, Sendable {
         let effective = EffectiveConfig(parsing: result.outputText)
         let hop = Hop(
             alias: alias,
-            prompt: AskpassPrompt.Hop(user: effective.user ?? "", host: effective.promptHost ?? alias))
+            prompt: AskpassPrompt.Hop(user: effective.user ?? "", host: effective.promptHost ?? alias),
+            knownHostsName: effective.knownHostsName, knownHostsFiles: effective.userKnownHostsFiles)
         guard let proxyJump = effective.proxyJump else { return [hop] }
 
         let specs = proxyJump.split(separator: ",").map(String.init)

@@ -112,8 +112,8 @@ final class FakeConnections: HostConnecting {
     func hidden(by viewer: AnyObject) { viewers -= 1 }
 
     private(set) var forgotten: [KeyRemoval] = []
-    func knownKeys(_ removal: KeyRemoval) async -> [KnownHosts.Entry] { [] }
-    func forgetKey(_ removal: KeyRemoval) async -> String? {
+    func knownKeys(_ removal: KeyRemoval, for host: HostRef?) async -> [KnownHosts.Entry] { [] }
+    func forgetKey(_ removal: KeyRemoval, for host: HostRef?) async -> String? {
         forgotten.append(removal)
         return nil
     }

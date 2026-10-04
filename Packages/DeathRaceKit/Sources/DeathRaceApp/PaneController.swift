@@ -203,8 +203,9 @@ final class PaneController {
     private func forgetHostKey() {
         guard case .hostKeyChanged(let fingerprint, _, let removal?) = failure, let connections else { return }
         let name = hostName ?? shellName
+        let host = launch.host
         Task {
-            let old = await connections.knownKeys(removal).map { "\($0.fingerprint) (\($0.type))" }
+            let old = await connections.knownKeys(removal, for: host).map { "\($0.fingerprint) (\($0.type))" }
             let alert = NSAlert()
             alert.alertStyle = .warning
             alert.messageText = "Forget the key ssh trusted for \(name)?"
@@ -217,7 +218,7 @@ final class PaneController {
             alert.addButton(withTitle: "Cancel")
             alert.buttons.first?.hasDestructiveAction = true
             guard await presentAlert?(alert) == .alertFirstButtonReturn else { return }
-            if let problem = await connections.forgetKey(removal) {
+            if let problem = await connections.forgetKey(removal, for: host) {
                 let failed = NSAlert()
                 failed.messageText = "ssh-keygen didn’t forget the key"
                 failed.informativeText = problem

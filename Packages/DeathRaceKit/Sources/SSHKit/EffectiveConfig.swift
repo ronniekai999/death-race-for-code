@@ -34,4 +34,21 @@ public struct EffectiveConfig: Equatable, Sendable {
 
     /// The host name ssh writes in its own prompts: `HostKeyAlias` when there is one.
     public var promptHost: String? { hostKeyAlias ?? hostName }
+
+    /// The files ssh keeps the user's trusted host keys in (`UserKnownHostsFile`), already
+    /// absolute as `ssh -G` prints them. `ssh -G` lists several on one line, space-separated.
+    public var userKnownHostsFiles: [String] {
+        all("userknownhostsfile").flatMap { $0.split(separator: " ").map(String.init) }
+    }
+
+    /// The name ssh files this host's key under in `known_hosts`: `HostKeyAlias` verbatim
+    /// when set, otherwise the host name, bracketed with the port when it isn't 22. This is
+    /// how we work out what a changed-key warning is really about, rather than trusting the
+    /// name a server could print in a banner.
+    public var knownHostsName: String? {
+        if let alias = hostKeyAlias { return alias }
+        guard let host = hostName else { return nil }
+        let port = self.port ?? 22
+        return port == 22 ? host : "[\(host)]:\(port)"
+    }
 }

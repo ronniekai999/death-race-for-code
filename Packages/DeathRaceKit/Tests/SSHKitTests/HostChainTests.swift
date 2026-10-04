@@ -33,7 +33,11 @@ struct HostChainTests {
         ])
         let chain = try await resolve("deathrace-prod-api", runner)
         #expect(
-            chain.hops == [.init(alias: "deathrace-prod-api", prompt: .init(user: "ubuntu", host: "10.0.4.21"))])
+            chain.hops == [
+                .init(
+                    alias: "deathrace-prod-api", prompt: .init(user: "ubuntu", host: "10.0.4.21"),
+                    knownHostsName: "10.0.4.21")
+            ])
     }
 
     @Test func eachJumpHostIsAskedAsSshWillReachIt() async throws {
@@ -144,11 +148,18 @@ struct HostChainTests {
         let chain = try await HostChain.resolve(
             alias: try #require(generated.aliases[target.id]), config: file, runner: SystemProcessRunner(),
             environment: ["PATH": "/usr/bin:/bin", "HOME": home])
+        #expect(chain.hops.map(\.alias) == ["deathrace-bastion", "deathrace-prod-api"])
         #expect(
-            chain.hops == [
-                .init(alias: "deathrace-bastion", prompt: .init(user: "ops", host: "bastion.lan")),
-                .init(alias: "deathrace-prod-api", prompt: .init(user: "fallback", host: "10.0.4.21")),
+            chain.hops.map(\.prompt) == [
+                .init(user: "ops", host: "bastion.lan"), .init(user: "fallback", host: "10.0.4.21"),
             ])
+        // Each hop carries the name and the files ssh would file its key under, for the
+        // changed-key check. ssh resolves "~" from the passwd entry, not our temporary HOME,
+        // so only the shape is asserted: an absolute known_hosts path.
+        #expect(chain.hops.map(\.knownHostsName) == ["bastion.lan", "10.0.4.21"])
+        for hop in chain.hops {
+            #expect(hop.knownHostsFiles.contains { $0.hasPrefix("/") && $0.contains("known_hosts") })
+        }
     }
 }
 

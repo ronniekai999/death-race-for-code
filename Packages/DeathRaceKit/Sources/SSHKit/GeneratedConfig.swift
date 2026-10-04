@@ -80,7 +80,7 @@ public struct GeneratedConfig: Equatable, Sendable {
                 taken.insert(alias)
                 aliases[host.id] = alias
             case .sshConfig(let alias):
-                if SSHConfigDiscovery.isConcrete(alias), Self.isWord(alias) {
+                if SSHConfigDiscovery.isConcrete(alias), Self.isHostName(alias) {
                     aliases[host.id] = alias
                 } else {
                     problems.append(Problem(host: host.id, message: "“\(alias)” isn't a host name ssh can look up."))
@@ -143,7 +143,7 @@ public struct GeneratedConfig: Equatable, Sendable {
             blocks.append((["Host " + alias] + lines.map { "    " + $0 }).joined(separator: "\n"))
         }
         var aliasControlPaths: [String: String] = [:]
-        for alias in discovered where SSHConfigDiscovery.isConcrete(alias) && Self.isWord(alias) {
+        for alias in discovered where SSHConfigDiscovery.isConcrete(alias) && Self.isHostName(alias) {
             guard written.insert(alias).inserted else { continue }
             let controlPath = paths.controlPath(for: Self.controlKey(forAlias: alias))
             aliasControlPaths[alias] = controlPath
@@ -175,12 +175,12 @@ public struct GeneratedConfig: Equatable, Sendable {
     /// A WRLD host's own settings; its ProxyJump is added once its jump host is known to
     /// be in the file.
     private static func connectionLines(_ connection: Connection, vault: Vault) throws(Refusal) -> [String] {
-        guard isWord(connection.address), !connection.address.hasPrefix("-") else {
+        guard isHostName(connection.address) else {
             throw Refusal(message: "The address “\(connection.address)” isn't a host name or an IP address.")
         }
         var lines = ["HostName " + connection.address]
         if let user = connection.user {
-            guard isWord(user), !user.hasPrefix("-") else {
+            guard isUserName(user) else {
                 throw Refusal(message: "The user “\(user)” can't be used.")
             }
             lines.append("User " + user)
@@ -254,9 +254,12 @@ public struct GeneratedConfig: Equatable, Sendable {
 
     public static func controlKey(forAlias alias: String) -> String { "alias:" + alias }
 
-    /// One word with nothing ssh_config or a shell would read as more: no spaces, quotes,
-    /// comments, control characters or percent tokens.
-    static func isWord(_ value: String) -> Bool { SSHValue.isWord(value) }
+    /// A host name, IP address or alias safe to place in the config, including as a
+    /// `ProxyJump` value that OpenSSH runs through a shell. See `SSHValue.isHostName`.
+    static func isHostName(_ value: String) -> Bool { SSHValue.isHostName(value) }
+
+    /// A user name safe to place after `User`. See `SSHValue.isUserName`.
+    static func isUserName(_ value: String) -> Bool { SSHValue.isUserName(value) }
 
     /// A path ssh can be given: no control characters or double quotes (spaces are quoted).
     static func isPath(_ value: String) -> Bool { SSHValue.isPath(value) }

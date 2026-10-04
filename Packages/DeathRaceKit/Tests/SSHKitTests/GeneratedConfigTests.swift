@@ -133,6 +133,41 @@ struct GeneratedConfigTests {
         #expect(config.aliases.keys.map(\.rawValue) == ["h7"])
     }
 
+    // OpenSSH turns a ProxyJump value into a command run through /bin/sh, with the jump
+    // host's name interpolated, so command substitution in an address or an alias would run
+    // locally. None of these reach the file.
+    @Test func aValueAShellWouldRunIsRefused() {
+        let dangerous = [
+            "x$(touch /tmp/pwned)", "`id`", "h;reboot", "a|b", "a&b", "a>b", "a<b", "a{b}", "a*b", "a?b",
+            "$HOME", "a b", "a'b", "a\"b", "a#b", "a%h",
+        ]
+        for (index, value) in dangerous.enumerated() {
+            let id = "d\(index)"
+            // As a WRLD host's address, as its user, and as a jump host's alias.
+            let asAddress = GeneratedConfig(vault: Vault(hosts: [host(id, "a", address: value)]), paths: paths)
+            #expect(asAddress.aliases.isEmpty, "address \(value) should be refused")
+            #expect(!asAddress.text.contains(value))
+
+            let viaAlias = GeneratedConfig(
+                vault: Vault(hosts: [
+                    WRLDHost(id: HostID(rawValue: id), name: "a", source: .sshConfig(alias: value)),
+                    host("w", "w", jump: id),
+                ]), paths: paths)
+            #expect(viaAlias.aliases.isEmpty, "alias \(value) should be refused")
+            #expect(!viaAlias.text.contains("ProxyJump"))
+            #expect(!viaAlias.text.contains(value))
+        }
+    }
+
+    // A name resolving to one that only looks safe shouldn't slip through: a slash-free
+    // payload with ${HOME} still carries shell characters we reject.
+    @Test func aSlashFreeSubstitutionIsStillRefused() {
+        let config = GeneratedConfig(
+            vault: Vault(hosts: [host("h1", "sneaky", address: "x$(id>${HOME}pwned)")]), paths: paths)
+        #expect(config.aliases.isEmpty)
+        #expect(!config.text.contains("pwned"))
+    }
+
     @Test func jumpHostsThatCantWorkTakeTheirHostsWithThem() {
         let vault = Vault(hosts: [
             host("h1", "loop-a", jump: "h2"), host("h2", "loop-b", jump: "h1"),

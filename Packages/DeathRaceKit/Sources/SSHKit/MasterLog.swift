@@ -89,6 +89,16 @@ public struct KeyRemoval: Equatable, Sendable {
         self.name = name
     }
 
+    /// Whether this removal, read from ssh's stderr, names a host and a file that `ssh -G`
+    /// confirms for the connection we actually made. A server can print a convincing
+    /// changed-key warning in its own banner (naming any host and any absolute file), so the
+    /// file and name are trusted only when they match one of the connection's own hops:
+    /// otherwise forgetting would remove another host's pinned key, or rewrite another file.
+    /// `hops` is each hop's `knownHostsName` and its `userKnownHostsFiles`, from `ssh -G`.
+    public func isConfirmed(by hops: [(name: String?, files: [String])]) -> Bool {
+        hops.contains { hop in hop.name == name && hop.files.contains(file) }
+    }
+
     /// From ssh's "remove with:" line: `ssh-keygen -f '/Users/r/.ssh/known_hosts' -R
     /// '[10.0.4.21]:2222'`, single or double quotes.
     public init?(parsing line: String) {

@@ -1,14 +1,33 @@
 /// What ssh_config can hold safely, shared by the New Host sheet and the config WRLD writes,
 /// so a host the sheet accepts is never one the config refuses.
 public enum SSHValue {
-    /// One word with nothing ssh_config or a shell would read as more: no spaces, quotes,
-    /// comments, control characters or percent tokens.
-    public static func isWord(_ value: String) -> Bool {
-        !value.isEmpty && value.utf8.count <= 255
-            && value.unicodeScalars.allSatisfy { scalar in
-                scalar.value > 0x20 && scalar.value != 0x7F && !"\"'#%\\".unicodeScalars.contains(scalar)
-                    && !(0x80...0x9F).contains(scalar.value)
+    /// A host name, IP address or `~/.ssh/config` alias safe to place in the generated
+    /// config — including as a `ProxyJump` value, which OpenSSH runs through `/bin/sh`, and
+    /// as the destination argument to `ssh`. An allow-list: letters, digits and only the
+    /// punctuation host names, bracketed IPv6 literals and `user@host:port` aliases need.
+    /// So `$( ) ` \ ; | & { } < > * ? !`, spaces, quotes, `#`, `%` and control characters
+    /// are all refused, as is a leading `-` (which `ssh` would read as an option).
+    public static func isHostName(_ value: String) -> Bool {
+        guard !value.isEmpty, value.utf8.count <= 255, !value.hasPrefix("-") else { return false }
+        return value.unicodeScalars.allSatisfy { scalar in
+            switch scalar {
+            case "A"..."Z", "a"..."z", "0"..."9": true
+            default: ".-_:@[]".unicodeScalars.contains(scalar)
             }
+        }
+    }
+
+    /// A user name safe to place after `User` and to reach `%r`: letters, digits, `.`, `-`,
+    /// `_` and `@` (for identity-provider logins). No leading `-`, and none of the shell or
+    /// ssh_config characters `isHostName` refuses.
+    public static func isUserName(_ value: String) -> Bool {
+        guard !value.isEmpty, value.utf8.count <= 255, !value.hasPrefix("-") else { return false }
+        return value.unicodeScalars.allSatisfy { scalar in
+            switch scalar {
+            case "A"..."Z", "a"..."z", "0"..."9": true
+            default: ".-_@".unicodeScalars.contains(scalar)
+            }
+        }
     }
 
     /// A path ssh can be given: no control characters or double quotes (spaces are quoted).
@@ -78,9 +97,9 @@ public struct HostDraft: Equatable, Sendable {
     public func host(id: HostID = .make()) throws(Problem) -> WRLDHost {
         let address = trimmed(self.address)
         guard !address.isEmpty else { throw .noAddress }
-        guard SSHValue.isWord(address), !address.hasPrefix("-") else { throw .address }
+        guard SSHValue.isHostName(address) else { throw .address }
         let user = trimmed(self.user)
-        guard user.isEmpty || (SSHValue.isWord(user) && !user.hasPrefix("-")) else { throw .user }
+        guard user.isEmpty || SSHValue.isUserName(user) else { throw .user }
         let portText = trimmed(self.port)
         let port: Int?
         if portText.isEmpty {

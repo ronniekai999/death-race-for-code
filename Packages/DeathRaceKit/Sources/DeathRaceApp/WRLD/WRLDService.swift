@@ -487,11 +487,30 @@ final class WRLDService: HostConnecting {
 
     // MARK: - Known hosts
 
-    func knownKeys(_ removal: KeyRemoval) async -> [KnownHosts.Entry] {
+    /// `ssh -G` for the connection's own hops, so a changed-key warning can be checked
+    /// against what ssh really uses. Empty when the host was left out of the config or ssh
+    /// couldn't be read; the caller then treats the removal as unconfirmed.
+    private func knownHostsHops(for host: HostRef?) async -> [(name: String?, files: [String])] {
+        guard let host, let target = target(for: host) else { return [] }
+        guard
+            let chain = try? await HostChain.resolve(
+                alias: target.alias, config: paths.generatedConfig, runner: SystemProcessRunner(),
+                environment: environment)
+        else { return [] }
+        return chain.knownHostsHops
+    }
+
+    func knownKeys(_ removal: KeyRemoval, for host: HostRef?) async -> [KnownHosts.Entry] {
+        guard removal.isConfirmed(by: await knownHostsHops(for: host)) else { return [] }
         await KnownHosts.find(removal.name, path: removal.file, runner: SystemProcessRunner(), environment: environment)
     }
 
-    func forgetKey(_ removal: KeyRemoval) async -> String? {
+    func forgetKey(_ removal: KeyRemoval, for host: HostRef?) async -> String? {
+        // Never forget a host or rewrite a file ssh's own config doesn't name for this
+        // connection: a server can print a convincing warning in a banner.
+        guard removal.isConfirmed(by: await knownHostsHops(for: host)) else {
+            return "That warning didn’t match the host you connected to, so nothing was changed."
+        }
         do {
             try await KnownHosts.forget(
                 removal.name, path: removal.file, runner: SystemProcessRunner(), environment: environment)

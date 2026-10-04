@@ -57,10 +57,11 @@ protocol HostConnecting: AnyObject, Sendable {
     /// while anything does, and not otherwise.
     func shown(by viewer: AnyObject)
     func hidden(by viewer: AnyObject)
-    /// The keys ssh trusts under `removal`'s name, in its file.
-    func knownKeys(_ removal: KeyRemoval) async -> [KnownHosts.Entry]
-    /// Forgets them, as ssh said to; why not, when it couldn't.
-    func forgetKey(_ removal: KeyRemoval) async -> String?
+    /// The keys ssh trusts under `removal`'s name, in its file — but only when `ssh -G` for
+    /// `host`'s own hops confirms that name and file, so a forged warning shows nothing.
+    func knownKeys(_ removal: KeyRemoval, for host: HostRef?) async -> [KnownHosts.Entry]
+    /// Forgets them, as ssh said to, once confirmed against `host`'s hops; why not otherwise.
+    func forgetKey(_ removal: KeyRemoval, for host: HostRef?) async -> String?
 }
 
 extension Notification.Name {

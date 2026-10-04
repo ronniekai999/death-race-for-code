@@ -317,6 +317,37 @@ struct MasterLogTests {
         #expect(KeyRemoval(parsing: "Please contact your system administrator.") == nil)
     }
 
+    // A server can print a convincing changed-key warning in its own banner, naming any host
+    // and any absolute file. "Forget the Old Key" acts only when `ssh -G` for the connection
+    // we made confirms that host and file, so a forged warning changes nothing.
+    @Test func aForgedWarningIsntConfirmed() {
+        let removal = KeyRemoval(file: "/Users/r/.ssh/known_hosts", name: "victim.example.com")
+        // The host and file ssh really uses for this connection.
+        let hops: [(name: String?, files: [String])] = [
+            (name: "bastion.lan", files: ["/Users/r/.ssh/known_hosts"]),
+            (name: "prod-api", files: ["/Users/r/.ssh/known_hosts"]),
+        ]
+        #expect(!removal.isConfirmed(by: hops), "a host we didn't connect to isn't confirmed")
+        #expect(!removal.isConfirmed(by: []), "no hops means not confirmed")
+        // A different file, even with a real host, isn't confirmed.
+        #expect(
+            !KeyRemoval(file: "/etc/passwd", name: "prod-api").isConfirmed(by: hops),
+            "a file ssh doesn't use for this host isn't confirmed")
+        // The genuine case: the warning names a hop we really reached, in its own file.
+        #expect(KeyRemoval(file: "/Users/r/.ssh/known_hosts", name: "prod-api").isConfirmed(by: hops))
+    }
+
+    @Test func effectiveConfigNamesTheKnownHostsFileAndHost() {
+        let base = "hostname 10.0.4.21\nuserknownhostsfile /Users/r/.ssh/known_hosts /Users/r/.ssh/known_hosts2\n"
+        let plain = EffectiveConfig(parsing: base + "port 22\n")
+        #expect(plain.knownHostsName == "10.0.4.21")
+        #expect(plain.userKnownHostsFiles == ["/Users/r/.ssh/known_hosts", "/Users/r/.ssh/known_hosts2"])
+        // A non-default port is bracketed, as ssh files it.
+        #expect(EffectiveConfig(parsing: base + "port 2222\n").knownHostsName == "[10.0.4.21]:2222")
+        // HostKeyAlias wins, verbatim.
+        #expect(EffectiveConfig(parsing: base + "port 2222\nhostkeyalias prod\n").knownHostsName == "prod")
+    }
+
     @Test func thePostQuantumWarningIsAChipNotALine() {
         var log = MasterLog()
         log.append("** WARNING: connection is not using a post-quantum key exchange algorithm.\n")

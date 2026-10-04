@@ -15,6 +15,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     private(set) var windows: [PitLaneWindowController] = []
     private let about = AboutWindow()
     private lazy var secureInput = SecureInputController(mode: configStore.config.secureKeyboardEntry)
+    /// Lucid Dreams, the notch quick-terminal, its global hotkey, and the menu-bar item that
+    /// also opens it; all set up at launch.
+    private var lucidDreams: LucidDreamsController?
+    private var hotKey: HotKeyController?
+    private var lucidStatusItem: NSStatusItem?
     /// Where the next new window's top-left corner goes, so windows cascade.
     private var cascadePoint: NSPoint?
     /// Reads the settings file again whenever anything changes it.
@@ -69,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         NSApp.activate()
         configStore.reportProblems(in: windows.first?.window)
         watchSettingsFile()
+        startLucidDreams()
     }
 
     /// A click on the Dock icon with no windows open opens one.
@@ -143,6 +149,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         watcher?.stop()
         for watcher in wrldWatchers { watcher.stop() }
         secureInput.update(appIsActive: false, focusedTabReadsPassword: false)
+        hotKey?.stop()
+        lucidDreams?.shutDown()
         for pane in allPanes { pane.shutDown() }
     }
 
@@ -314,6 +322,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         updateSecureInput()
     }
 
+    // MARK: - Lucid Dreams
+
+    /// The quick-terminal panel, its ⌥Space hotkey, and a menu-bar item that also opens it.
+    private func startLucidDreams() {
+        let lucid = LucidDreamsController(
+            config: { [weak self] in self?.configStore.config ?? Config() }, makeSession: makeSession, ids: ids,
+            directory: { [weak self] in self?.frontPitLaneWindow?.activePane?.directory })
+        lucidDreams = lucid
+        let hotKey = HotKeyController(onTrigger: { [weak self] in self?.lucidDreams?.toggle() })
+        hotKey.apply(configStore.config.lucidDreamsHotkey)
+        self.hotKey = hotKey
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.button?.image = NSImage(systemSymbolName: "moon.stars", accessibilityDescription: "Lucid Dreams")
+        item.button?.toolTip = "Lucid Dreams"
+        let menu = NSMenu()
+        let open = NSMenuItem(title: "Open Lucid Dreams", action: #selector(toggleLucidDreams(_:)), keyEquivalent: "")
+        open.target = self
+        menu.addItem(open)
+        item.menu = menu
+        lucidStatusItem = item
+    }
+
+    /// ⌥Space, the Shell-menu item, Hear Me Calling and the menu-bar icon all land here.
+    @objc func toggleLucidDreams(_ sender: Any?) {
+        lucidDreams?.toggle()
+    }
+
+    /// The frontmost Pit Lane window, without opening one (for the quick terminal's directory).
+    private var frontPitLaneWindow: PitLaneWindowController? {
+        NSApp.orderedWindows.lazy.compactMap { $0.windowController as? PitLaneWindowController }.first ?? windows.first
+    }
+
     // MARK: - Menu actions
 
     @objc func showAbout(_ sender: Any?) {
@@ -426,6 +466,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         }
         secureInput.setMode(config.secureKeyboardEntry)
         updateSecureInput()
+        lucidDreams?.apply(config)
+        hotKey?.apply(config.lucidDreamsHotkey)
         settingsWindow?.update(config: config, chrome: Chrome(config.namedTheme))
         wrldWindow?.setChrome(Chrome(config.namedTheme))
         wrld?.checksHosts = config.checkHosts
@@ -465,6 +507,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
 
 extension AppDelegate: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(toggleLucidDreams(_:)) {
+            menuItem.state = (lucidDreams?.isOnScreen ?? false) ? .on : .off
+            return true
+        }
         guard menuItem.action == #selector(toggleSecureKeyboardEntry(_:)) else { return true }
         menuItem.state = secureInput.isChecked ? .on : .off
         return secureInput.canToggle

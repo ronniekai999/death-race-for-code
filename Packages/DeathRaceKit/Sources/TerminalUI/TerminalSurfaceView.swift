@@ -657,9 +657,12 @@ public final class TerminalSurfaceView: NSView {
         return try renderer.render(frame, cell: cell, layout: layout, glyphs: glyphs, dim: dimming?.packed ?? 0)
     }
 
-    /// Draws the cursor, a layer of its own over the frame, as it is now into `context`, whose
-    /// coordinates are the window's: a picture of the pane is `snapshot(using:)`, then this.
+    /// Draws the cursor, a layer of its own over the frame, into `context`, whose coordinates
+    /// are the window's: a picture of the pane is `snapshot(using:)`, then this. Like the
+    /// snapshot, it follows the screen as it is now, so the layer is placed first: frames
+    /// place it, and a view out of sight draws none.
     public func drawCursor(in context: CGContext) {
+        updateCursor()
         guard cursorLayer.superlayer != nil, !cursorLayer.isHidden else { return }
         let rect = convert(convertFromLayer(cursorLayer.frame), to: nil)
         context.saveGState()

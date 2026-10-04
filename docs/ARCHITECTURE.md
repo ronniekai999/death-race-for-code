@@ -310,12 +310,31 @@ draw on frames that are happening anyway.
 
 ### The Termius layer rides OpenSSH
 
-We never implement SSH crypto. `SSHKit` runs `/usr/bin/ssh` with ControlMaster
-(`ControlPath=~/.deathrace/cm/%C`, since socket paths cap at 104 bytes), supplies passwords
-through an askpass helper backed by the Keychain and Touch ID, and creates Secure Enclave keys
-with macOS 26's `/usr/lib/ssh-keychain.dylib`. Tunnels are `ssh -O forward/cancel/check` on
-the live connection. The SFTP browser speaks SFTP v3 itself over `ssh -s <host> sftp`, on the
-same authenticated connection.
+We never implement SSH crypto. `SSHKit` runs macOS's `/usr/bin/ssh`.
+
+- **One master per host, owned by the app.** Connecting starts
+  `ssh -F ~/.deathrace/ssh_config -M -N -o ControlPersist=no …` as Death Race's own child, in
+  a session of its own with no terminal. Panes are sessions through it, so a second pane opens
+  without a second login. Tunnels are `ssh -F none -S <socket> -O forward|cancel` on it.
+  - ControlPersist is never used. It forks the master into the background (`daemon()`), where
+    it would outlive the app and its tunnels.
+  - The master is known to be connected when its `LocalCommand` prints a marker, which ssh
+    runs right after the control socket listens. There is no polling.
+- **The vault compiles to an ssh_config** (`GeneratedConfig`):
+  - WRLD's settings come first;
+  - every block says `ControlMaster no` and `ControlPersist no`;
+  - then `Match all` and `Include ~/.ssh/config`, so your own defaults still fill in the rest.
+  - Control sockets get fixed names under `~/.deathrace/cm/`. ssh's `%C` hashes this Mac's host
+    name, which changes between networks, and socket paths cap at 104 bytes.
+  - CI checks the file with real `ssh -G`.
+- **Every prompt goes to the app.** An askpass helper asks the app's broker over a Unix socket.
+  - The broker answers a saved password only for the hop ssh named in its own words, after
+    Touch ID.
+  - Anything else becomes a question on the window.
+- **Secure Enclave keys** come from macOS 26's `sc_auth` and `/usr/lib/ssh-keychain.dylib`.
+
+The SFTP browser (Phase 6) speaks SFTP v3 itself over `ssh -s <host> sftp`, on the same
+authenticated connection.
 
 ### Signing
 

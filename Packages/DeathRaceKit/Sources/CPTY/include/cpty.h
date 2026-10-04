@@ -50,6 +50,33 @@ int cpty_process_name(pid_t pid, char *buffer, size_t size);
 /// errno set (ERANGE when it does not fit).
 int cpty_process_cwd(pid_t pid, char *buffer, size_t size);
 
+/// Spawns `path` with its standard input, output and error on pipes, for programs that need
+/// no terminal: ssh masters, ssh-keygen, sc_auth. With `new_session` the child calls setsid()
+/// first, so it has no controlling terminal and its whole process group (jump hops included)
+/// can be signalled at once.
+///
+/// `argv` and `envp` are NULL-terminated; `cwd` may be NULL to inherit the caller's. On
+/// success returns 0 and stores the parent's ends, all close-on-exec and blocking: the write
+/// end of the child's input in `*stdin_fd`, and the read ends of its output and errors in
+/// `*stdout_fd` and `*stderr_fd`. Returns -1 with errno set on failure; a failed exec shows up
+/// later as the child exiting with status 127. Every other descriptor is closed in the child.
+int cpty_spawn_pipes(const char *path, char *const argv[], char *const envp[], const char *cwd,
+                     int new_session, pid_t *child_pid,
+                     int *stdin_fd, int *stdout_fd, int *stderr_fd);
+
+/// Writes like write(2), but a reader that has gone away returns -1 with EPIPE instead of
+/// killing the process with SIGPIPE (F_SETNOSIGPIPE on macOS; SIGPIPE blocked around the
+/// write, and the pending one consumed, on Linux).
+ssize_t cpty_write_no_sigpipe(int fd, const void *buffer, size_t count);
+
+/// The process and user at the other end of a connected Unix-domain socket: LOCAL_PEERPID
+/// and getpeereid() on macOS, SO_PEERCRED on Linux. Returns 0, or -1 with errno set.
+int cpty_peer_credentials(int socket_fd, pid_t *pid, uid_t *uid);
+
+/// The parent of process `pid` (PROC_PIDTBSDINFO on macOS, /proc/<pid>/stat on Linux), or -1
+/// with errno set.
+pid_t cpty_parent_pid(pid_t pid);
+
 #ifdef __cplusplus
 }
 #endif

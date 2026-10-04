@@ -1,0 +1,156 @@
+import Foundation
+
+/// Why a connection failed, read from what its master wrote on stderr.
+public enum ConnectionFailure: Equatable, Sendable {
+    /// "Permission denied (publickey,password)."
+    case authenticationFailed(methods: [String])
+    /// "Too many authentication failures": every key the agent offered was refused.
+    case tooManyAuthenticationFailures
+    /// "No route to host": unreachable, or Local Network privacy refusing it.
+    case noRoute
+    /// "Network is unreachable".
+    case networkUnreachable
+    /// "Connection refused".
+    case refused
+    /// "Operation timed out" / "Connection timed out".
+    case timedOut
+    /// "Could not resolve hostname …".
+    case unknownHost
+    /// "REMOTE HOST IDENTIFICATION HAS CHANGED": the key ssh was sent isn't the one
+    /// known_hosts holds, with the line holding the old one ("…/known_hosts:3").
+    case hostKeyChanged(fingerprint: String?, knownHostsLine: String?)
+    /// "Host key verification failed." for any other reason (you said no, say).
+    case hostKeyRejected
+    /// "Connection closed by …", "Connection reset by peer".
+    case closedByRemote
+    /// Ended by the app: a prompt was cancelled or Touch ID declined.
+    case cancelled
+    /// Anything else: the last line ssh wrote.
+    case other(String)
+
+    /// The sentence a pane shows, for `host` as WRLD names it.
+    public func sentence(host: String) -> String {
+        switch self {
+        case .authenticationFailed(let methods):
+            let accepted = methods.compactMap(Self.methodName).joined(separator: ", ")
+            return accepted.isEmpty
+                ? "\(host) didn't accept the login."
+                : "\(host) didn't accept the login. It takes: \(accepted)."
+        case .tooManyAuthenticationFailures:
+            return "\(host) stopped after too many keys were tried. Choose one key for it in WRLD."
+        case .noRoute: return "There's no route to \(host)."
+        case .networkUnreachable: return "The network isn't reachable."
+        case .refused: return "\(host) refused the connection."
+        case .timedOut: return "\(host) didn't answer."
+        case .unknownHost: return "\(host)'s address couldn't be found."
+        case .hostKeyChanged:
+            return
+                "\(host)'s host key has changed. It may have been reinstalled, or someone may be in between. Death Race didn't connect."
+        case .hostKeyRejected: return "\(host)'s host key wasn't trusted, so Death Race didn't connect."
+        case .closedByRemote: return "\(host) closed the connection."
+        case .cancelled: return "Connecting to \(host) was cancelled."
+        case .other(let line): return "The connection to \(host) ended: \(line)"
+        }
+    }
+
+    static func methodName(_ method: String) -> String? {
+        switch method {
+        case "publickey": "a key"
+        case "password": "a password"
+        case "keyboard-interactive": "questions"
+        case "gssapi-with-mic", "gssapi-keyex": "Kerberos"
+        case "hostbased": nil
+        default: method
+        }
+    }
+}
+
+/// The last lines a master wrote on stderr, and what they mean.
+public struct MasterLog: Equatable, Sendable {
+    public static let kept = 20
+
+    /// The last `kept` lines, oldest first.
+    public private(set) var lines: [String] = []
+    /// macOS Tahoe's ssh warns when the server has no post-quantum key exchange: shown as a
+    /// chip on the host, not as noise in a pane.
+    public private(set) var warnsPostQuantum = false
+    private var partial = ""
+
+    public init() {}
+
+    /// Takes what the master wrote, in whatever pieces it arrived.
+    public mutating func append(_ text: String) {
+        partial += text
+        while let newline = partial.firstIndex(of: "\n") {
+            let line = String(partial[..<newline]).trimmingWhitespace
+            partial = String(partial[partial.index(after: newline)...])
+            add(line)
+        }
+    }
+
+    /// Ends a last line written without a newline.
+    public mutating func finish() {
+        if !partial.isEmpty { add(partial.trimmingWhitespace) }
+        partial = ""
+    }
+
+    private mutating func add(_ line: String) {
+        guard !line.isEmpty else { return }
+        if line.contains("post-quantum") {
+            warnsPostQuantum = true
+            return
+        }
+        // The rest of the post-quantum warning.
+        if line.hasPrefix("** ") { return }
+        lines.append(line)
+        if lines.count > Self.kept { lines.removeFirst(lines.count - Self.kept) }
+    }
+
+    /// Why the connection failed, the most specific reason in the lines; nil when they say
+    /// nothing about it.
+    public var failure: ConnectionFailure? {
+        let text = lines.joined(separator: "\n")
+        if text.contains("REMOTE HOST IDENTIFICATION HAS CHANGED") {
+            return .hostKeyChanged(fingerprint: fingerprint(in: lines), knownHostsLine: offendingLine(in: lines))
+        }
+        if text.contains("Host key verification failed") { return .hostKeyRejected }
+        if text.contains("Too many authentication failures") { return .tooManyAuthenticationFailures }
+        if let line = lines.last(where: { $0.contains("Permission denied (") }),
+            let open = line.range(of: "Permission denied ("), let close = line[open.upperBound...].firstIndex(of: ")")
+        {
+            let methods = line[open.upperBound..<close].split(separator: ",").map(String.init)
+            return .authenticationFailed(methods: methods)
+        }
+        if text.contains("Could not resolve hostname") { return .unknownHost }
+        if text.contains("No route to host") { return .noRoute }
+        if text.contains("Network is unreachable") { return .networkUnreachable }
+        if text.contains("Connection refused") { return .refused }
+        if text.contains("timed out") { return .timedOut }
+        if text.contains("Connection closed by") || text.contains("Connection reset by")
+            || text.contains("closed by remote host")
+        {
+            return .closedByRemote
+        }
+        return lines.last.map(ConnectionFailure.other)
+    }
+
+    /// "The fingerprint for the ED25519 key sent by the remote host is", then the print on
+    /// the next line.
+    private func fingerprint(in lines: [String]) -> String? {
+        for (index, line) in lines.enumerated() where line.hasSuffix("sent by the remote host is") {
+            guard index + 1 < lines.count else { break }
+            var print = lines[index + 1]
+            if print.hasSuffix(".") { print.removeLast() }
+            return print
+        }
+        return nil
+    }
+
+    /// "Offending ED25519 key in /Users/r/.ssh/known_hosts:3" gives the file and line.
+    private func offendingLine(in lines: [String]) -> String? {
+        for line in lines where line.hasPrefix("Offending ") {
+            if let range = line.range(of: " key in ") { return String(line[range.upperBound...]) }
+        }
+        return nil
+    }
+}

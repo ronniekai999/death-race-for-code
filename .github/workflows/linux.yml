@@ -1,8 +1,8 @@
 name: linux
 
-# The portable half (CPTY, PTYKit, VTCore, ScreenProtocol, SessionKit, vthost) on the
-# swift.org toolchain that matches the Swift in Xcode 26.6. Cheap enough to run on every
-# pull request.
+# The portable half (CPTY, PTYKit, VTCore, ScreenProtocol, SessionKit, ConfigKit, SurfaceCore,
+# Vault, SSHKit, AppCore, vthost) on the swift.org toolchain that matches the Swift in Xcode
+# 26.6. Cheap enough to run on every pull request.
 
 on:
   pull_request:
@@ -26,14 +26,18 @@ jobs:
       image: swift:6.3.3-noble@sha256:cd45c27b3abc42310c33cfaf3008b18156cbdc9187834c9617e8f43a26d2675c
     steps:
       - uses: actions/checkout@v5
+      # OpenSSH's client: SSHKit's tests check the config WRLD writes with real `ssh -G`.
       - name: Tools the image may lack
         run: |
           missing=""
           for tool in make python3; do command -v $tool >/dev/null || missing="$missing $tool"; done
+          command -v ssh >/dev/null || missing="$missing openssh-client"
           if [ -n "$missing" ]; then apt-get update -qq && apt-get install -y -qq $missing; fi
       - name: Build
         run: swift build --package-path Packages/DeathRaceKit --build-tests
       - name: Test
+        env:
+          DEATHRACE_REQUIRE_SSH: "1"
         run: swift test --package-path Packages/DeathRaceKit --skip-build
       - name: Lint
         run: make lint

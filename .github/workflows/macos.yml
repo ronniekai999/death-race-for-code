@@ -76,6 +76,9 @@ jobs:
             || { echo "::error::The window tests ended without their summary: the test process exited early."; exit 1; }
       - name: Test
         timeout-minutes: 10
+        # Apple's ssh must read the config WRLD writes (SSHKit's tests); never skip that here.
+        env:
+          DEATHRACE_REQUIRE_SSH: "1"
         run: |
           set -o pipefail
           swift test --package-path Packages/DeathRaceKit --skip-build --skip DeathRaceAppTests 2>&1 | tee build/tests.log

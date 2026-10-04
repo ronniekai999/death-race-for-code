@@ -6,7 +6,7 @@ import PackageDescription
 // One package with two halves:
 //
 // * Portable targets (CPTY, PTYKit, VTCore, ScreenProtocol, SessionKit, ConfigKit, SurfaceCore,
-//   AppCore, vthost) build and test on Linux as well as macOS. The engine, and everything the
+//   Vault, SSHKit, AppCore, vthost) build and test on Linux as well as macOS. The engine, and everything the
 //   terminal view and the app do apart from AppKit and Metal, is developed test-first in a
 //   Linux container with no Mac in the loop, and the same code runs inside the app on macOS.
 //
@@ -23,6 +23,8 @@ var products: [Product] = [
     .library(name: "SessionKit", targets: ["SessionKit"]),
     .library(name: "ConfigKit", targets: ["ConfigKit"]),
     .library(name: "SurfaceCore", targets: ["SurfaceCore"]),
+    .library(name: "Vault", targets: ["Vault"]),
+    .library(name: "SSHKit", targets: ["SSHKit"]),
     .library(name: "AppCore", targets: ["AppCore"]),
     .executable(name: "vthost", targets: ["vthost"]),
 ]
@@ -56,20 +58,29 @@ var targets: [Target] = [
     // What the app does apart from AppKit: windows of tabs of split panes, the actions and
     // their shortcuts, the palette's matching, the status line. The app's logic, tested
     // here, as SurfaceCore is the terminal view's.
-    .target(name: "AppCore", dependencies: ["ConfigKit", "PTYKit"]),
+    .target(name: "AppCore", dependencies: ["ConfigKit", "PTYKit", "Vault"]),
+    // WRLD: saved hosts, groups, snippets and keys, as the JSON file you can keep in a
+    // dotfiles repo. Foundation only, and never a secret.
+    .target(name: "Vault"),
+    // The Termius layer's OpenSSH side: reading ~/.ssh/config, the config WRLD compiles to,
+    // ssh's command lines, prompts and their answers, and what a master's errors mean. Runs
+    // macOS's own ssh; no SSH crypto of ours.
+    .target(name: "SSHKit", dependencies: ["Vault", "PTYKit", "CPTY"]),
     .executableTarget(
         name: "vthost",
         dependencies: ["VTCore", "PTYKit", "SurfaceCore"],
         path: "Tools/vthost"
     ),
-    .testTarget(name: "PTYKitTests", dependencies: ["PTYKit"]),
+    .testTarget(name: "PTYKitTests", dependencies: ["PTYKit", "CPTY"]),
     .testTarget(name: "VTCoreTests", dependencies: ["VTCore"]),
     .testTarget(name: "ScreenProtocolTests", dependencies: ["ScreenProtocol", "VTCore"]),
     .testTarget(name: "SessionKitTests", dependencies: ["SessionKit", "ScreenProtocol", "PTYKit", "VTCore"]),
     .testTarget(name: "ConfigKitTests", dependencies: ["ConfigKit", "VTCore"]),
     .testTarget(
         name: "SurfaceCoreTests", dependencies: ["SurfaceCore", "VTCore", "ScreenProtocol", "SessionKit", "ConfigKit"]),
-    .testTarget(name: "AppCoreTests", dependencies: ["AppCore", "ConfigKit", "PTYKit"]),
+    .testTarget(name: "AppCoreTests", dependencies: ["AppCore", "ConfigKit", "PTYKit", "Vault"]),
+    .testTarget(name: "VaultTests", dependencies: ["Vault"]),
+    .testTarget(name: "SSHKitTests", dependencies: ["SSHKit", "Vault", "PTYKit"]),
 ]
 
 #if os(macOS)

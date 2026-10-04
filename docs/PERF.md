@@ -57,12 +57,38 @@ everything 25–60% slower, because each use copies a strong reference.
 Still to do: the per-character path retains and releases rows on every cell access. That
 needs restructuring, done when the M5 measurements say it matters.
 
+## Measuring on the Mac
+
+The Phase 2 budgets above are checked by hand on the M5, with a debug build
+(`CONFIG=debug make run`); [MANUAL-TESTS.md](MANUAL-TESTS.md) lists them with the rest.
+
+- **Debug › Log Frame Stats** shows, for the focused tab:
+  - the frames drawn and how often the display link started;
+  - the main thread's time per frame, as p50 and p95;
+  - key to screen, as p50 and p95: from a key press to the moment the next frame was
+    presented (`addPresentedHandler`).
+
+  It writes the same to the log: `log stream --predicate 'subsystem == "local.deathraceforcode.DeathRace"'`.
+- **Signposts** under the same subsystem:
+  - intervals: `Frame` and `DeltaApply`;
+  - events: `LinkResumed`, `LinkPaused`, `KeyToScreen` and `Bell`.
+
+  Record them with `xcrun xctrace record --template 'Time Profiler' --attach DeathRace`, or
+  in Instruments with the Points of Interest, Metal System Trace and Animation Hitches
+  templates.
+- **Idle wakeups.** Run `sudo powermetrics --samplers tasks -i 60000 -n 1 | grep -i death`
+  with one idle window and the cursor blinking. While the window is idle, the frame count
+  in Log Frame Stats should not move.
+- **Memory.** Run `footprint $(pgrep -n DeathRace)` with one idle tab, then with eleven.
+
 ## Where the energy goes, and where it doesn't
 
 - **Idle is free.** Session threads block in `poll`; the display link pauses after a few empty
   ticks; cursor blink is a Core Animation animation that never wakes the app.
 - **Background tabs never draw.** Their sessions keep parsing on utility QoS, so macOS can
-  schedule them on the efficiency cores.
+  schedule them on the efficiency cores. The app takes their updates at most four times a
+  second, enough for titles, bells and the shell's exit, and the session merges what
+  arrives in between.
 - **Output floods coalesce.** The session thread publishes at most one delta per frame and
   never waits on the renderer.
 - **Effects ride existing frames.** Glow and starfield parallax draw only on frames that output,

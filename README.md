@@ -9,11 +9,22 @@ L E G E N D S   N E V E R   D I E
 
 ## Status
 
-Phase 2, first pixels, is under way. The app is an AppKit app with windows, native tabs,
-menus, a settings file and an About window, and each tab now runs your shell: drawn with
-Metal, with typing, input methods (Japanese, accents, emoji), Option as Meta, the mouse for
-programs that ask for it, scrolling through history, resizing and titles. Selection, copy and
-paste, cursor blink and the safety prompts arrive over the next steps of this phase.
+Phase 2, first pixels, is built and waiting on checks only a Mac can make. Each tab runs
+your shell, drawn by Metal, in an AppKit app with native tabs, menus and a settings file.
+
+- **Keyboard and mouse:** typing, input methods (Japanese, accents, emoji) and Option as
+  Meta; the Kitty keyboard protocol down to key releases; the mouse for programs that ask
+  for it.
+- **Selection and clipboard:** selecting with the mouse, copying from history, and pasting
+  with a warning when lines would run as commands; file drops; OSC 52.
+- **Safety:** Secure Keyboard Entry at password prompts, and a question before closing a
+  tab with a program running.
+- **Idle costs nothing:** the cursor blinks without waking the app, and an idle window
+  draws no frames.
+
+What is left is the hands-on pass in [docs/MANUAL-TESTS.md](docs/MANUAL-TESTS.md),
+`make test-render`'s goldens, and the [legendsd spike](docs/SPIKE.md), whose verdict
+shapes Phase 7.
 
 Phase 1 built the engine. It covers the v1 scope and passes 95% of xterm's conformance suite
 on that scope (esctest, ratcheted in CI). It reflows on resize, handles Unicode 18 graphemes,
@@ -47,10 +58,13 @@ palette = 1=#FF5277
 On your Mac (macOS 26 or later, Xcode 26):
 
 ```sh
-make run      # build, bundle, sign with your Apple Development identity, open
-make test     # every test, macOS and portable
-make smoke    # bundle, then run the app's headless --smoke-test
+make run          # build, bundle, sign with your Apple Development identity, open
+make test         # every test, macOS and portable
+make smoke        # bundle, then run the app's headless --smoke-test
+make test-render  # recorded programs' screens drawn by the GPU, against PNG goldens
 ```
+
+`CONFIG=debug make run` adds a Debug menu: frame and latency stats, and the legendsd spike.
 
 On Linux (the engine, session and pseudo-terminal layers are portable):
 

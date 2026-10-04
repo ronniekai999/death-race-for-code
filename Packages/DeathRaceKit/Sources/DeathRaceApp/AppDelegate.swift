@@ -1,6 +1,7 @@
 import AppCore
 import AppKit
 import ConfigKit
+import LegendsUI
 import PTYKit
 import RenderKit
 import SessionKit
@@ -8,17 +9,23 @@ import SessionKit
 /// Opens windows, owns their controllers, and answers the app-wide menu items.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
-    private let configStore = ConfigStore()
+    let configStore: ConfigStore
     private(set) var windows: [PitLaneWindowController] = []
     private let about = AboutWindow()
     private lazy var secureInput = SecureInputController(mode: configStore.config.secureKeyboardEntry)
     /// Where the next new window's top-left corner goes, so windows cascade.
     private var cascadePoint: NSPoint?
+    /// Reads the settings file again whenever anything changes it.
+    private(set) var watcher: ConfigWatcher?
+    /// The Settings window, while it is open.
+    private(set) var settingsWindow: SettingsWindowController?
     let ids = IDSource()
     let makeSession: SessionMaker
 
-    init(makeSession: @escaping SessionMaker = PaneController.realSession) {
+    /// Tests pass sessions that run no shell and a settings file of their own.
+    init(makeSession: @escaping SessionMaker = PaneController.realSession, configStore: ConfigStore = ConfigStore()) {
         self.makeSession = makeSession
+        self.configStore = configStore
         super.init()
     }
 
@@ -39,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         if windows.isEmpty { newWindow(nil) }
         NSApp.activate()
         configStore.reportProblems(in: windows.first?.window)
+        watchSettingsFile()
     }
 
     /// A click on the Dock icon with no windows open opens one.
@@ -91,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        watcher?.stop()
         secureInput.update(appIsActive: false, focusedTabReadsPassword: false)
         for pane in allPanes { pane.shutDown() }
     }
@@ -168,9 +177,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         about.show()
     }
 
-    /// Settings… opens the settings file until the Settings window arrives.
     @objc func openSettings(_ sender: Any?) {
-        openSettingsFile(sender)
+        showSettings()
     }
 
     @objc func openSettingsFile(_ sender: Any?) {
@@ -185,15 +193,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         }
     }
 
+    /// Reload Settings: read the file, apply it, and say what could not be used.
     @objc func reloadConfiguration(_ sender: Any?) {
         configStore.load()
+        applyConfiguration()
+        configStore.reportProblems(in: NSApp.keyWindow)
+    }
+
+    // MARK: - Settings
+
+    /// The Settings window, made on first use, at `page` when given.
+    func showSettings(page: SettingsCatalog.Page? = nil) {
+        let controller = settingsWindow ?? makeSettingsWindow()
+        settingsWindow = controller
+        controller.show(page: page)
+    }
+
+    private func makeSettingsWindow() -> SettingsWindowController {
+        let chrome = Chrome(configStore.config.namedTheme)
+        let model = SettingsModel(
+            config: configStore.config, palette: LegendsPalette(chrome), filePath: configStore.url.path)
+        model.onSet = { [weak self] setting, value in self?.write(setting, value) }
+        model.onOpenFile = { [weak self] in self?.openSettingsFile(nil) }
+        model.onRevealFile = { [weak self] in self?.revealSettingsFile() }
+        model.onReload = { [weak self] in self?.reloadConfiguration(nil) }
+        model.sampleEnergy = { [weak self] in
+            SettingsModel.processSample(frames: self?.framesDrawn ?? 0)
+        }
+        let controller = SettingsWindowController(model: model, chrome: chrome)
+        controller.onClose = { [weak self, weak controller] in
+            // Released once AppKit has finished closing it.
+            Task { @MainActor in
+                if let self, self.settingsWindow === controller { self.settingsWindow = nil }
+            }
+        }
+        return controller
+    }
+
+    /// A control in Settings changed: that one line of the file, then everything follows the
+    /// file. If it cannot be written, the window says so and shows the file's value again.
+    private func write(_ setting: SettingsCatalog.Setting, _ value: SettingsCatalog.Value) {
+        do {
+            try configStore.update { SettingsCatalog.set(setting, to: value, in: $0) }
+            settingsWindow?.model.problem = nil
+        } catch {
+            settingsWindow?.model.problem =
+                "Death Race could not save the change to \(configStore.url.path): \(error.localizedDescription)"
+        }
+        applyConfiguration()
+    }
+
+    private func revealSettingsFile() {
+        do {
+            try configStore.createIfMissing()
+            NSWorkspace.shared.activateFileViewerSelecting([configStore.url])
+        } catch {
+            settingsWindow?.model.problem =
+                "Death Race could not create \(configStore.url.path): \(error.localizedDescription)"
+        }
+    }
+
+    /// Edits saved by any editor apply at once. Problems show in the status bar rather than
+    /// as a sheet, since nobody asked for this reload.
+    func watchSettingsFile() {
+        let watcher = ConfigWatcher(file: configStore.url)
+        watcher.onChange = { [weak self] in
+            guard let self else { return }
+            self.configStore.load()
+            self.applyConfiguration()
+        }
+        configStore.onWrite = { [weak watcher] data in watcher?.noteWritten(data) }
+        watcher.start()
+        self.watcher = watcher
+    }
+
+    /// Every window, Secure Keyboard Entry and the Settings window follow the file as it was
+    /// last read.
+    private func applyConfiguration() {
+        let config = configStore.config
         for controller in windows {
-            controller.apply(configStore.config)
+            controller.apply(config)
             controller.settingsProblems = configStore.diagnostics.count
         }
-        secureInput.setMode(configStore.config.secureKeyboardEntry)
+        secureInput.setMode(config.secureKeyboardEntry)
         updateSecureInput()
-        configStore.reportProblems(in: NSApp.keyWindow)
+        settingsWindow?.update(config: config, chrome: Chrome(config.namedTheme))
+    }
+
+    /// Frames drawn so far by the panes that are open, for the Energy page.
+    private var framesDrawn: Int {
+        allPanes.reduce(0) { $0 + $1.surface.frameStats.framesDrawn }
     }
 }
 

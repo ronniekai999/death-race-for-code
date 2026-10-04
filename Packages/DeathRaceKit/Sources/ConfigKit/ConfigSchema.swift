@@ -11,6 +11,7 @@ public struct ConfigKey: Sendable {
         case colors = "Colors"
         case safety = "Safety"
         case energy = "Energy"
+        case wrld = "WRLD"
         case other = "Other"
         case newTabs = "New tabs"
     }
@@ -54,7 +55,8 @@ public struct ConfigValueError: Error, Sendable, Equatable {
 /// Every setting. This one table drives the parser, the defaults the template shows, and
 /// the template itself.
 public enum ConfigSchema {
-    public static let keys: [ConfigKey] = fonts + cursor + input + window + colors + safety + energy + other + newTabs
+    public static let keys: [ConfigKey] =
+        fonts + cursor + input + window + colors + safety + energy + wrld + other + newTabs
 
     public static func key(named name: some StringProtocol) -> ConfigKey? {
         keys.first { $0.name == name }
@@ -312,6 +314,26 @@ public enum ConfigSchema {
             ],
             read: { value, config throws(ConfigValueError) in config.outputFrameRateCap = try Value.bool(value) },
             write: { String($0.outputFrameRateCap) }),
+    ]
+
+    private static let wrld: [ConfigKey] = [
+        ConfigKey(
+            "wrld-check-hosts", .wrld,
+            help: [
+                "Check how quickly Legends answer, with a connection that sends nothing, while the",
+                "WRLD sidebar or window shows them: five minutes apart, never through a jump host,",
+                "and on your own network only once you've connected yourself.",
+            ],
+            read: { value, config throws(ConfigValueError) in config.checkHosts = try Value.bool(value) },
+            write: { String($0.checkHosts) }),
+        ConfigKey(
+            "wrld-host-os", .wrld,
+            help: [
+                "Read what each host runs from its /etc/os-release, over a connection you already",
+                "have, at most once a week.",
+            ],
+            read: { value, config throws(ConfigValueError) in config.readHostOS = try Value.bool(value) },
+            write: { String($0.readHostOS) }),
     ]
 
     private static let other: [ConfigKey] = [

@@ -1,6 +1,7 @@
 import AppCore
 import AppKit
 import QuartzCore
+import SSHKit
 import SurfaceCore
 import TerminalUI
 import VTCore
@@ -15,7 +16,7 @@ final class PaneCardView: NSView {
     let surface: TerminalSurfaceView
     private let neon = NeonBorderView()
     private let headerView = PaneHeaderView()
-    private var banner: EndBannerView?
+    private var banner: PaneBannerView?
     private var chrome: Chrome
     /// The background the terminal last reported: the theme's, or a program's (OSC 11).
     private var reportedFill: RGB?
@@ -102,15 +103,17 @@ final class PaneCardView: NSView {
         applyColors()
     }
 
-    /// Why the shell ended, along the card's bottom, with a button to start another; nil
-    /// takes it away.
-    func showEnd(_ message: String?, restart: (() -> Void)?) {
-        banner?.removeFromSuperview()
-        banner = nil
-        guard let message else { return }
-        let banner = EndBannerView(message: message, chrome: chrome, restart: restart)
-        addSubview(banner, positioned: .below, relativeTo: neon)
-        self.banner = banner
+    /// What the pane says along the card's bottom (connecting, why it couldn't, how its
+    /// session ended) with its buttons; nil takes it away.
+    func showBanner(_ banner: PaneBanner?, onButton: @escaping (PaneBanner.Button) -> Void) {
+        guard banner != self.banner?.banner else { return }
+        self.banner?.removeFromSuperview()
+        self.banner = nil
+        if let banner {
+            let view = PaneBannerView(banner: banner, chrome: chrome, onButton: onButton)
+            addSubview(view, positioned: .below, relativeTo: neon)
+            self.banner = view
+        }
         needsLayout = true
     }
 
@@ -430,46 +433,69 @@ final class PaneAreaView: NSView {
     }
 }
 
-/// "The shell exited with status 3." and a Restart button, over the bottom of a pane whose
-/// shell ended badly.
+/// What a pane says along its bottom ("Connecting to prod-api…", "The connection to
+/// prod-api was lost.", "The shell exited with status 3.") and its buttons, the one most
+/// likely to help at the right. A spinner shows only while connecting: a banner left on
+/// screen draws nothing more.
 @MainActor
-final class EndBannerView: NSView {
-    private let message: String
+final class PaneBannerView: NSView {
+    let banner: PaneBanner
     var chrome: Chrome {
         didSet { needsDisplay = true }
     }
-    private let button: NSButton
-    private let restart: (() -> Void)?
+    private var buttons: [NSButton] = []
+    private let spinner: NSProgressIndicator?
+    private let onButton: (PaneBanner.Button) -> Void
 
-    init(message: String, chrome: Chrome, restart: (() -> Void)?) {
-        self.message = message
+    init(banner: PaneBanner, chrome: Chrome, onButton: @escaping (PaneBanner.Button) -> Void) {
+        self.banner = banner
         self.chrome = chrome
-        self.restart = restart
-        button = NSButton(title: "Restart", target: nil, action: nil)
+        self.onButton = onButton
+        spinner = banner.isWorking ? NSProgressIndicator() : nil
         super.init(frame: .zero)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
-        button.bezelStyle = .push
-        button.controlSize = .small
-        button.target = self
-        button.action = #selector(restartClicked(_:))
-        addSubview(button)
+        for (index, kind) in banner.buttons.enumerated() {
+            let button = NSButton(title: kind.title, target: nil, action: nil)
+            button.bezelStyle = .push
+            button.controlSize = .small
+            button.tag = index
+            button.target = self
+            button.action = #selector(clicked(_:))
+            addSubview(button)
+            buttons.append(button)
+        }
+        if let spinner {
+            spinner.style = .spinning
+            spinner.controlSize = .small
+            spinner.isIndeterminate = true
+            addSubview(spinner)
+            spinner.startAnimation(nil)
+        }
         setAccessibilityElement(true)
-        setAccessibilityLabel(message)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel(banner.message)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
-        fatalError("EndBannerView is created in code")
+        fatalError("PaneBannerView is created in code")
     }
 
     override var isFlipped: Bool { true }
 
+    private var textX: CGFloat { spinner == nil ? 12 : 12 + 16 + 8 }
+
     override func layout() {
         super.layout()
-        button.sizeToFit()
-        button.frame.origin = NSPoint(
-            x: bounds.width - button.frame.width - 12, y: ((bounds.height - button.frame.height) / 2).rounded())
+        var x = bounds.width - 12
+        for button in buttons {
+            button.sizeToFit()
+            x -= button.frame.width
+            button.frame.origin = NSPoint(x: x, y: ((bounds.height - button.frame.height) / 2).rounded())
+            x -= 8
+        }
+        spinner?.frame = NSRect(x: 12, y: ((bounds.height - 16) / 2).rounded(), width: 16, height: 16)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -479,15 +505,16 @@ final class EndBannerView: NSView {
         colors.line.nsColor.setFill()
         NSRect(x: 0, y: 0, width: bounds.width, height: 1).fill()
         let text = NSAttributedString(
-            string: message,
+            string: banner.message,
             attributes: [
                 .font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: colors.inkMuted.nsColor,
             ])
         let size = text.size()
-        text.draw(at: NSPoint(x: 12, y: ((bounds.height - size.height) / 2).rounded()))
+        text.draw(at: NSPoint(x: textX, y: ((bounds.height - size.height) / 2).rounded()))
     }
 
-    @objc private func restartClicked(_ sender: Any?) {
-        restart?()
+    @objc private func clicked(_ sender: NSButton) {
+        guard banner.buttons.indices.contains(sender.tag) else { return }
+        onButton(banner.buttons[sender.tag])
     }
 }

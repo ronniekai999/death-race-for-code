@@ -168,3 +168,37 @@ struct ConnectionOfferTests {
                 == [.reconnect, .plainSSH])
     }
 }
+
+@Suite("What a pane on a host says")
+struct PaneBannerTests {
+    @Test func connecting() {
+        let banner = PaneBanner.connecting(to: "prod-api")
+        #expect(banner.message == "Connecting to prod-api…")
+        #expect(banner.buttons == [.cancel])
+        #expect(banner.isWorking)
+    }
+
+    @Test func aFailureSaysWhyWithWhatMayHelp() {
+        let refused = PaneBanner.failed(.authenticationFailed(methods: ["password"]), host: "prod-api", address: nil)
+        #expect(refused.buttons == [.reconnect, .plainSSH])
+        #expect(!refused.isWorking)
+        let lan = PaneBanner.failed(.noRoute, host: "nas-999", address: "192.168.1.5")
+        #expect(lan.message == "There's no route to nas-999.")
+        #expect(lan.buttons == [.allowLocalNetwork, .reconnect])
+        #expect(lan.buttons.map(\.title) == ["Allow Local Network Access…", "Reconnect"])
+    }
+
+    @Test func howASessionEnded() {
+        #expect(PaneBanner.ended(.exited(code: 0), host: "prod-api", plain: false) == nil)
+        #expect(
+            PaneBanner.ended(.exited(code: 255), host: "prod-api", plain: false)
+                == PaneBanner(message: "The connection to prod-api was lost.", buttons: [.reconnect, .plainSSH]))
+        #expect(PaneBanner.ended(.exited(code: 255), host: "prod-api", plain: true)?.buttons == [.reconnect])
+        #expect(
+            PaneBanner.ended(.exited(code: 3), host: "prod-api", plain: false)?.message
+                == "The session on prod-api ended with status 3.")
+        #expect(
+            PaneBanner.ended(.signaled(signal: 9), host: "prod-api", plain: false)?.message
+                == "ssh was ended by signal 9.")
+    }
+}

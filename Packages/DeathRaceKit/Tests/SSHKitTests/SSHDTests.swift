@@ -147,6 +147,34 @@ private final class Rig: Sendable {
                 environment: ["PATH": "/usr/bin:/bin"]))
     }
 
+    /// How the app's pool sees a host.
+    func target(_ host: HostID) throws -> ConnectionTarget {
+        ConnectionTarget(
+            key: host.rawValue, alias: try #require(config.aliases[host]),
+            controlPath: try #require(config.controlPaths[host]), name: host == Self.targetID ? "target" : "jump")
+    }
+
+    /// WRLD's passwords, by alias, as the app hands them to the pool.
+    var saved: [String: SavedSecret] {
+        Dictionary(
+            uniqueKeysWithValues: config.aliases.map { id, alias in
+                (
+                    alias,
+                    SavedSecret(
+                        ref: SecretRef(.hostPassword, id.rawValue), name: id == Self.targetID ? "target" : "jump")
+                )
+            })
+    }
+
+    func pool(idleClose: Duration = .seconds(600), endings: EndingLog? = nil) throws -> MasterPool {
+        MasterPool(
+            broker: broker,
+            settings: MasterPool.Settings(
+                config: paths.generatedConfig, helper: helper, environment: ["PATH": "/usr/bin:/bin", "HOME": folder],
+                idleClose: idleClose),
+            onEnd: { key, ending in endings?.add(key, ending) })
+    }
+
     var tunnels: TunnelController {
         TunnelController(runner: SystemProcessRunner(), environment: ["PATH": "/usr/bin:/bin"])
     }
@@ -415,6 +443,93 @@ struct SSHDTests {
 private func expectReady(_ master: MasterSupervisor, sourceLocation: SourceLocation = #_sourceLocation) async {
     let state = await settle(master)
     #expect(state == .ready, "\(state): \(master.log.lines)", sourceLocation: sourceLocation)
+}
+
+/// Every master a pool reported ending, in order.
+final class EndingLog: Sendable {
+    private let endings = Mutex<[(String, MasterSupervisor.Ending)]>([])
+
+    func add(_ key: String, _ ending: MasterSupervisor.Ending) { endings.withLock { $0.append((key, ending)) } }
+    var all: [String] { endings.withLock { $0.map { "\($0.0): \($0.1)" } } }
+    var count: Int { endings.withLock { $0.count } }
+}
+
+@Suite("The pool of masters, against a real sshd", .serialized, .enabled(if: TestSSHD.isAvailable))
+struct MasterPoolTests {
+    @Test func usersOfOneHostShareOneMasterAndOneLogin() async throws {
+        let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword])
+        let pool = try rig.pool()
+        let jump = try rig.target(Rig.jumpID)
+        async let first = pool.connect(jump, for: "pane-1", secrets: rig.saved)
+        async let second = pool.connect(jump, for: "pane-2", secrets: rig.saved)
+        #expect(await [first, second] == [.ready, .ready])
+        #expect(rig.presence.reasons == ["use the saved password for jump"])
+        #expect(pool.connected == [Rig.jumpID.rawValue])
+        // A third, later, joins at once.
+        #expect(await pool.connect(jump, for: "pane-3", secrets: rig.saved) == .ready)
+        #expect(rig.presence.reasons.count == 1)
+        let whoami = try await rig.run(on: Rig.jumpID, "whoami")
+        #expect(whoami.outputText == TestSSHD.jumpUser + "\n")
+        await pool.endAll()
+        await rig.finish()
+    }
+
+    @Test func theLastUserLeavingClosesItAfterTheIdleTime() async throws {
+        let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword])
+        let endings = EndingLog()
+        let pool = try rig.pool(idleClose: .milliseconds(300), endings: endings)
+        let jump = try rig.target(Rig.jumpID)
+        #expect(await pool.connect(jump, for: "pane-1", secrets: rig.saved) == .ready)
+        #expect(await pool.connect(jump, for: "pane-2", secrets: rig.saved) == .ready)
+        pool.release("pane-1")
+        try await Task.sleep(for: .milliseconds(600))
+        // pane-2 still uses it.
+        #expect(pool.connected == [Rig.jumpID.rawValue])
+        pool.release("pane-2")
+        // Coming back within the idle time keeps it, with no new login.
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await pool.connect(jump, for: "pane-3", secrets: rig.saved) == .ready)
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(pool.connected == [Rig.jumpID.rawValue])
+        #expect(rig.presence.reasons.count == 1)
+        pool.release("pane-3")
+        #expect(await eventually { pool.connected.isEmpty })
+        #expect(await eventually { endings.all == ["h-jump: closed"] })
+        await rig.finish()
+    }
+
+    @Test func eachHopIsAskedOnceThroughTheJumpHostsOwnMaster() async throws {
+        let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword, Rig.targetRef: TestSSHD.targetPassword])
+        let pool = try rig.pool()
+        #expect(await pool.connect(try rig.target(Rig.jumpID), for: "pane-1", secrets: rig.saved) == .ready)
+        #expect(await pool.connect(try rig.target(Rig.targetID), for: "pane-2", secrets: rig.saved) == .ready)
+        #expect(rig.presence.reasons == ["use the saved password for jump", "use the saved password for target"])
+        #expect(pool.connected == [Rig.jumpID.rawValue, Rig.targetID.rawValue])
+        await pool.endAll()
+        #expect(pool.connected.isEmpty)
+        await rig.finish()
+    }
+
+    @Test func cancellingTheQuestionCancelsTheConnection() async throws {
+        let rig = try Rig(answers: [.cancel])
+        let endings = EndingLog()
+        let pool = try rig.pool(endings: endings)
+        #expect(
+            await pool.connect(try rig.target(Rig.jumpID), for: "pane-1", secrets: rig.saved) == .failed(.cancelled))
+        #expect(pool.master(for: Rig.jumpID.rawValue) == nil)
+        #expect(endings.all == ["h-jump: failed(SSHKit.ConnectionFailure.cancelled)"])
+        await rig.finish()
+    }
+
+    @Test func aFailedConnectionIsTriedAfreshNextTime() async throws {
+        let rig = try Rig()
+        let pool = try rig.pool()
+        let closed = try rig.target(Rig.closedID)
+        #expect(await pool.connect(closed, for: "pane-1") == .failed(.refused))
+        #expect(pool.master(for: Rig.closedID.rawValue) == nil)
+        #expect(await pool.connect(closed, for: "pane-1") == .failed(.refused))
+        await rig.finish()
+    }
 }
 
 // MARK: - Sockets for the tunnel tests

@@ -124,6 +124,20 @@ struct MasterSupervisorTests {
         #expect(await ending(of: master) == .failed(.cancelled))
     }
 
+    @Test(.enabled(if: RealSSH.shouldRun)) func endingBeforeStartingStillEndsIt() async throws {
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        let id = HostID(rawValue: "h1")
+        let config = try config(
+            [WRLDHost(id: id, name: "stuck", source: .sshConfig(alias: "stuck"))],
+            user: "Host stuck\n    ProxyCommand /bin/sleep 60\n")
+        let master = try master(id, in: config)
+        master.end(.failed(.cancelled))
+        let started = UnixSocket.monotonicMilliseconds()
+        try master.start()
+        #expect(await ending(of: master) == .failed(.cancelled))
+        #expect(UnixSocket.monotonicMilliseconds() - started < 10_000)
+    }
+
     @Test(.enabled(if: RealSSH.shouldRun)) func aMasterAlreadyListeningIsntReplaced() throws {
         defer { try? FileManager.default.removeItem(atPath: folder) }
         let id = HostID(rawValue: "h1")
@@ -145,6 +159,38 @@ struct MasterSupervisorTests {
         #expect(FileManager.default.fileExists(atPath: master.controlPath))
         try master.start()
         #expect(await settle(master) == .ended(.failed(.refused)))
+    }
+
+    @Test(.enabled(if: RealSSH.shouldRun)) func aPoolConnectionStuckConnectingCanBeCancelled() async throws {
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        let helper = try #require(BuiltHelper.path, BuiltHelper.missing)
+        let id = HostID(rawValue: "h1")
+        let config = try config(
+            [WRLDHost(id: id, name: "stuck", source: .sshConfig(alias: "stuck"))],
+            user: "Host stuck\n    ProxyCommand /bin/sleep 60\n")
+        let broker = AskpassBroker(
+            socketPath: folder + "/askpass.sock", secrets: MemorySecretStore(), presence: ScriptedPresence(),
+            presenter: ScriptedPresenter())
+        try broker.start()
+        defer { broker.stop() }
+        let pool = MasterPool(
+            broker: broker,
+            settings: MasterPool.Settings(
+                config: paths.generatedConfig, helper: helper, environment: ["PATH": "/usr/bin:/bin"]))
+        let target = ConnectionTarget(
+            key: "alias:stuck", alias: "stuck", controlPath: try #require(config.controlPaths[id]), name: "stuck")
+        let connecting = Task { await pool.connect(target, for: "pane-1") }
+        #expect(await eventually { pool.master(for: "alias:stuck")?.state == .connecting })
+        #expect(pool.connected.isEmpty)
+        pool.cancel("alias:stuck")
+        #expect(await connecting.value == .failed(.cancelled))
+        #expect(pool.master(for: "alias:stuck") == nil)
+
+        // The pane that asked closing while it connects stops it too.
+        let abandoned = Task { await pool.connect(target, for: "pane-2") }
+        #expect(await eventually { pool.master(for: "alias:stuck")?.pid != nil })
+        pool.release("pane-2")
+        #expect(await abandoned.value == .failed(.cancelled))
     }
 
     @Test func leftoverCleanupTouchesOnlyControlSockets() async throws {

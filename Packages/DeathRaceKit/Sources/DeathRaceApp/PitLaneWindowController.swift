@@ -3,9 +3,11 @@ import AppKit
 import ConfigKit
 import Foundation
 import LegendsUI
+import SSHKit
 import SurfaceCore
 import TerminalUI
 import VTCore
+import Vault
 
 /// Hands out pane and tab numbers, unique across windows, so a tab keeps its identity
 /// when it moves to another window.
@@ -40,12 +42,19 @@ protocol WindowHost: AnyObject {
     func places(from controller: PitLaneWindowController) -> [PaletteItem]
     /// Brings forward the window holding `pane` and gives the pane the keys.
     func focus(pane: PaneID, from controller: PitLaneWindowController)
+    /// WRLD, for panes on hosts; nil where there is none.
+    var connections: (any HostConnecting)? { get }
     /// Writes `theme = id` for every window.
     func chooseTheme(_ id: String) throws
     func showSettings(page: SettingsCatalog.Page?)
     /// Earlier picks, most recent first.
     var recentPicks: [String] { get }
     func picked(_ id: String)
+}
+
+extension WindowHost {
+    /// No WRLD: previews and window tests that don't connect anywhere.
+    var connections: (any HostConnecting)? { nil }
 }
 
 /// One window: tabs of split panes under the Pit Lane chrome. The tabs and panes live in a
@@ -136,10 +145,11 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
 
     // MARK: - Building tabs and panes
 
-    private func makePane(directory: String?) -> PaneController {
+    private func makePane(directory: String?, launch: PaneLaunch = .shell) -> PaneController {
         PaneController(
             id: ids.pane(), config: config, directory: directory,
-            scale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, makeSession: makeSession)
+            scale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, makeSession: makeSession,
+            launch: launch, connections: launch.host == nil ? nil : host?.connections)
     }
 
     /// The panes' callbacks lead to this window; a tab moving in brings panes whose
@@ -158,7 +168,24 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         pane.onPasswordInputChange = { [weak self] in self?.host?.inputStateChanged() }
         pane.onLinkHover = { [weak self] in self?.refreshStatus() }
         pane.presentAlert = { [weak self] alert in await self?.present(alert) }
+        pane.onBannerChange = { [weak self] in self?.showBanner(of: id) }
         panes[id] = pane
+    }
+
+    /// The pane's banner on its card, its buttons answered by the pane.
+    private func showBanner(of id: PaneID) {
+        guard let pane = panes[id], let tab = model.tab(containing: id) else { return }
+        areas[tab.id]?.cards[id]?.showBanner(pane.banner) { [weak self] button in self?.pressed(button, in: id) }
+    }
+
+    private func pressed(_ button: PaneBanner.Button, in id: PaneID) {
+        guard let pane = panes[id], let tab = model.tab(containing: id) else { return }
+        if button != .cancel && button != .allowLocalNetwork {
+            activity[tab.id]?.failure = nil
+            refreshTabs()
+        }
+        pane.press(button)
+        window?.makeFirstResponder(pane.surface)
     }
 
     /// Adds a tab, with its panes and their views, and shows it.
@@ -169,6 +196,9 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         area.zoomedPane = tab.zoomedPane
         if existing == nil {
             for pane in tabPanes { area.add(PaneCardView(pane: pane.id, surface: pane.surface, chrome: chrome)) }
+        }
+        for pane in tabPanes where pane.banner != nil {
+            area.cards[pane.id]?.showBanner(pane.banner) { [weak self] button in self?.pressed(button, in: pane.id) }
         }
         area.setChrome(chrome)
         area.showsStars = showsStars
@@ -317,21 +347,12 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         refreshTabs()
     }
 
-    /// A clean exit closes the pane; any other stays on screen saying why, and marks its tab.
+    /// A clean exit closes the pane; any other stays on screen saying why (the pane's
+    /// banner), and marks its tab.
     private func paneEnded(_ id: PaneID, _ end: ShellEnd) {
         guard let tab = model.tab(containing: id) else { return }
         if !end.isFailure { return closeNow(id) }
         activity[tab.id]?.failure = end
-        areas[tab.id]?.cards[id]?.showEnd(end.sentence) { [weak self] in self?.restart(id) }
-        refreshTabs()
-    }
-
-    private func restart(_ id: PaneID) {
-        guard let pane = panes[id], let tab = model.tab(containing: id) else { return }
-        areas[tab.id]?.cards[id]?.showEnd(nil, restart: nil)
-        activity[tab.id]?.failure = nil
-        pane.restart()
-        window?.makeFirstResponder(pane.surface)
         refreshTabs()
     }
 
@@ -443,13 +464,14 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         // Found while the active pane has the keys, so the actions are the ones that would
         // work on it.
         let items =
-            paletteActions() + host.places(from: self) + PaletteSearch.themes(current: config.themeID)
-            + PaletteSearch.settingsPages
+            paletteActions() + host.places(from: self) + (host.connections?.paletteHosts() ?? [])
+            + PaletteSearch.themes(current: config.themeID) + PaletteSearch.settingsPages
         let model = HearMeCallingModel(
             state: PaletteState(items: items, recent: host.recentPicks), palette: LegendsPalette(chrome))
         let overlay = HearMeCallingOverlay(model: model, chrome: chrome)
         model.onPreview = { [weak self] theme in self?.previewTheme(theme) }
         model.onChoose = { [weak self] item in self?.choose(item) }
+        model.onAlternate = { [weak self] item in self?.chooseAlternate(item) }
         overlay.onDismiss = { [weak self] in self?.closeHearMeCalling() }
         overlay.frame = root.bounds
         root.addSubview(overlay)
@@ -495,10 +517,18 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         case .settings(let page):
             closeHearMeCalling()
             host?.showSettings(page: page)
-        case .host:
-            // Hosts are only listed once WRLD is wired to the window.
+        case .host(let ref):
             closeHearMeCalling()
+            open(ref, beside: false)
         }
+    }
+
+    /// ⌘↵ on a row that has a second action: a host opens beside the active pane.
+    private func chooseAlternate(_ item: PaletteItem) {
+        guard case .host(let ref) = item.target else { return }
+        host?.picked(item.id)
+        closeHearMeCalling()
+        open(ref, beside: true)
     }
 
     /// The menus' actions that would do something now, as the menus would show them.
@@ -576,16 +606,34 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
 
     /// ⌘D and ⇧⌘D: the active pane shares its place with a new one, which starts where it
     /// is and takes the keys.
+    /// A split from a pane on a host opens on the same host, through the same master.
     private func split(_ axis: SplitAxis) {
         guard let tabID = model.activeTabID else { return }
         Task {
             let directory = await activePane?.currentDirectory()
-            guard model.activeTabID == tabID, let area = areas[tabID] else { return }
-            let pane = makePane(directory: directory)
-            wire(pane)
-            model.split(axis, newPane: pane.id)
-            area.add(PaneCardView(pane: pane.id, surface: pane.surface, chrome: chrome))
-            focusActivePane()
+            let launch = activePane?.launch.forSplit ?? .shell
+            guard model.activeTabID == tabID, areas[tabID] != nil else { return }
+            add(makePane(directory: directory, launch: launch), splitting: axis)
+        }
+    }
+
+    /// `pane` beside the active one, with the keys.
+    private func add(_ pane: PaneController, splitting axis: SplitAxis) {
+        guard let tabID = model.activeTabID, let area = areas[tabID] else { return }
+        wire(pane)
+        model.split(axis, newPane: pane.id)
+        area.add(PaneCardView(pane: pane.id, surface: pane.surface, chrome: chrome))
+        if pane.banner != nil { showBanner(of: pane.id) }
+        focusActivePane()
+    }
+
+    /// A session on `host`: in a new tab, or beside the active pane.
+    func open(_ host: HostRef, beside: Bool) {
+        let pane = makePane(directory: nil, launch: .connection(host))
+        if beside, model.activeTabID != nil {
+            add(pane, splitting: .sideBySide)
+        } else {
+            install(TabModel(id: ids.tab(), pane: pane.id), panes: [pane], area: nil)
         }
     }
 

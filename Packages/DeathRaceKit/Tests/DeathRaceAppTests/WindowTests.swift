@@ -44,6 +44,8 @@ final class FakeSession: PaneSession, @unchecked Sendable {
 final class TestHost: WindowHost {
     let ids = IDSource()
     let makeSession: SessionMaker = { _, configuration, _ in FakeSession(configuration) }
+    /// WRLD, when a test connects panes to hosts.
+    var connections: (any HostConnecting)?
     private(set) var closed: [PitLaneWindowController] = []
     private(set) var opened: [PitLaneWindowController] = []
 

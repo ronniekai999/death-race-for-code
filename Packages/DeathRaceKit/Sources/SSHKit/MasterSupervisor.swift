@@ -112,16 +112,18 @@ public final class MasterSupervisor: Sendable {
         // -N: ssh never reads its input.
         child.closeInput()
         let pid = child.pid
-        let first = shared.withLock { shared -> Bool in
+        let (first, asked) = shared.withLock { shared -> (Bool, Ending?) in
             defer { shared.started = true }
             shared.pid = pid
-            return !shared.started
+            return (!shared.started, shared.asked)
         }
         precondition(first, "A master is started once")
         let handoff = Handoff(child)
         let thread = Thread { [self] in watch(handoff.value) }
         thread.name = "Death Race: ssh master for \(alias)"
         thread.start()
+        // Ended before it had a process to signal (a Cancel while it was being made).
+        if let asked { end(asked) }
         return pid
     }
 

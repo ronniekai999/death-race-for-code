@@ -4,6 +4,7 @@ import ConfigKit
 import LegendsUI
 import PTYKit
 import RenderKit
+import SSHKit
 import SessionKit
 
 /// Opens windows, owns their controllers, and answers the app-wide menu items.
@@ -23,6 +24,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     let makeSession: SessionMaker
     /// Where Hear Me Calling's recent picks are kept.
     private let defaults: UserDefaults
+    /// WRLD, made once the app has launched: tests that make an AppDelegate never touch your
+    /// vault, your ssh config or your Keychain.
+    private(set) var wrld: WRLDService?
+    var connections: (any HostConnecting)? { wrld }
     static let recentPicksKey = "HearMeCallingRecentPicks"
 
     /// Tests pass sessions that run no shell, and a settings file and defaults of their own.
@@ -50,6 +55,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         // `swift run` starts a bare executable as a background process: promote it so its
         // windows take keystrokes. In the bundled app this changes nothing.
         NSApp.setActivationPolicy(.regular)
+        let wrld = WRLDService(
+            home: NSHomeDirectory(), helper: WRLDService.bundledHelper, secrets: KeychainSecretStore(),
+            presence: DeviceOwnerPresence(), presenter: SheetPromptPresenter())
+        self.wrld = wrld
+        // Masters a crash left running hold their tunnels' ports: end them first.
+        Task { await wrld.cleanUpLeftovers() }
         if windows.isEmpty { newWindow(nil) }
         NSApp.activate()
         configStore.reportProblems(in: windows.first?.window)
@@ -82,25 +93,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         windows.flatMap { Array($0.panes.values) }
     }
 
-    /// Quitting with programs running in any pane asks once, for all of them.
+    /// Quitting with programs running in any pane, sessions on hosts among them, asks once
+    /// for all of them; then every ssh master ends before the app does.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let running = allPanes.filter { $0.isRunning }
-        guard configStore.config.confirmClose, !running.isEmpty else { return .terminateNow }
+        let running = configStore.config.confirmClose ? allPanes.filter { $0.isRunning } : []
+        let connected = !(wrld?.openConnections.isEmpty ?? true)
+        guard !running.isEmpty || connected else { return .terminateNow }
         Task {
             var programs: [String] = []
             for pane in running {
                 if let program = await pane.runningProgram() { programs.append(program) }
             }
-            guard !programs.isEmpty else { return NSApp.reply(toApplicationShouldTerminate: true) }
-            let alert = NSAlert()
-            alert.messageText = "Goodbye & Good Riddance?"
-            alert.informativeText =
-                programs.count == 1
-                ? "\(programs[0]) is still running. Quit anyway?"
-                : "\(ListFormatter.localizedString(byJoining: programs)) are still running. Quit anyway?"
-            alert.addButton(withTitle: "Quit")
-            alert.addButton(withTitle: "Cancel")
-            NSApp.reply(toApplicationShouldTerminate: alert.runModal() == .alertFirstButtonReturn)
+            if !programs.isEmpty {
+                let alert = NSAlert()
+                alert.messageText = "Goodbye & Good Riddance?"
+                alert.informativeText =
+                    programs.count == 1
+                    ? "\(programs[0]) is still running. Quit anyway?"
+                    : "\(ListFormatter.localizedString(byJoining: programs)) are still running. Quit anyway?"
+                alert.addButton(withTitle: "Quit")
+                alert.addButton(withTitle: "Cancel")
+                guard alert.runModal() == .alertFirstButtonReturn else {
+                    return NSApp.reply(toApplicationShouldTerminate: false)
+                }
+            }
+            await wrld?.shutDown()
+            NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
     }

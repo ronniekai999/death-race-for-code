@@ -4,10 +4,12 @@ import ConfigKit
 import Foundation
 import PTYKit
 import RenderKit
+import SSHKit
 import SessionKit
 import SurfaceCore
 import TerminalUI
 import VTCore
+import Vault
 import os
 
 /// What a pane needs of its shell's session; `Session` in the app, a stand-in in tests.
@@ -24,9 +26,9 @@ typealias SessionMaker =
         _ launch: ShellLaunch, _ configuration: Terminal.Configuration, _ onUpdate: @escaping @Sendable () -> Void
     ) throws -> any PaneSession
 
-/// One pane: a terminal view and the shell running in it. It keeps what the window shows
-/// about the shell (title, directory, program, how it ended) and does what the shell asks
-/// of the app (bell, clipboard).
+/// One pane: a terminal view and the shell running in it, or a session on a host. It keeps
+/// what the window shows about it (title, directory, program, how it ended, what it says
+/// along its bottom) and does what the program asks of the app (bell, clipboard).
 @MainActor
 final class PaneController {
     let id: PaneID
@@ -37,6 +39,12 @@ final class PaneController {
     private var fontSizeOverride: Double?
     private let makeSession: SessionMaker
     let shellName: String
+    /// What the pane runs: a shell, or a session on a host.
+    private(set) var launch: PaneLaunch
+    private let connections: (any HostConnecting)?
+    /// What the pane says along its bottom: connecting, why it couldn't, how it ended.
+    private(set) var banner: PaneBanner?
+    private var connecting: Task<Void, Never>?
 
     /// The title the program set (OSC 0/2), or empty.
     private(set) var title = ""
@@ -66,6 +74,8 @@ final class PaneController {
     var onLinkHover: (() -> Void)?
     /// Shows a sheet on the pane's window; nil without one.
     var presentAlert: (@MainActor (NSAlert) async -> NSApplication.ModalResponse?)?
+    /// The banner changed.
+    var onBannerChange: (() -> Void)?
 
     static let realSession: SessionMaker = { launch, configuration, onUpdate in
         try Session(launch: launch, configuration: configuration, onUpdate: onUpdate)
@@ -73,14 +83,21 @@ final class PaneController {
 
     init(
         id: PaneID, config: Config, directory: String?, scale: CGFloat,
-        makeSession: @escaping SessionMaker = PaneController.realSession
+        makeSession: @escaping SessionMaker = PaneController.realSession, launch paneLaunch: PaneLaunch = .shell,
+        connections: (any HostConnecting)? = nil
     ) {
         self.id = id
         self.config = config
         self.makeSession = makeSession
+        self.launch = paneLaunch
+        self.connections = connections
         let launch = ShellLaunchPlan.launch(
             config: config, directory: directory, appVersion: DeathRaceApplication.version)
-        shellName = launch.executable.split(separator: "/").last.map(String.init) ?? "Shell"
+        if let host = paneLaunch.host {
+            shellName = connections?.name(of: host) ?? "ssh"
+        } else {
+            shellName = launch.executable.split(separator: "/").last.map(String.init) ?? "Shell"
+        }
         surface = TerminalSurfaceView(
             fonts: FontSet(
                 family: config.fontFamily, size: CGFloat(config.fontSize), italicFamily: config.fontFamilyItalic),
@@ -103,8 +120,76 @@ final class PaneController {
         surface.onReturnKey = { [weak self] in self?.refreshSoon() }
         surface.onHoverLink = { [weak self] _ in self?.onLinkHover?() }
         surface.onOpenLink = { [weak self] link in self?.open(link) }
-        start(launch)
+        switch paneLaunch {
+        case .shell: start(launch)
+        case .connection(let host): connect(host)
+        case .plainSSH(let host): startPlain(host)
+        }
     }
+
+    // MARK: - A session on a host
+
+    /// The host's name, for a pane on one.
+    var hostName: String? { launch.host.map { connections?.name(of: $0) ?? shellName } }
+
+    /// Connects, saying so along the bottom, and starts the session once the master is up.
+    private func connect(_ host: HostRef) {
+        guard let connections else {
+            return setBanner(.failed(.other("WRLD isn't available."), host: shellName, address: nil))
+        }
+        let name = connections.name(of: host)
+        setBanner(.connecting(to: name))
+        connecting?.cancel()
+        let id = self.id
+        connecting = Task { [weak self] in
+            let result = await connections.connect(host, for: id)
+            guard let self, !Task.isCancelled else { return }
+            switch result {
+            case .ready(let launch):
+                self.setBanner(nil)
+                self.start(launch)
+            case .failed(let failure):
+                self.setBanner(.failed(failure, host: name, address: connections.address(of: host)))
+            }
+        }
+    }
+
+    /// ssh on its own in the pane: it asks for passwords there, as in Terminal.
+    private func startPlain(_ host: HostRef) {
+        guard let connections else { return }
+        setBanner(nil)
+        connecting?.cancel()
+        connecting = Task { [weak self] in
+            guard let launch = await connections.plainLaunch(host), let self, !Task.isCancelled else { return }
+            self.start(launch)
+        }
+    }
+
+    private func setBanner(_ banner: PaneBanner?) {
+        guard banner != self.banner else { return }
+        self.banner = banner
+        onBannerChange?()
+    }
+
+    /// A button on the banner.
+    func press(_ button: PaneBanner.Button) {
+        switch button {
+        case .cancel:
+            if let host = launch.host { connections?.cancel(host) }
+        case .reconnect, .restart:
+            restart()
+        case .plainSSH:
+            guard let host = launch.host else { return }
+            launch = .plainSSH(host)
+            restart()
+        case .allowLocalNetwork:
+            NSWorkspace.shared.open(Self.localNetworkSettings)
+        }
+    }
+
+    /// System Settings, at Privacy & Security › Local Network.
+    static let localNetworkSettings = URL(
+        string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")!
 
     // MARK: - The shell
 
@@ -136,42 +221,59 @@ final class PaneController {
         }
     }
 
-    /// A new shell in the same place, after the last one ended badly.
+    /// A new shell in the same place after the last one ended badly, or a new connection.
     func restart() {
         session?.close()
         title = ""
         foreground = nil
-        let launch = ShellLaunchPlan.launch(
-            config: config, directory: directory, appVersion: DeathRaceApplication.version)
-        start(launch)
+        end = nil
+        setBanner(nil)
+        switch launch {
+        case .shell:
+            start(
+                ShellLaunchPlan.launch(config: config, directory: directory, appVersion: DeathRaceApplication.version))
+        case .connection(let host): connect(host)
+        case .plainSSH(let host): startPlain(host)
+        }
         onChange?()
     }
 
     func shutDown() {
         for work in refreshes { work.cancel() }
+        connecting?.cancel()
         surface.shutDown()
         session?.close()
+        if launch.host != nil { connections?.release(id) }
     }
 
     var isRunning: Bool { session?.status == .running }
 
     /// Where the pane is: where the shell last said, else the directory of the program in
     /// the foreground when last asked. (The zsh that comes with macOS sends OSC 7 only
-    /// inside Terminal.)
-    var directory: String? { reportedDirectory ?? foreground?.workingDirectory }
+    /// inside Terminal.) Nil on a host: its directories aren't this Mac's.
+    var directory: String? {
+        guard launch.host == nil else { return nil }
+        return reportedDirectory ?? foreground?.workingDirectory
+    }
 
-    /// The program in the foreground, for the status bar.
-    var programName: String? { foreground.map { $0.name.isEmpty ? shellName : $0.name } }
+    /// The program in the foreground, for the status bar; on a host, the host.
+    var programName: String? {
+        if let hostName { return hostName }
+        return foreground.map { $0.name.isEmpty ? shellName : $0.name }
+    }
 
     /// The directory for a pane or tab opened from this one: asked of the session now.
     func currentDirectory() async -> String? {
+        guard launch.host == nil else { return nil }
         if let reportedDirectory { return reportedDirectory }
         return await session?.foregroundProcess()?.workingDirectory ?? directory
     }
 
-    /// The program to name when closing would end it: anything but the shell at its
-    /// prompt. Nil when there is nothing to lose.
+    /// What closing would end, to name it: anything but the shell at its prompt, and any
+    /// session on a host, whose programs can't be seen from here. Nil when there is nothing
+    /// to lose.
     func runningProgram() async -> String? {
+        if let hostName { return isRunning ? "\(hostName)’s session" : nil }
         guard isRunning, let process = await session?.foregroundProcess(), !process.isShell else { return nil }
         return process.name.isEmpty ? "A program" : process.name
     }
@@ -229,6 +331,13 @@ final class PaneController {
         case nil: end = .unknown
         }
         self.end = end
+        if let host = launch.host {
+            connections?.release(id)
+            let plain = launch == .plainSSH(host)
+            setBanner(PaneBanner.ended(exit, host: hostName ?? shellName, plain: plain))
+        } else if end.isFailure {
+            setBanner(PaneBanner(message: end.sentence, buttons: [.restart]))
+        }
         onEnd?(end)
     }
 

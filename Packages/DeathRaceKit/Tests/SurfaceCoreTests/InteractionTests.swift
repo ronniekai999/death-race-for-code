@@ -156,6 +156,25 @@ private func point(_ line: UInt64, _ column: Int, _ boundary: Int? = nil) -> Sel
         #expect(restarted)
     }
 
+    @Test func frameStatsSummary() {
+        var stats = FrameStats()
+        #expect(
+            stats.summary
+                == "frames drawn: 0, display link starts: 0\nframe time: no samples\nkey to screen: no samples")
+        stats.linkResumed()
+        for ms in [0.5, 1.0, 1.5, 2.0] { stats.frameDrawn(milliseconds: ms) }
+        stats.keyReachedScreen(milliseconds: 8.25)
+        #expect(
+            stats.summary == """
+                frames drawn: 4, display link starts: 1
+                frame time: p50 1.50 ms, p95 2.00 ms (latest 4)
+                key to screen: p50 8.25 ms, p95 8.25 ms (latest 1)
+                """)
+        #expect(FrameStats.format(0.0) == "0.00")
+        #expect(FrameStats.format(12.345) == "12.35")
+        #expect(FrameStats.format(3.1) == "3.10")
+    }
+
     @Test func percentiles() {
         var stats = LatencyStats(capacity: 100)
         #expect(stats.percentile(0.95) == nil)

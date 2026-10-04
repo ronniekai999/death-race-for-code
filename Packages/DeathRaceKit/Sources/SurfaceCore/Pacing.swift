@@ -91,3 +91,53 @@ public struct LatencyStats: Sendable {
         return sorted[min(max(rank, 0), sorted.count - 1)]
     }
 }
+
+/// What Debug › Log Frame Stats reports for a terminal view: how often it drew, how long a
+/// frame took on the main thread, and how long a key press took to reach the screen.
+public struct FrameStats: Sendable {
+    public private(set) var framesDrawn = 0
+    /// Times the display link started again after pausing.
+    public private(set) var linkResumes = 0
+    /// Milliseconds of main-thread work per frame drawn.
+    public private(set) var frameTime = LatencyStats()
+    /// Milliseconds from a key press to the next frame on screen.
+    public private(set) var keyToScreen = LatencyStats()
+
+    public init() {}
+
+    public mutating func frameDrawn(milliseconds: Double) {
+        framesDrawn += 1
+        frameTime.add(milliseconds)
+    }
+
+    public mutating func linkResumed() {
+        linkResumes += 1
+    }
+
+    public mutating func keyReachedScreen(milliseconds: Double) {
+        keyToScreen.add(milliseconds)
+    }
+
+    /// Three lines for the log.
+    public var summary: String {
+        func line(_ name: String, _ stats: LatencyStats) -> String {
+            guard let p50 = stats.percentile(0.5), let p95 = stats.percentile(0.95) else {
+                return "\(name): no samples"
+            }
+            let kept = min(stats.count, stats.capacity)
+            return "\(name): p50 \(Self.format(p50)) ms, p95 \(Self.format(p95)) ms (latest \(kept))"
+        }
+        return """
+            frames drawn: \(framesDrawn), display link starts: \(linkResumes)
+            \(line("frame time", frameTime))
+            \(line("key to screen", keyToScreen))
+            """
+    }
+
+    /// Two decimals, without Foundation.
+    static func format(_ value: Double) -> String {
+        let hundredths = Int((value * 100).rounded())
+        let fraction = hundredths % 100
+        return "\(hundredths / 100).\(fraction < 10 ? "0" : "")\(fraction)"
+    }
+}

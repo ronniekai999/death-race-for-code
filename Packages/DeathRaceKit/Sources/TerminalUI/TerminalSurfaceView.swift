@@ -100,6 +100,10 @@ public final class TerminalSurfaceView: NSView {
     var restartBlink = false
     /// The visual bell's flash, over everything.
     private let flashLayer = CALayer()
+    /// For Debug › Log Frame Stats.
+    public private(set) var frameStats = FrameStats()
+    /// When the oldest key press not yet on screen happened (CACurrentMediaTime).
+    var pendingKeyTime: CFTimeInterval?
     /// Keyboard state kept by the input extension.
     var currentPress: KeyPress?
     var markedText = NSMutableAttributedString()
@@ -227,7 +231,9 @@ public final class TerminalSurfaceView: NSView {
     @discardableResult
     private func drain() -> Bool {
         guard let model else { return false }
+        let applying = Signposts.signposter.beginInterval("DeltaApply")
         let update = model.drain()
+        Signposts.signposter.endInterval("DeltaApply", applying)
         // A new screen (a resize, the alternate screen): the selection's lines are gone.
         if selection != nil, model.mirror.generation != selectionGeneration { clearSelection() }
         if update.titleChanged { onTitleChange?(model.mirror.title) }
@@ -258,6 +264,8 @@ public final class TerminalSurfaceView: NSView {
     /// Something changed: make sure the display link is running.
     func wake() {
         guard isSeen, pacer.wake() else { return }
+        frameStats.linkResumed()
+        Signposts.signposter.emitEvent("LinkResumed")
         if link == nil {
             let link = displayLink(target: self, selector: #selector(displayLinkFired(_:)))
             link.add(to: .main, forMode: .common)
@@ -269,7 +277,10 @@ public final class TerminalSurfaceView: NSView {
     @objc private func displayLinkFired(_ link: CADisplayLink) {
         let changed = drain()
         let drew = (changed || needsFrame) && drawFrame()
-        if !pacer.tick(drew: drew) { link.isPaused = true }
+        if !pacer.tick(drew: drew) {
+            link.isPaused = true
+            Signposts.signposter.emitEvent("LinkPaused")
+        }
     }
 
     /// Whether drawing would be seen: in a window, on screen, not hidden. (Not `canDraw`:
@@ -287,6 +298,9 @@ public final class TerminalSurfaceView: NSView {
         guard pixelWidth > 0, pixelHeight > 0, model.mirror.generation != nil else { return false }
         if renderer == nil { renderer = SurfaceRenderer(device: context.device, pipelines: context.pipelines) }
         guard let renderer else { return false }
+        let started = CACurrentMediaTime()
+        let signpost = Signposts.signposter.beginInterval("Frame")
+        defer { Signposts.signposter.endInterval("Frame", signpost) }
 
         glyphs.beginFrame()
         let frame = builder.build(
@@ -309,6 +323,17 @@ public final class TerminalSurfaceView: NSView {
         }
         // With presentsWithTransaction the frame appears with this transaction, together
         // with the cursor's move.
+        if let keyTime = pendingKeyTime {
+            pendingKeyTime = nil
+            // On Metal's thread, so not isolated to the main actor: it only hops back.
+            drawable.addPresentedHandler { @Sendable [weak self] drawable in
+                let presented = drawable.presentedTime
+                guard presented > 0, let view = self else { return }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated { view.keyReachedScreen((presented - keyTime) * 1000) }
+                }
+            }
+        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         commandBuffer.commit()
@@ -317,7 +342,13 @@ public final class TerminalSurfaceView: NSView {
         updateCursor()
         CATransaction.commit()
         needsFrame = !frame.isComplete
+        frameStats.frameDrawn(milliseconds: (CACurrentMediaTime() - started) * 1000)
         return true
+    }
+
+    private func keyReachedScreen(_ milliseconds: Double) {
+        frameStats.keyReachedScreen(milliseconds: milliseconds)
+        Signposts.signposter.emitEvent("KeyToScreen", "\(milliseconds) ms")
     }
 
     // MARK: - The cursor
@@ -435,6 +466,7 @@ public final class TerminalSurfaceView: NSView {
 
     /// The visual bell: the terminal flashes once.
     public func flash() {
+        Signposts.signposter.emitEvent("Bell")
         guard let layer else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)

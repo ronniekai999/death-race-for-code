@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SurfaceCore
 import VTCore
 
@@ -29,6 +30,7 @@ extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
         // The cursor shows at once and blinks again from here.
         restartBlink = true
         updateCursor()
+        if pendingKeyTime == nil { pendingKeyTime = CACurrentMediaTime() }
         let press = KeyPress(event)
         switch KeyRouting.route(press, optionAsMeta: optionAsMeta, composing: hasMarkedText()) {
         case .encode(let keyEvent):

@@ -6,7 +6,12 @@ import AppKit
 enum MainMenu {
     static func make() -> NSMenu {
         let main = NSMenu()
-        for menu in [application(), shell(), edit(), view(), window(), help()] {
+        var menus = [application(), shell(), edit(), view(), window()]
+        #if DEBUG
+            menus.append(debug())
+        #endif
+        menus.append(help())
+        for menu in menus {
             let item = NSMenuItem(title: menu.title, action: nil, keyEquivalent: "")
             item.submenu = menu
             main.addItem(item)
@@ -87,6 +92,15 @@ enum MainMenu {
         NSApp.helpMenu = menu
         return menu
     }
+
+    #if DEBUG
+        /// Debug builds only: measuring.
+        private static func debug() -> NSMenu {
+            let menu = NSMenu(title: "Debug")
+            menu.addItem(item("Log Frame Stats", #selector(TerminalWindowController.logFrameStats(_:))))
+            return menu
+        }
+    #endif
 
     private static func item(
         _ title: String, _ action: Selector, _ key: String = "", _ modifiers: NSEvent.ModifierFlags = .command

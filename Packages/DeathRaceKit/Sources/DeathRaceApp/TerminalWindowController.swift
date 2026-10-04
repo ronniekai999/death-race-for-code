@@ -7,6 +7,7 @@ import SessionKit
 import SurfaceCore
 import TerminalUI
 import VTCore
+import os
 
 /// One tab: a window with a terminal view and the shell running in it. Tabs are native window
 /// tabs: each is a window with its own controller, and AppKit groups them by their tabbing
@@ -301,6 +302,20 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         fontSizeOverride = clamped == config.fontSize ? nil : clamped
         applyFonts()
     }
+
+    #if DEBUG
+        /// Debug › Log Frame Stats: this tab's drawing and latency numbers, to the log (for
+        /// `log stream`) and in a sheet.
+        @objc func logFrameStats(_ sender: Any?) {
+            let summary = surface.frameStats.summary
+            Logger(subsystem: "local.deathraceforcode.DeathRace", category: "Stats")
+                .notice("\(summary, privacy: .public)")
+            let alert = NSAlert()
+            alert.messageText = "Frame Stats"
+            alert.informativeText = summary
+            if let window { alert.beginSheetModal(for: window, completionHandler: nil) }
+        }
+    #endif
 
     // MARK: - NSWindowDelegate
 

@@ -83,9 +83,13 @@ var targets: [Target] = [
         .target(name: "TerminalUI", dependencies: ["RenderKit", "SurfaceCore", "ConfigKit", "VTCore"]),
         .target(
             name: "DeathRaceApp",
-            dependencies: ["LegendsUI", "TerminalUI", "RenderKit", "ConfigKit", "PTYKit", "VTCore"]),
-        .executableTarget(name: "DeathRace", dependencies: ["DeathRaceApp"]),
-        .testTarget(name: "RenderKitTests", dependencies: ["RenderKit", "SurfaceCore"]),
+            dependencies: [
+                "LegendsUI", "TerminalUI", "RenderKit", "SurfaceCore", "SessionKit", "ScreenProtocol", "ConfigKit",
+                "PTYKit", "VTCore",
+            ]),
+        .executableTarget(name: "DeathRace", dependencies: ["DeathRaceApp", "RenderKit"]),
+        .testTarget(
+            name: "RenderKitTests", dependencies: ["RenderKit", "SurfaceCore", "ConfigKit", "ScreenProtocol", "VTCore"]),
     ]
 #endif
 

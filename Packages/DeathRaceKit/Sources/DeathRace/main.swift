@@ -1,12 +1,16 @@
 import DeathRaceApp
 import Foundation
+import RenderKit
 
-if CommandLine.arguments.contains("--smoke-test") {
-    exit(DeathRaceSmokeTest.run())
+// Top-level code runs on the main thread; `assumeIsolated` says so, so Swift 6 lets it call
+// main-actor code.
+if CommandLine.arguments.contains("--print-shader-source") {
+    print(Shaders.source)
+    exit(0)
 }
-
-// Top-level code runs on the main thread; say so, so Swift 6 lets it start the
-// main-actor-isolated app.
+if CommandLine.arguments.contains("--smoke-test") {
+    exit(MainActor.assumeIsolated { DeathRaceSmokeTest.run() })
+}
 MainActor.assumeIsolated {
     DeathRaceApplication.run()
 }

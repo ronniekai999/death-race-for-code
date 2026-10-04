@@ -7,7 +7,7 @@
 #   make vtdiff      VTCore next to SwiftTerm: throughput, and every corpus screen in both
 #   make lint        swift-format lint
 #   make run         build, bundle, sign and open the app (macOS)
-#   make smoke       bundle, then run the app's headless --smoke-test (macOS)
+#   make smoke       bundle, run the app's headless --smoke-test, save build/smoke-frame.png (macOS)
 #   make bundle      build "Death Race for Code.app" into build/ (macOS)
 #   make install-swift-linux   install the swift.org toolchain on Ubuntu
 
@@ -61,7 +61,7 @@ run: bundle
 
 smoke:
 	CONFIG=debug scripts/bundle.sh
-	"$(APP)/Contents/MacOS/DeathRace" --smoke-test
+	"$(APP)/Contents/MacOS/DeathRace" --smoke-test --write-frame build/smoke-frame.png
 
 clean:
 	rm -rf build $(PKG)/.build $(FUZZ)/.build $(DIFF)/.build

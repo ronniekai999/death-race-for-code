@@ -48,7 +48,7 @@ UI half needs macOS.
 | `SurfaceCore` | macOS, Linux | what the terminal view does apart from AppKit and Metal: `SurfaceSession` (a `Session`, or `ReplaySession` in process), `SurfaceModel` (the mirror and what changed), `ColorResolver`, `FrameBuilder` (GPU instances, rebuilt per changed row), `SpriteRasterizer` (box drawing), `ShelfAtlas`, `CellMetrics`/`GridLayout`/`CellGeometry`, `Selection`/`WordRules`, `KeyRouting`/`MacKeyCode`, `ScrollAccumulator`, `FramePacer`, `SecureInput`, `PreeditLayout`, `ShellQuoting`, `WorkingDirectoryURL` |
 | `vthost` | macOS, Linux | headless host CLI: `run`, `replay`, `dump`, `bench`, `smoke`; the terminal esctest and vttest drive |
 | `LegendsUI` | macOS | design system: tokens, `Wordmark999`, `NeonBorder`, `Starfield`, `Tagline` |
-| `RenderKit` | macOS | `FontSet` (SF Mono or a named family, with real or slanted italics); the Metal renderer next |
+| `RenderKit` | macOS | `FontSet` (SF Mono or a named family, real or slanted italics), `GlyphRasterizer` (CoreText, language-aware fallback, emoji fit to their cells), `Shaders` (compiled at launch), `SurfaceRenderer` (three frames in flight, atlas uploads), `OffscreenRenderer` (render and read back, for the smoke test) |
 | `TerminalUI` | macOS | `TerminalSurfaceView`: lays out the grid; drawing and input next |
 | `DeathRaceApp` | macOS | the AppKit app: a window controller per tab (native tabs), menus, settings, About |
 | `DeathRace` | macOS | executable; `--smoke-test` runs the headless end-to-end check |

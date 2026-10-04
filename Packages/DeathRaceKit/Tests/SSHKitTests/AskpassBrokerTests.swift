@@ -270,18 +270,31 @@ struct AskpassBrokerTests {
 
 /// `deathrace-askpass` as `swift build` left it, next to the test bundle.
 enum BuiltHelper {
-    static let path: String? = {
+    static let path: String? = candidates.first { access($0, X_OK) == 0 }
+
+    /// Where it may be, most likely first.
+    static var candidates: [String] {
+        var folders: [String] = []
         #if os(macOS)
-            let folder = Bundle.allBundles.first { $0.bundlePath.hasSuffix(".xctest") }?.bundleURL
-                .deletingLastPathComponent().path
+            // The folder holding the test bundle, found from a class inside it: swift-testing
+            // doesn't load the bundle in a way that puts it in `Bundle.allBundles`.
+            folders.append(Bundle(for: TestBundleMarker.self).bundleURL.deletingLastPathComponent().path)
         #else
-            let folder: String? = Bundle.main.bundleURL.path
+            folders.append(Bundle.main.bundleURL.path)
         #endif
-        guard let folder else { return nil }
-        let path = folder + "/deathrace-askpass"
-        return access(path, X_OK) == 0 ? path : nil
-    }()
+        // swift build's own folder, beside this package.
+        let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        folders.append(package.appendingPathComponent(".build/debug").path)
+        return folders.map { $0 + "/deathrace-askpass" }
+    }
+
+    static var missing: Comment { "deathrace-askpass wasn't built; looked at \(candidates)" }
 }
+
+#if os(macOS)
+    private final class TestBundleMarker: NSObject {}
+#endif
 
 /// A new private folder with a short path: socket paths must fit in 104 bytes on macOS.
 func shortTemporaryFolder() throws -> String {
@@ -302,7 +315,7 @@ struct AskpassHelperTests {
     }
 
     func helper(_ prompt: String, environment: [String: String]) async throws -> ChildResult {
-        let helper = try #require(BuiltHelper.path, "deathrace-askpass wasn't built next to the tests")
+        let helper = try #require(BuiltHelper.path, BuiltHelper.missing)
         return try await SystemProcessRunner().run(
             Command([helper, prompt], environment: environment, timeoutMilliseconds: 10_000))
     }

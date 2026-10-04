@@ -69,7 +69,7 @@ private final class Rig: Sendable {
         settings: [String] = [], saved: [SecretRef: String] = [:], touchID: Bool = true,
         answers: [PromptAnswer] = []
     ) throws {
-        helper = try #require(BuiltHelper.path, "deathrace-askpass wasn't built next to the tests")
+        helper = try #require(BuiltHelper.path, BuiltHelper.missing)
         folder = try shortTemporaryFolder()
         paths = WRLDPaths(root: folder + "/dr")
         let user = folder + "/user_config"
@@ -380,9 +380,11 @@ struct SSHDTests {
         await #expect(throws: TunnelController.Failure.portInUse(echo.port)) {
             try await tunnels.open(taken, socket: master.controlPath)
         }
-        // In use on the server.
+        // In use on the server. Bound to IPv4 loopback only: on "localhost" sshd would listen
+        // on ::1 as well, and one address family taking it counts as success.
         let refused = TunnelSpec(
-            kind: .remote, listenPort: echo.port, target: .init(host: "127.0.0.1", port: echo.port))
+            kind: .remote, bindAddress: "127.0.0.1", listenPort: echo.port,
+            target: .init(host: "127.0.0.1", port: echo.port))
         do {
             try await tunnels.open(refused, socket: master.controlPath)
             Issue.record("The server shouldn't have let port \(echo.port) be taken twice")

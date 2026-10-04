@@ -657,6 +657,29 @@ public final class TerminalSurfaceView: NSView {
         return try renderer.render(frame, cell: cell, layout: layout, glyphs: glyphs, dim: dimming?.packed ?? 0)
     }
 
+    /// Draws the cursor, a layer of its own over the frame, as it is now into `context`, whose
+    /// coordinates are the window's: a picture of the pane is `snapshot(using:)`, then this.
+    public func drawCursor(in context: CGContext) {
+        guard cursorLayer.superlayer != nil, !cursorLayer.isHidden else { return }
+        let rect = convert(convertFromLayer(cursorLayer.frame), to: nil)
+        context.saveGState()
+        defer { context.restoreGState() }
+        if let contents = cursorLayer.contents, CFGetTypeID(contents as CFTypeRef) == CGImage.typeID {
+            // A block, with the character under it.
+            context.draw(contents as! CGImage, in: rect)
+        } else if let color = cursorLayer.backgroundColor {
+            context.setFillColor(color)
+            context.fill(rect)
+        }
+        if cursorLayer.borderWidth > 0, let color = cursorLayer.borderColor {
+            // Hollow, while the view is not focused.
+            let width = cursorLayer.borderWidth
+            context.setStrokeColor(color)
+            context.setLineWidth(width)
+            context.stroke(rect.insetBy(dx: width / 2, dy: width / 2))
+        }
+    }
+
     // MARK: - Frame rate
 
     /// A key press, a scroll or a selection drag: the display's full rate for a second.

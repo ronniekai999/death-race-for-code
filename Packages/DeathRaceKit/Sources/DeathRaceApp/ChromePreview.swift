@@ -49,10 +49,10 @@
     /// as PNGs for review without building the app.
     ///
     /// No screen recording is needed. The layer tree draws the chrome; each pane's Metal layer
-    /// is not in it, so the pane's own frame is drawn offscreen and put where the layer is. The
-    /// window server's part is missing: the traffic lights and the glow's blur. SwiftUI's
-    /// windows (Settings, Hear Me Calling's rows) are left out: drawn this way their text
-    /// comes out flipped in places, which would mislead more than it shows.
+    /// is not in it, so the pane's own frame is drawn offscreen and put where the layer is, its
+    /// cursor over it. The window server's part is missing: the traffic lights and the glow's
+    /// blur. SwiftUI's windows (Settings, Hear Me Calling's rows) are left out: drawn this way
+    /// their text comes out flipped in places, which would mislead more than it shows.
     @MainActor
     public enum ChromePreview {
         static let size = NSSize(width: 1180, height: 720)
@@ -91,6 +91,13 @@
                 isDirectory: true)
             do {
                 _ = NSApplication.shared
+                // Active, as the app makes itself at launch: only an active app's key window
+                // has a focused pane, with a solid cursor.
+                NSApp.setActivationPolicy(.regular)
+                NSApp.finishLaunching()
+                NSApp.activate()
+                let active = (try? wait("the app to be active", within: 3, until: { NSApp.isActive })) != nil
+                if !active { print("the app is not active here: the panes show as in a window in the background") }
                 FontRegistry.registerBundledFonts()
                 NSWindow.allowsAutomaticWindowTabbing = false
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -175,6 +182,8 @@
                     $0.surface.model?.mirror.generation != nil && $0.programName != nil
                 }
             }
+            // As the app does when it becomes active, should that have come after the window.
+            for pane in controller.panes.values { pane.surface.focusChanged() }
             settle()
             return try picture(of: controller, renderer: renderer)
         }
@@ -216,6 +225,7 @@
                         let image = try surface.snapshot(using: renderer)?.cgImage()
                     else { continue }
                     context.draw(image, in: surface.convert(surface.bounds, to: nil))
+                    surface.drawCursor(in: context)
                 }
             }
             guard let image = context.makeImage() else { throw Failure(description: "no picture") }
@@ -237,9 +247,9 @@
         // MARK: - Waiting
 
         /// Runs the main run loop, where the windows' tasks and display links do their work,
-        /// until `done` or five seconds.
-        private static func wait(_ what: String, until done: () -> Bool) throws {
-            let deadline = Date().addingTimeInterval(5)
+        /// until `done` or `seconds`.
+        private static func wait(_ what: String, within seconds: TimeInterval = 5, until done: () -> Bool) throws {
+            let deadline = Date().addingTimeInterval(seconds)
             while !done() {
                 guard Date() < deadline else { throw Failure(description: "timed out waiting for \(what)") }
                 RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))

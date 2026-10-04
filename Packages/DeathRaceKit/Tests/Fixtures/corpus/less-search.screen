@@ -1,0 +1,129 @@
+==== before keys 1, after 1177 bytes ====
+line 1 of a long file, with a needle on line 1
+line 2 of a long file, with a needle on line 2
+line 3 of a long file, with a needle on line 3
+line 4 of a long file, with a needle on line 4
+line 5 of a long file, with a needle on line 5
+line 6 of a long file, with a needle on line 6
+line 7 of a long file, with a needle on line 7
+line 8 of a long file, with a needle on line 8
+line 9 of a long file, with a needle on line 9
+line 10 of a long file, with a needle on line 10
+line 11 of a long file, with a needle on line 11
+line 12 of a long file, with a needle on line 12
+line 13 of a long file, with a needle on line 13
+line 14 of a long file, with a needle on line 14
+line 15 of a long file, with a needle on line 15
+line 16 of a long file, with a needle on line 16
+line 17 of a long file, with a needle on line 17
+line 18 of a long file, with a needle on line 18
+line 19 of a long file, with a needle on line 19
+line 20 of a long file, with a needle on line 20
+line 21 of a long file, with a needle on line 21
+line 22 of a long file, with a needle on line 22
+line 23 of a long file, with a needle on line 23
+long.txt
+---- cursor 24;9 ----
+---- styles ----
+24: 1-8 7
+==== before keys 2, after 4019 bytes ====
+line 1 of a long file, with a needle on line 1
+line 2 of a long file, with a needle on line 2
+line 3 of a long file, with a needle on line 3
+line 4 of a long file, with a needle on line 4
+line 5 of a long file, with a needle on line 5
+line 6 of a long file, with a needle on line 6
+line 7 of a long file, with a needle on line 7
+line 8 of a long file, with a needle on line 8
+line 9 of a long file, with a needle on line 9
+line 10 of a long file, with a needle on line 10
+line 11 of a long file, with a needle on line 11
+line 12 of a long file, with a needle on line 12
+line 13 of a long file, with a needle on line 13
+line 14 of a long file, with a needle on line 14
+line 15 of a long file, with a needle on line 15
+line 16 of a long file, with a needle on line 16
+line 17 of a long file, with a needle on line 17
+line 18 of a long file, with a needle on line 18
+line 19 of a long file, with a needle on line 19
+line 20 of a long file, with a needle on line 20
+line 21 of a long file, with a needle on line 21
+line 22 of a long file, with a needle on line 22
+line 23 of a long file, with a needle on line 23
+:
+---- cursor 24;2 ----
+---- styles ----
+1: 31-36 7
+2: 31-36 7
+3: 31-36 7
+4: 31-36 7
+5: 31-36 7
+6: 31-36 7
+7: 31-36 7
+8: 31-36 7
+9: 31-36 7
+10: 32-37 7
+11: 32-37 7
+12: 32-37 7
+13: 32-37 7
+14: 32-37 7
+15: 32-37 7
+16: 32-37 7
+17: 32-37 7
+18: 32-37 7
+19: 32-37 7
+20: 32-37 7
+21: 32-37 7
+22: 32-37 7
+23: 32-37 7
+==== at the end, after 5413 bytes ====
+line 38 of a long file, with a needle on line 38
+line 39 of a long file, with a needle on line 39
+line 40 of a long file, with a needle on line 40
+line 41 of a long file, with a needle on line 41
+line 42 of a long file, with a needle on line 42
+line 43 of a long file, with a needle on line 43
+line 44 of a long file, with a needle on line 44
+line 45 of a long file, with a needle on line 45
+line 46 of a long file, with a needle on line 46
+line 47 of a long file, with a needle on line 47
+line 48 of a long file, with a needle on line 48
+line 49 of a long file, with a needle on line 49
+line 50 of a long file, with a needle on line 50
+line 51 of a long file, with a needle on line 51
+line 52 of a long file, with a needle on line 52
+line 53 of a long file, with a needle on line 53
+line 54 of a long file, with a needle on line 54
+line 55 of a long file, with a needle on line 55
+line 56 of a long file, with a needle on line 56
+line 57 of a long file, with a needle on line 57
+line 58 of a long file, with a needle on line 58
+line 59 of a long file, with a needle on line 59
+line 60 of a long file, with a needle on line 60
+(END)
+---- cursor 24;6 ----
+---- styles ----
+1: 32-37 7
+2: 32-37 7
+3: 32-37 7
+4: 32-37 7
+5: 32-37 7
+6: 32-37 7
+7: 32-37 7
+8: 32-37 7
+9: 32-37 7
+10: 32-37 7
+11: 32-37 7
+12: 32-37 7
+13: 32-37 7
+14: 32-37 7
+15: 32-37 7
+16: 32-37 7
+17: 32-37 7
+18: 32-37 7
+19: 32-37 7
+20: 32-37 7
+21: 32-37 7
+22: 32-37 7
+23: 32-37 7
+24: 1-5 7

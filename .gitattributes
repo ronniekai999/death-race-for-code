@@ -1,0 +1,2 @@
+# Recorded program output: exact bytes, never line-ending conversion or text diffs.
+Packages/DeathRaceKit/Tests/Fixtures/corpus/*.bin binary

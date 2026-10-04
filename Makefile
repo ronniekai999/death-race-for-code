@@ -1,0 +1,70 @@
+# Death Race for Code
+#
+#   make test        run the package tests (portable targets on Linux; everything on macOS)
+#   make esctest     run xterm's conformance suite against the engine (needs python3)
+#   make fuzz        fuzz the engine with libFuzzer for FUZZ_SECONDS (swift.org toolchain)
+#   make bench       measure engine throughput (release build)
+#   make vtdiff      VTCore next to SwiftTerm: throughput, and every corpus screen in both
+#   make lint        swift-format lint
+#   make run         build, bundle, sign and open the app (macOS)
+#   make smoke       bundle, then run the app's headless --smoke-test (macOS)
+#   make bundle      build "Death Race for Code.app" into build/ (macOS)
+#   make install-swift-linux   install the swift.org toolchain on Ubuntu
+
+PKG := Packages/DeathRaceKit
+APP := build/Death Race for Code.app
+
+.PHONY: test esctest fuzz bench vtdiff lint format run smoke bundle clean install-swift-linux
+
+FUZZ := Tools/VTFuzz
+DIFF := Tools/VTDiff
+FUZZ_SECONDS ?= 60
+
+test:
+	swift test --package-path $(PKG)
+
+esctest:
+	scripts/esctest.sh
+
+# Xcode's toolchain has no libFuzzer runtime; use the swift.org one (Linux, or macOS with it
+# installed). New inputs collect in $(FUZZ)/.build/corpus; a crash leaves crash-* there too.
+fuzz:
+	swift build --package-path $(FUZZ) -c release -Xswiftc -sanitize=fuzzer,address
+	python3 $(FUZZ)/make-seeds.py $(FUZZ)/.build/corpus
+	mkdir -p $(FUZZ)/.build/artifacts
+	$(FUZZ)/.build/release/VTFuzz -max_total_time=$(FUZZ_SECONDS) -timeout=10 -rss_limit_mb=4096 \
+		-print_final_stats=1 -artifact_prefix=$(FUZZ)/.build/artifacts/ $(FUZZ)/.build/corpus
+
+bench:
+	swift run --package-path $(PKG) -c release vthost bench
+
+# SwiftTerm is a referee, fetched at a pinned commit into a package of its own.
+vtdiff:
+	swift build --package-path $(DIFF) -c release
+	$(DIFF)/.build/release/vtdiff bench --seconds 2
+	$(DIFF)/.build/release/vtdiff corpus --verbose $(PKG)/Tests/Fixtures/corpus
+
+SWIFT_SOURCES := $(PKG)/Sources $(PKG)/Tests $(PKG)/Tools $(PKG)/Package.swift $(FUZZ)/Sources $(FUZZ)/Package.swift \
+	$(DIFF)/Sources $(DIFF)/Package.swift
+
+lint:
+	swift format lint --recursive --strict $(SWIFT_SOURCES)
+
+format:
+	swift format --in-place --recursive $(SWIFT_SOURCES)
+
+bundle:
+	scripts/bundle.sh
+
+run: bundle
+	open "$(APP)"
+
+smoke:
+	CONFIG=debug scripts/bundle.sh
+	"$(APP)/Contents/MacOS/DeathRace" --smoke-test
+
+clean:
+	rm -rf build $(PKG)/.build $(FUZZ)/.build $(DIFF)/.build
+
+install-swift-linux:
+	scripts/install-swift-linux.sh

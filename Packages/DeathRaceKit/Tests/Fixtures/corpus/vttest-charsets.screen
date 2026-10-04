@@ -1,0 +1,165 @@
+==== before keys 1, after 765 bytes ====
+
+
+         VT100 test program, version 2.7 (20230201)
+         Screen size 24x80 (80 max) Line speed 38400bd
+         Choose test type:
+
+          0. Exit
+          1. Test of cursor movements
+          2. Test of screen features
+          3. Test of character sets
+          4. Test of double-sized characters
+          5. Test of keyboard
+          6. Test of terminal reports
+          7. Test of VT52 mode
+          8. Test of VT102 features (Insert/Delete Char/Line)
+          9. Test of known bugs
+          10. Test of reset and self-test
+          11. Test non-VT100 (e.g., VT220, XTERM) terminals
+          12. Modify test-parameters
+
+          Enter choice number (0 - 12):
+
+
+
+---- cursor 21;41 ----
+==== before keys 2, after 1538 bytes ====
+
+
+         Menu 3: Character-Set Tests
+
+         Choose test type:
+
+          0. Exit
+          1. Reset (G0 ASCII, G1 Latin-1, no NRC mode)
+          2. Enable highlighting of non-ISO-8859-1 mapping
+          3. Enable National Replacement Character (NRC) mode
+          4. Specify G0 (now US ASCII)
+          5. Specify G1 (now ISO Latin-1)
+          6. Specify G2 (now ISO Latin-1)
+          7. Specify G3 (now ISO Latin-1)
+          8. Test VT100 Character Sets
+          9. Test Shift In/Shift Out (SI/SO)
+          10. Test VT220 Locking Shifts
+          11. Test VT220 Single Shifts
+          12* Test Soft Character Sets
+          13. Test Keyboard Layout with G0 Selection
+
+          Enter choice number (0 - 13):
+
+
+---- cursor 22;41 ----
+==== before keys 3, after 3299 bytes ====
+         Selected as G0 (with SI)              Selected as G1 (with SO)
+
+Character set B (US ASCII)
+          !"#$%&'()*+,-./0123456789:;<=>?       !"#$%&'()*+,-./0123456789:;<=>?
+         @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_      @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
+         `abcdefghijklmnopqrstuvwxyz{|}~       `abcdefghijklmnopqrstuvwxyz{|}~
+Character set A (British)
+          !"£$%&'()*+,-./0123456789:;<=>?       !"£$%&'()*+,-./0123456789:;<=>?
+         @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_      @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
+         `abcdefghijklmnopqrstuvwxyz{|}~       `abcdefghijklmnopqrstuvwxyz{|}~
+Character set 0 (DEC Special graphics and line drawing)
+          !"#$%&'()*+,-./0123456789:;<=>?       !"#$%&'()*+,-./0123456789:;<=>?
+         @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^       @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^ 
+         ◆▒␉␌␍␊°±␤␋┘┐┌└┼⎺⎻─⎼⎽├┤┴┬│≤≥π≠£·       ◆▒␉␌␍␊°±␤␋┘┐┌└┼⎺⎻─⎼⎽├┤┴┬│≤≥π≠£·
+Character set 1 (DEC Alternate character ROM standard characters)
+          !"#$%&'()*+,-./0123456789:;<=>?       !"#$%&'()*+,-./0123456789:;<=>?
+         @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_      @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
+         `abcdefghijklmnopqrstuvwxyz{|}~       `abcdefghijklmnopqrstuvwxyz{|}~
+Character set 2 (DEC Alternate character ROM special graphics)
+          !"#$%&'()*+,-./0123456789:;<=>?       !"#$%&'()*+,-./0123456789:;<=>?
+         @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_      @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
+         `abcdefghijklmnopqrstuvwxyz{|}~       `abcdefghijklmnopqrstuvwxyz{|}~
+
+These are the installed character sets. Push <RETURN>
+---- cursor 24;54 ----
+---- styles ----
+3: 1-26 1
+7: 1-25 1
+11: 1-55 1
+15: 1-65 1
+19: 1-62 1
+==== before keys 4, after 4049 bytes ====
+
+
+         Menu 3: Character-Set Tests
+
+         Choose test type:
+
+          0. Exit
+          1. Reset (G0 ASCII, G1 Latin-1, no NRC mode)
+          2. Enable highlighting of non-ISO-8859-1 mapping
+          3. Enable National Replacement Character (NRC) mode
+          4. Specify G0 (now US ASCII)
+          5. Specify G1 (now ISO Latin-1)
+          6. Specify G2 (now ISO Latin-1)
+          7. Specify G3 (now ISO Latin-1)
+          8. Test VT100 Character Sets
+          9. Test Shift In/Shift Out (SI/SO)
+          10. Test VT220 Locking Shifts
+          11. Test VT220 Single Shifts
+          12* Test Soft Character Sets
+          13. Test Keyboard Layout with G0 Selection
+
+          Enter choice number (0 - 13):
+
+
+---- cursor 22;41 ----
+==== before keys 5, after 4536 bytes ====
+         These are the G0 and G1 character sets.
+
+Character set B (US ASCII)                     Selected as G0 (with SI)
+          !"#$%&'()*+,-./0123456789:;<=>?
+         @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
+         `abcdefghijklmnopqrstuvwxyz{|}~
+Character set A (ISO Latin-1)                  Selected as G1 (with SO)
+          !"£$%&'()*+,-./0123456789:;<=>?
+         @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
+         `abcdefghijklmnopqrstuvwxyz{|}~
+
+
+
+
+
+
+
+
+
+
+
+
+
+Push <RETURN>
+---- cursor 24;14 ----
+---- styles ----
+3: 1-26 1
+7: 1-29 1
+==== at the end, after 5286 bytes ====
+
+
+         Menu 3: Character-Set Tests
+
+         Choose test type:
+
+          0. Exit
+          1. Reset (G0 ASCII, G1 Latin-1, no NRC mode)
+          2. Enable highlighting of non-ISO-8859-1 mapping
+          3. Enable National Replacement Character (NRC) mode
+          4. Specify G0 (now US ASCII)
+          5. Specify G1 (now ISO Latin-1)
+          6. Specify G2 (now ISO Latin-1)
+          7. Specify G3 (now ISO Latin-1)
+          8. Test VT100 Character Sets
+          9. Test Shift In/Shift Out (SI/SO)
+          10. Test VT220 Locking Shifts
+          11. Test VT220 Single Shifts
+          12* Test Soft Character Sets
+          13. Test Keyboard Layout with G0 Selection
+
+          Enter choice number (0 - 13):
+
+
+---- cursor 22;41 ----

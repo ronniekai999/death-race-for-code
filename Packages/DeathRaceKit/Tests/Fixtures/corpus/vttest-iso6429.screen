@@ -1,0 +1,546 @@
+==== before keys 1, after 765 bytes ====
+
+
+         VT100 test program, version 2.7 (20230201)
+         Screen size 24x80 (80 max) Line speed 38400bd
+         Choose test type:
+
+          0. Exit
+          1. Test of cursor movements
+          2. Test of screen features
+          3. Test of character sets
+          4. Test of double-sized characters
+          5. Test of keyboard
+          6. Test of terminal reports
+          7. Test of VT52 mode
+          8. Test of VT102 features (Insert/Delete Char/Line)
+          9. Test of known bugs
+          10. Test of reset and self-test
+          11. Test non-VT100 (e.g., VT220, XTERM) terminals
+          12. Modify test-parameters
+
+          Enter choice number (0 - 12):
+
+
+
+---- cursor 21;41 ----
+==== before keys 2, after 1220 bytes ====
+
+
+         Menu 11: Non-VT100 Tests
+
+         Choose test type:
+
+          0. Exit
+          1. Test of VT220 features
+          2. Test of VT320 features
+          3. Test of VT420 features
+          4. Test of VT520 features
+          5. Test ISO-6429 cursor-movement
+          6. Test ISO-6429 colors
+          7. Test other ISO-6429 features
+          8. Test XTERM special features
+
+          Enter choice number (0 - 8):
+
+
+
+
+
+
+
+---- cursor 17;40 ----
+==== before keys 3, after 1805 bytes ====
+
+
+         Menu 11.5: ISO-6429 (ECMA-48) Cursor-Movement
+
+         Choose test type:
+
+          0. Exit
+          1. Test Character-Position-Absolute (HPA)
+          2. Test Cursor-Back-Tab (CBT)
+          3. Test Cursor-Character-Absolute (CHA)
+          4. Test Cursor-Horizontal-Index (CHT)
+          5. Test Horizontal-Position-Relative (HPR)
+          6. Test Line-Position-Absolute (VPA)
+          7. Test Next-Line (CNL)
+          8. Test Previous-Line (CPL)
+          9. Test Vertical-Position-Relative (VPR)
+
+          Enter choice number (0 - 9):
+
+
+
+
+
+
+---- cursor 18;40 ----
+==== before keys 4, after 2806 bytes ====
+
+
+
+
+
+                   ****************************************
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   ****************************************
+
+----+----1----+----2----+----3----+----4----+----5----+----6----+----7----+----8
+Test Character-Position-Absolute (HPA)
+There should be a box-outline made of *'s in the middle of the screen.
+Push <RETURN>
+
+---- cursor 23;14 ----
+==== before keys 5, after 5861 bytes ====
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+1       2       3       4       5       6       7       8       9       10
+----+----1----+----2----+----3----+----4----+----5----+----6----+----7----+----8
+Test Cursor-Back-Tab (CBT)
+The tab-stops should be numbered consecutively starting at 1 in screen.
+Push <RETURN>
+---- cursor 24;14 ----
+==== before keys 6, after 6855 bytes ====
+
+
+
+
+
+                   ****************************************
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   ****************************************
+
+----+----1----+----2----+----3----+----4----+----5----+----6----+----7----+----8
+Test Cursor-Character-Absolute (CHA)
+There should be a box-outline made of *'s in the middle of the screen.
+Push <RETURN>
+
+---- cursor 23;14 ----
+==== before keys 7, after 7537 bytes ====
+CHT with param == 1:
+        *       *       *       *       *       *       *       *       *      *
+
+CHT with param != 1:
+        +       +       +       +       +       +       +       +       +      +
+
+Normal tabs:
+        *       *       *       *       *       *       *       *       *      *
+
+
+
+
+
+
+
+
+
+
+
+----+----1----+----2----+----3----+----4----+----5----+----6----+----7----+----8
+Test Cursor-Horizontal-Index (CHT)
+The lines with *'s above should look the same (they wrap once)
+Push <RETURN>
+
+---- cursor 23;14 ----
+==== before keys 8, after 9070 bytes ====
+
+
+
+
+
+                   ****************************************
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   ****************************************
+
+----+----1----+----2----+----3----+----4----+----5----+----6----+----7----+----8
+Test Horizontal-Position-Relative (HPR)
+There should be a box-outline made of *'s in the middle of the screen.
+Push <RETURN>
+
+---- cursor 23;14 ----
+==== before keys 9, after 9652 bytes ====
+
+
+
+
+
+                  *****************************************
+                  *                                       *
+                  *                                       *
+                  *                                       *
+                  *                                       *
+                  *                                       *
+                  *                                       *
+                  *                                       *
+                  *                                       *
+                  *                                       *
+                  *                                       *
+                  *                                       *
+                  *****************************************
+
+----+----1----+----2----+----3----+----4----+----5----+----6----+----7----+----8
+Test Line-Position-Absolute (VPA)
+There should be a box-outline made of *'s in the middle of the screen.
+Push <RETURN>
+
+---- cursor 23;14 ----
+==== before keys 10, after 10076 bytes ====
+1.
+2.
+3.
+4.
+5.
+6.
+7.
+8.
+9.
+10.
+11.
+12.
+13.
+14.
+15.
+16.
+17.
+18.
+19.
+
+Test Next-Line (CNL)
+The lines above this should be numbered in sequence, from 1.
+Push <RETURN>
+
+---- cursor 23;14 ----
+==== before keys 11, after 10367 bytes ====
+1.
+2.
+3.
+4.
+5.
+6.
+7.
+8.
+9.
+10.
+11.
+12.
+13.
+14.
+15.
+16.
+17.
+18.
+19.
+20.
+Test Previous-Line (CPL)
+The lines above this should be numbered in sequence, from 1.
+Push <RETURN>
+
+---- cursor 23;14 ----
+==== before keys 12, after 11098 bytes ====
+
+
+
+
+
+                   ****************************************
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   *                                      *
+                   ****************************************
+
+----+----1----+----2----+----3----+----4----+----5----+----6----+----7----+----8
+Test Vertical-Position-Relative (VPR)
+There should be a box-outline made of *'s in the middle of the screen.
+Push <RETURN>
+
+---- cursor 23;14 ----
+==== before keys 13, after 11678 bytes ====
+
+
+         Menu 11.5: ISO-6429 (ECMA-48) Cursor-Movement
+
+         Choose test type:
+
+          0. Exit
+          1. Test Character-Position-Absolute (HPA)
+          2. Test Cursor-Back-Tab (CBT)
+          3. Test Cursor-Character-Absolute (CHA)
+          4. Test Cursor-Horizontal-Index (CHT)
+          5. Test Horizontal-Position-Relative (HPR)
+          6. Test Line-Position-Absolute (VPA)
+          7. Test Next-Line (CNL)
+          8. Test Previous-Line (CPL)
+          9. Test Vertical-Position-Relative (VPR)
+
+          Enter choice number (0 - 9):
+
+
+
+
+
+
+---- cursor 18;40 ----
+==== before keys 14, after 12132 bytes ====
+
+
+         Menu 11: Non-VT100 Tests
+
+         Choose test type:
+
+          0. Exit
+          1. Test of VT220 features
+          2. Test of VT320 features
+          3. Test of VT420 features
+          4. Test of VT520 features
+          5. Test ISO-6429 cursor-movement
+          6. Test ISO-6429 colors
+          7. Test other ISO-6429 features
+          8. Test XTERM special features
+
+          Enter choice number (0 - 8):
+
+
+
+
+
+
+
+---- cursor 17;40 ----
+==== before keys 15, after 12509 bytes ====
+
+
+         Menu 11.7: Miscellaneous ISO-6429 (ECMA-48) Tests
+
+         Choose test type:
+
+          0. Exit
+          1. Protected-Area Tests
+          2. Test Repeat (REP)
+          3. Test Scroll-Down (SD)
+          4. Test Scroll-Left (SL)
+          5. Test Scroll-Right (SR)
+          6. Test Scroll-Up (SU)
+
+          Enter choice number (0 - 6):
+
+
+
+
+
+
+
+
+
+---- cursor 15;40 ----
+==== before keys 16, after 13302 bytes ====
+ ++
+  ++
+   ++
+    ++
+     ++
+      ++
+       ++
+        ++
+         ++
+          ++
+           ++
+            ++
+             ++
+              ++
+               ++
+                ++
+                 ++
+******************++************************************************************
+----+----1----+----2----+----3----+----4----+----5----+----6----+----7----+----8
+Test Repeat (REP)
+There should be a diagonal of 2 +'s down to the row of *'s above this message.
+The ++ in the row of *'s is the target.  If there are 11 +'s, ECMA-48 does
+not prohibit this, but treats it as undefined behavior (still nonstandard).
+Push <RETURN>
+---- cursor 24;14 ----
+==== before keys 17, after 13674 bytes ====
+
+
+         Menu 11.7: Miscellaneous ISO-6429 (ECMA-48) Tests
+
+         Choose test type:
+
+          0. Exit
+          1. Protected-Area Tests
+          2. Test Repeat (REP)
+          3. Test Scroll-Down (SD)
+          4. Test Scroll-Left (SL)
+          5. Test Scroll-Right (SR)
+          6. Test Scroll-Up (SU)
+
+          Enter choice number (0 - 6):
+
+
+
+
+
+
+
+
+
+---- cursor 15;40 ----
+==== before keys 18, after 14127 bytes ====
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+********************
+----+----1----+----2----+----3----+----4----+----5----+----6----+----7----+----8
+Test Scroll-Down (SD)
+There should be a horizontal row of *'s above, just above the message.
+Push <RETURN>
+---- cursor 24;14 ----
+==== before keys 19, after 14499 bytes ====
+
+
+         Menu 11.7: Miscellaneous ISO-6429 (ECMA-48) Tests
+
+         Choose test type:
+
+          0. Exit
+          1. Protected-Area Tests
+          2. Test Repeat (REP)
+          3. Test Scroll-Down (SD)
+          4. Test Scroll-Left (SL)
+          5. Test Scroll-Right (SR)
+          6. Test Scroll-Up (SU)
+
+          Enter choice number (0 - 6):
+
+
+
+
+
+
+
+
+
+---- cursor 15;40 ----
+==== before keys 20, after 14943 bytes ====
+********************
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+----+----1----+----2----+----3----+----4----+----5----+----6----+----7----+----8
+Test Scroll-Up (SU)
+There should be a horizontal row of *'s above, on the top row.
+Push <RETURN>
+---- cursor 24;14 ----
+==== at the end, after 15315 bytes ====
+
+
+         Menu 11.7: Miscellaneous ISO-6429 (ECMA-48) Tests
+
+         Choose test type:
+
+          0. Exit
+          1. Protected-Area Tests
+          2. Test Repeat (REP)
+          3. Test Scroll-Down (SD)
+          4. Test Scroll-Left (SL)
+          5. Test Scroll-Right (SR)
+          6. Test Scroll-Up (SU)
+
+          Enter choice number (0 - 6):
+
+
+
+
+
+
+
+
+
+---- cursor 15;40 ----

@@ -1,0 +1,639 @@
+==== before keys 1, after 765 bytes ====
+
+
+         VT100 test program, version 2.7 (20230201)
+         Screen size 24x80 (80 max) Line speed 38400bd
+         Choose test type:
+
+          0. Exit
+          1. Test of cursor movements
+          2. Test of screen features
+          3. Test of character sets
+          4. Test of double-sized characters
+          5. Test of keyboard
+          6. Test of terminal reports
+          7. Test of VT52 mode
+          8. Test of VT102 features (Insert/Delete Char/Line)
+          9. Test of known bugs
+          10. Test of reset and self-test
+          11. Test non-VT100 (e.g., VT220, XTERM) terminals
+          12. Modify test-parameters
+
+          Enter choice number (0 - 12):
+
+
+
+---- cursor 21;41 ----
+==== before keys 2, after 1220 bytes ====
+
+
+         Menu 11: Non-VT100 Tests
+
+         Choose test type:
+
+          0. Exit
+          1. Test of VT220 features
+          2. Test of VT320 features
+          3. Test of VT420 features
+          4. Test of VT520 features
+          5. Test ISO-6429 cursor-movement
+          6. Test ISO-6429 colors
+          7. Test other ISO-6429 features
+          8. Test XTERM special features
+
+          Enter choice number (0 - 8):
+
+
+
+
+
+
+
+---- cursor 17;40 ----
+==== before keys 3, after 1817 bytes ====
+
+
+         Menu 11.6: ISO 6429 colors
+
+         Choose test type:
+
+          0. Exit
+          1. Disable color-switching
+          2. Display color test-pattern
+          3. Test SGR-0 color reset
+          4. Test BCE-style clear line/display (ED, EL)
+          5. Test BCE-style clear line/display (ECH, Indexing)
+          6. Test of VT102-style features with BCE
+          7. Test other ISO-6429 features with BCE
+          8. Test screen features with BCE
+          9. Test screen features with ISO 6429 SGR 22-27 codes
+
+          Enter choice number (0 - 9):
+
+
+
+
+
+
+---- cursor 18;40 ----
+==== before keys 4, after 7877 bytes ====
+There are 64 color combinations
+8x8 matrix of foreground/background colors, bright *off*
+        black   red     green   yellow  blue    magenta cyan    white
+black   Hello   Hello   Hello   Hello   Hello   Hello   Hello   Hello
+red     Hello   Hello   Hello   Hello   Hello   Hello   Hello   Hello
+green   Hello   Hello   Hello   Hello   Hello   Hello   Hello   Hello
+yellow  Hello   Hello   Hello   Hello   Hello   Hello   Hello   Hello
+blue    Hello   Hello   Hello   Hello   Hello   Hello   Hello   Hello
+magenta Hello   Hello   Hello   Hello   Hello   Hello   Hello   Hello
+cyan    Hello   Hello   Hello   Hello   Hello   Hello   Hello   Hello
+white   Hello   Hello   Hello   Hello   Hello   Hello   Hello   Hello
+
+8x8 matrix of foreground/background colors, bright *on*
+        black   red     green   yellow  blue    magenta cyan    white
+black   Hello   Hello   Hello   Hello   Hello   Hello   Hello   Hello
+red     Hello   Hello   Hello   Hello   Hello   Hello   Hello   Hello
+green   Hello   Hello   Hello   Hello   Hello   Hello   Hello   Hello
+yellow  Hello   Hello   Hello   Hello   Hello   Hello   Hello   Hello
+blue    Hello   Hello   Hello   Hello   Hello   Hello   Hello   Hello
+magenta Hello   Hello   Hello   Hello   Hello   Hello   Hello   Hello
+cyan    Hello   Hello   Hello   Hello   Hello   Hello   Hello   Hello
+white   Hello   Hello   Hello   Hello   Hello   Hello   Hello   Hello
+Push <RETURN>
+
+---- cursor 23;14 ----
+---- styles ----
+4: 9-13 30;40 · 17-21 31;40 · 25-29 32;40 · 33-37 33;40 · 41-45 34;40 · 49-53 35;40 · 57-61 36;40 · 65-69 37;40
+5: 9-13 30;41 · 17-21 31;41 · 25-29 32;41 · 33-37 33;41 · 41-45 34;41 · 49-53 35;41 · 57-61 36;41 · 65-69 37;41
+6: 9-13 30;42 · 17-21 31;42 · 25-29 32;42 · 33-37 33;42 · 41-45 34;42 · 49-53 35;42 · 57-61 36;42 · 65-69 37;42
+7: 9-13 30;43 · 17-21 31;43 · 25-29 32;43 · 33-37 33;43 · 41-45 34;43 · 49-53 35;43 · 57-61 36;43 · 65-69 37;43
+8: 9-13 30;44 · 17-21 31;44 · 25-29 32;44 · 33-37 33;44 · 41-45 34;44 · 49-53 35;44 · 57-61 36;44 · 65-69 37;44
+9: 9-13 30;45 · 17-21 31;45 · 25-29 32;45 · 33-37 33;45 · 41-45 34;45 · 49-53 35;45 · 57-61 36;45 · 65-69 37;45
+10: 9-13 30;46 · 17-21 31;46 · 25-29 32;46 · 33-37 33;46 · 41-45 34;46 · 49-53 35;46 · 57-61 36;46 · 65-69 37;46
+11: 9-13 30;47 · 17-21 31;47 · 25-29 32;47 · 33-37 33;47 · 41-45 34;47 · 49-53 35;47 · 57-61 36;47 · 65-69 37;47
+13: 53-54 1
+15: 9-13 1;30;40 · 17-21 1;31;40 · 25-29 1;32;40 · 33-37 1;33;40 · 41-45 1;34;40 · 49-53 1;35;40 · 57-61 1;36;40 · 65-69 1;37;40
+16: 9-13 1;30;41 · 17-21 1;31;41 · 25-29 1;32;41 · 33-37 1;33;41 · 41-45 1;34;41 · 49-53 1;35;41 · 57-61 1;36;41 · 65-69 1;37;41
+17: 9-13 1;30;42 · 17-21 1;31;42 · 25-29 1;32;42 · 33-37 1;33;42 · 41-45 1;34;42 · 49-53 1;35;42 · 57-61 1;36;42 · 65-69 1;37;42
+18: 9-13 1;30;43 · 17-21 1;31;43 · 25-29 1;32;43 · 33-37 1;33;43 · 41-45 1;34;43 · 49-53 1;35;43 · 57-61 1;36;43 · 65-69 1;37;43
+19: 9-13 1;30;44 · 17-21 1;31;44 · 25-29 1;32;44 · 33-37 1;33;44 · 41-45 1;34;44 · 49-53 1;35;44 · 57-61 1;36;44 · 65-69 1;37;44
+20: 9-13 1;30;45 · 17-21 1;31;45 · 25-29 1;32;45 · 33-37 1;33;45 · 41-45 1;34;45 · 49-53 1;35;45 · 57-61 1;36;45 · 65-69 1;37;45
+21: 9-13 1;30;46 · 17-21 1;31;46 · 25-29 1;32;46 · 33-37 1;33;46 · 41-45 1;34;46 · 49-53 1;35;46 · 57-61 1;36;46 · 65-69 1;37;46
+22: 9-13 1;30;47 · 17-21 1;31;47 · 25-29 1;32;47 · 33-37 1;33;47 · 41-45 1;34;47 · 49-53 1;35;47 · 57-61 1;36;47 · 65-69 1;37;47
+==== before keys 5, after 8469 bytes ====
+
+
+         Menu 11.6: ISO 6429 colors
+
+         Choose test type:
+
+          0. Exit
+          1. Disable color-switching
+          2. Display color test-pattern
+          3. Test SGR-0 color reset
+          4. Test BCE-style clear line/display (ED, EL)
+          5. Test BCE-style clear line/display (ECH, Indexing)
+          6. Test of VT102-style features with BCE
+          7. Test other ISO-6429 features with BCE
+          8. Test screen features with BCE
+          9. Test screen features with ISO 6429 SGR 22-27 codes
+
+          Enter choice number (0 - 9):
+
+
+
+
+
+
+---- cursor 18;40 ----
+==== before keys 6, after 9148 bytes ====
+Test SGR-0 color reset
+
+ECMA-48 states that SGR 0 "cancels the effect of any preceding occurrence
+of SGR in the data stream regardless of the setting of the graphic rendition
+combination mode (GRCM)".
+
+
+You should see only black:SGR 30 and SGR 40 don't work:up to here
+You should see only white:SGR 37 and SGR 47 don't work:up to here
+You should see text here: SGR 0 reset works (explicit 0)
+................and here: SGR 0 reset works (default param)
+Push <RETURN>
+
+
+
+
+
+
+
+
+
+
+
+
+---- cursor 12;14 ----
+---- styles ----
+8: 27-54 30;40
+9: 27-54 37;47
+==== before keys 7, after 9740 bytes ====
+
+
+         Menu 11.6: ISO 6429 colors
+
+         Choose test type:
+
+          0. Exit
+          1. Disable color-switching
+          2. Display color test-pattern
+          3. Test SGR-0 color reset
+          4. Test BCE-style clear line/display (ED, EL)
+          5. Test BCE-style clear line/display (ECH, Indexing)
+          6. Test of VT102-style features with BCE
+          7. Test other ISO-6429 features with BCE
+          8. Test screen features with BCE
+          9. Test screen features with ISO 6429 SGR 22-27 codes
+
+          Enter choice number (0 - 9):
+
+
+
+
+
+
+---- cursor 18;40 ----
+==== before keys 8, after 12044 bytes ====
+
+
+
+
+
+
+                 *********************************************
+                 * The screen background should be blue,     *
+                 * with a box made of asterisks and this     *
+                 * caption, in orange (non-bold yellow).     *
+                 * There should be no cells with the         *
+                 * default foreground or background.         *
+                 *                                           *
+                 *                                           *
+                 *                                           *
+                 *                                           *
+                 *********************************************
+
+
+
+
+
+Push <RETURN>
+
+---- cursor 23;14 ----
+---- styles ----
+1: 1-80 44
+2: 1-80 44
+3: 1-80 44
+4: 1-80 44
+5: 1-80 44
+6: 1-80 44
+7: 1-17 44 · 18-62 33;44 · 63-80 44
+8: 1-17 44 · 18-62 33;44 · 63-80 44
+9: 1-17 44 · 18-62 33;44 · 63-80 44
+10: 1-17 44 · 18-62 33;44 · 63-80 44
+11: 1-17 44 · 18-62 33;44 · 63-80 44
+12: 1-17 44 · 18-62 33;44 · 63-80 44
+13: 1-17 44 · 18-62 33;44 · 63-80 44
+14: 1-17 44 · 18-62 33;44 · 63-80 44
+15: 1-17 44 · 18-62 33;44 · 63-80 44
+16: 1-17 44 · 18-62 33;44 · 63-80 44
+17: 1-17 44 · 18-62 33;44 · 63-80 44
+18: 1-80 44
+19: 1-80 44
+20: 1-80 44
+21: 1-80 44
+22: 1-80 44
+23: 1-13 33;44 · 14-80 44
+24: 1-80 44
+==== before keys 9, after 12830 bytes ====
+
+
+
+
+
+
+                 *********************************************
+                 * The screen background should be black,    *
+                 * with a box made of asterisks and this     *
+                 * caption, in white (actually gray - it     *
+                 * is not bold).  Only the asterisk box      *
+                 * should be in color.                       *
+                 *                                           *
+                 *                                           *
+                 *                                           *
+                 *                                           *
+                 *********************************************
+
+
+
+
+
+Push <RETURN>
+
+---- cursor 23;14 ----
+---- styles ----
+1: 1-80 40
+2: 1-80 40
+3: 1-80 40
+4: 1-80 40
+5: 1-80 40
+6: 1-80 40
+7: 1-17 40 · 18-62 33;44 · 63-80 40
+8: 1-17 40 · 18 33;44 · 19-61 37;40 · 62 33;44 · 63-80 40
+9: 1-17 40 · 18 33;44 · 19-61 37;40 · 62 33;44 · 63-80 40
+10: 1-17 40 · 18 33;44 · 19-61 37;40 · 62 33;44 · 63-80 40
+11: 1-17 40 · 18 33;44 · 19-61 37;40 · 62 33;44 · 63-80 40
+12: 1-17 40 · 18 33;44 · 19-61 37;40 · 62 33;44 · 63-80 40
+13: 1-17 40 · 18 33;44 · 19-61 37;40 · 62 33;44 · 63-80 40
+14: 1-17 40 · 18 33;44 · 19-61 37;40 · 62 33;44 · 63-80 40
+15: 1-17 40 · 18 33;44 · 19-61 37;40 · 62 33;44 · 63-80 40
+16: 1-17 40 · 18 33;44 · 19-61 37;40 · 62 33;44 · 63-80 40
+17: 1-17 40 · 18-62 33;44 · 63-80 40
+18: 1-80 40
+19: 1-80 40
+20: 1-80 40
+21: 1-80 40
+22: 1-80 40
+23: 1-13 37;40 · 14-80 40
+24: 1-80 40
+==== before keys 10, after 13442 bytes ====
+
+
+         Menu 11.6: ISO 6429 colors
+
+         Choose test type:
+
+          0. Exit
+          1. Disable color-switching
+          2. Display color test-pattern
+          3. Test SGR-0 color reset
+          4. Test BCE-style clear line/display (ED, EL)
+          5. Test BCE-style clear line/display (ECH, Indexing)
+          6. Test of VT102-style features with BCE
+          7. Test other ISO-6429 features with BCE
+          8. Test screen features with BCE
+          9. Test screen features with ISO 6429 SGR 22-27 codes
+
+          Enter choice number (0 - 9):
+
+
+
+
+
+
+---- cursor 18;40 ----
+==== before keys 11, after 15852 bytes ====
+
+
+
+
+
+
+                 *********************************************
+                 * The screen background should be blue,     *
+                 * with a box made of asterisks and this     *
+                 * caption, in orange (non-bold yellow).     *
+                 * There should be no cells with the         *
+                 * default foreground or background.         *
+                 *                                           *
+                 *                                           *
+                 *                                           *
+                 *                                           *
+                 *********************************************
+
+
+
+
+
+Push <RETURN>
+
+---- cursor 23;14 ----
+---- styles ----
+1: 1-80 44
+2: 1-80 44
+3: 1-80 44
+4: 1-80 44
+5: 1-80 44
+6: 1-80 44
+7: 1-17 44 · 18-62 33;44 · 63-80 44
+8: 1-17 44 · 18-62 33;44 · 63-80 44
+9: 1-17 44 · 18-62 33;44 · 63-80 44
+10: 1-17 44 · 18-62 33;44 · 63-80 44
+11: 1-17 44 · 18-62 33;44 · 63-80 44
+12: 1-17 44 · 18-62 33;44 · 63-80 44
+13: 1-17 44 · 18-62 33;44 · 63-80 44
+14: 1-17 44 · 18-62 33;44 · 63-80 44
+15: 1-17 44 · 18-62 33;44 · 63-80 44
+16: 1-17 44 · 18-62 33;44 · 63-80 44
+17: 1-17 44 · 18-62 33;44 · 63-80 44
+18: 1-80 44
+19: 1-80 44
+20: 1-80 44
+21: 1-80 44
+22: 1-80 44
+23: 1-13 33;44 · 14-80 44
+24: 1-80 44
+==== before keys 12, after 16744 bytes ====
+
+
+
+
+
+
+                 *********************************************
+                 * The screen background should be black,    *
+                 * with a box made of asterisks and this     *
+                 * caption, in white (actually gray - it     *
+                 * is not bold).  Only the asterisk box      *
+                 * should be in color.                       *
+                 *                                           *
+                 *                                           *
+                 *                                           *
+                 *                                           *
+                 *********************************************
+
+
+
+
+
+Push <RETURN>
+
+---- cursor 23;14 ----
+---- styles ----
+1: 1-80 40
+2: 1-80 40
+3: 1-80 40
+4: 1-80 40
+5: 1-80 40
+6: 1-80 40
+7: 1-17 40 · 18-62 33;44 · 63-80 40
+8: 1-17 40 · 18 33;44 · 19-61 37;40 · 62 33;44 · 63-80 40
+9: 1-17 40 · 18 33;44 · 19-61 37;40 · 62 33;44 · 63-80 40
+10: 1-17 40 · 18 33;44 · 19-61 37;40 · 62 33;44 · 63-80 40
+11: 1-17 40 · 18 33;44 · 19-61 37;40 · 62 33;44 · 63-80 40
+12: 1-17 40 · 18 33;44 · 19-61 37;40 · 62 33;44 · 63-80 40
+13: 1-17 40 · 18 33;44 · 19-61 37;40 · 62 33;44 · 63-80 40
+14: 1-17 40 · 18 33;44 · 19-61 37;40 · 62 33;44 · 63-80 40
+15: 1-17 40 · 18 33;44 · 19-61 37;40 · 62 33;44 · 63-80 40
+16: 1-17 40 · 18 33;44 · 19-61 37;40 · 62 33;44 · 63-80 40
+17: 1-17 40 · 18-62 33;44 · 63-80 40
+18: 1-80 40
+19: 1-80 40
+20: 1-80 40
+21: 1-80 40
+22: 1-80 40
+23: 1-13 37;40 · 14-80 40
+24: 1-80 40
+==== before keys 13, after 17356 bytes ====
+
+
+         Menu 11.6: ISO 6429 colors
+
+         Choose test type:
+
+          0. Exit
+          1. Disable color-switching
+          2. Display color test-pattern
+          3. Test SGR-0 color reset
+          4. Test BCE-style clear line/display (ED, EL)
+          5. Test BCE-style clear line/display (ECH, Indexing)
+          6. Test of VT102-style features with BCE
+          7. Test other ISO-6429 features with BCE
+          8. Test screen features with BCE
+          9. Test screen features with ISO 6429 SGR 22-27 codes
+
+          Enter choice number (0 - 9):
+
+
+
+
+
+
+---- cursor 18;40 ----
+==== before keys 14, after 18124 bytes ====
+                   Extended/Graphic rendition test pattern:
+
+
+vanilla                                bold
+
+     underline                              bold underline
+
+blink                                  bold blink
+
+     underline blink                        bold underline blink
+
+negative                               bold negative
+
+     underline negative                     bold underline negative
+
+blink negative                         bold blink negative
+
+     underline blink negative               bold underline blink negative
+
+     original foreground                    original background
+
+concealed                              concealed negative <- concealed text
+Dark background. Push <RETURN>
+
+---- cursor 23;31 ----
+---- styles ----
+1: 1-19 44 · 20-59 33;44 · 60-80 44
+2: 1-80 44
+3: 1-80 44
+4: 1-7 33;44 · 8-39 44 · 40-43 1;33;44 · 44-80 44
+5: 1-80 44
+6: 1-5 44 · 6-14 4;33;44 · 15-44 44 · 45-58 1;4;33;44 · 59-80 44
+7: 1-80 44
+8: 1-5 5;33;44 · 6-39 44 · 40-49 1;5;33;44 · 50-80 44
+9: 1-80 44
+10: 1-5 44 · 6-20 4;5;33;44 · 21-44 44 · 45-64 1;4;5;33;44 · 65-80 44
+11: 1-80 44
+12: 1-8 7;33;44 · 9-39 44 · 40-52 1;7;33;44 · 53-80 44
+13: 1-80 44
+14: 1-5 44 · 6-23 4;7;33;44 · 24-44 44 · 45-67 1;4;7;33;44 · 68-80 44
+15: 1-80 44
+16: 1-14 5;7;33;44 · 15-39 44 · 40-58 1;5;7;33;44 · 59-80 44
+17: 1-80 44
+18: 1-5 44 · 6-29 4;5;7;33;44 · 30-44 44 · 45-73 1;4;5;7;33;44 · 74-80 44
+19: 1-80 44
+20: 1-44 44 · 45-63 33 · 64-80 44
+21: 1-80 44
+22: 1-9 8;33;44 · 10-39 44 · 40-57 7;8;33;44 · 58-75 33;44 · 76-80 44
+23: 1-30 33;44 · 31-80 44
+24: 1-80 44
+==== before keys 15, after 18173 bytes ====
+                   Extended/Graphic rendition test pattern:
+
+
+vanilla                                bold
+
+     underline                              bold underline
+
+blink                                  bold blink
+
+     underline blink                        bold underline blink
+
+negative                               bold negative
+
+     underline negative                     bold underline negative
+
+blink negative                         bold blink negative
+
+     underline blink negative               bold underline blink negative
+
+     original foreground                    original background
+
+concealed                              concealed negative <- concealed text
+Light background. Push <RETURN>
+
+---- cursor 23;32 ----
+---- reverse video ----
+---- styles ----
+1: 1-19 44 · 20-59 33;44 · 60-80 44
+2: 1-80 44
+3: 1-80 44
+4: 1-7 33;44 · 8-39 44 · 40-43 1;33;44 · 44-80 44
+5: 1-80 44
+6: 1-5 44 · 6-14 4;33;44 · 15-44 44 · 45-58 1;4;33;44 · 59-80 44
+7: 1-80 44
+8: 1-5 5;33;44 · 6-39 44 · 40-49 1;5;33;44 · 50-80 44
+9: 1-80 44
+10: 1-5 44 · 6-20 4;5;33;44 · 21-44 44 · 45-64 1;4;5;33;44 · 65-80 44
+11: 1-80 44
+12: 1-8 7;33;44 · 9-39 44 · 40-52 1;7;33;44 · 53-80 44
+13: 1-80 44
+14: 1-5 44 · 6-23 4;7;33;44 · 24-44 44 · 45-67 1;4;7;33;44 · 68-80 44
+15: 1-80 44
+16: 1-14 5;7;33;44 · 15-39 44 · 40-58 1;5;7;33;44 · 59-80 44
+17: 1-80 44
+18: 1-5 44 · 6-29 4;5;7;33;44 · 30-44 44 · 45-73 1;4;5;7;33;44 · 74-80 44
+19: 1-80 44
+20: 1-44 44 · 45-63 33 · 64-80 44
+21: 1-80 44
+22: 1-9 8;33;44 · 10-39 44 · 40-57 7;8;33;44 · 58-75 33;44 · 76-80 44
+23: 1-31 33;44 · 32-80 44
+24: 1-80 44
+==== before keys 16, after 18221 bytes ====
+                   Extended/Graphic rendition test pattern:
+
+
+vanilla                                bold
+
+     underline                              bold underline
+
+blink                                  bold blink
+
+     underline blink                        bold underline blink
+
+negative                               bold negative
+
+     underline negative                     bold underline negative
+
+blink negative                         bold blink negative
+
+     underline blink negative               bold underline blink negative
+
+     original foreground                    original background
+
+concealed                              concealed negative <- concealed text
+Dark background. Push <RETURN>
+
+---- cursor 23;31 ----
+---- styles ----
+1: 1-19 44 · 20-59 33;44 · 60-80 44
+2: 1-80 44
+3: 1-80 44
+4: 1-7 33;44 · 8-39 44 · 40-43 1;33;44 · 44-80 44
+5: 1-80 44
+6: 1-5 44 · 6-14 4;33;44 · 15-44 44 · 45-58 1;4;33;44 · 59-80 44
+7: 1-80 44
+8: 1-5 5;33;44 · 6-39 44 · 40-49 1;5;33;44 · 50-80 44
+9: 1-80 44
+10: 1-5 44 · 6-20 4;5;33;44 · 21-44 44 · 45-64 1;4;5;33;44 · 65-80 44
+11: 1-80 44
+12: 1-8 7;33;44 · 9-39 44 · 40-52 1;7;33;44 · 53-80 44
+13: 1-80 44
+14: 1-5 44 · 6-23 4;7;33;44 · 24-44 44 · 45-67 1;4;7;33;44 · 68-80 44
+15: 1-80 44
+16: 1-14 5;7;33;44 · 15-39 44 · 40-58 1;5;7;33;44 · 59-80 44
+17: 1-80 44
+18: 1-5 44 · 6-29 4;5;7;33;44 · 30-44 44 · 45-73 1;4;5;7;33;44 · 74-80 44
+19: 1-80 44
+20: 1-44 44 · 45-63 33 · 64-80 44
+21: 1-80 44
+22: 1-9 8;33;44 · 10-39 44 · 40-57 7;8;33;44 · 58-75 33;44 · 76-80 44
+23: 1-30 33;44 · 31-80 44
+24: 1-80 44
+==== at the end, after 18833 bytes ====
+
+
+         Menu 11.6: ISO 6429 colors
+
+         Choose test type:
+
+          0. Exit
+          1. Disable color-switching
+          2. Display color test-pattern
+          3. Test SGR-0 color reset
+          4. Test BCE-style clear line/display (ED, EL)
+          5. Test BCE-style clear line/display (ECH, Indexing)
+          6. Test of VT102-style features with BCE
+          7. Test other ISO-6429 features with BCE
+          8. Test screen features with BCE
+          9. Test screen features with ISO 6429 SGR 22-27 codes
+
+          Enter choice number (0 - 9):
+
+
+
+
+
+
+---- cursor 18;40 ----

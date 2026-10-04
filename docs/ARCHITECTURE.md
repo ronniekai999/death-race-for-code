@@ -1,0 +1,231 @@
+# Architecture
+
+Death Race for Code is a native macOS terminal with its own terminal engine, its own Metal
+renderer, a Termius-style SSH layer built on the system's OpenSSH, and a session daemon that
+keeps shells alive when the app quits. This file records the decisions and the reasons for
+them. Read it before changing anything that moves bytes between the shell and the screen.
+
+## The shape
+
+```
+ DeathRace.app (UI process)                           legendsd (Phase 7, LaunchAgent)
+ ┌────────────────────────────────────────────┐       ┌───────────────────────────────┐
+ │ DeathRaceApp  SwiftUI shell: WRLD sidebar, │       │ SessionHost over XPC          │
+ │   tabs, splits, Hear Me Calling, settings, │       │  owns PTYs + VTCore engines   │
+ │   LucidDreams panel                        │       │  survives quit/crash/update   │
+ │ TerminalUI  NSView: keys/IME/mouse/select  │◀─────▶│  same ScreenDelta bytes       │
+ │ RenderKit   Metal: atlas, cells, cursor    │       └───────────────────────────────┘
+ │ LegendsUI   tokens + Neon components       │
+ │ MirrorGrid  screen copy the renderer draws │
+ ├────────────────────────────────────────────┤
+ │ SessionKit  session thread: PTY + engine   │  ◀─ portable; moves into legendsd in Phase 7
+ │ ScreenProtocol  ScreenDelta · DeltaCodec   │  ◀─ portable
+ │ VTCore      parser · grid · scrollback     │  ◀─ portable, fuzzed, Linux-tested
+ │ PTYKit      C spawn · termios · kqueue     │  ◀─ portable (Darwin + glibc)
+ │ Vault · SSHKit · SFTPKit (Termius layer)   │  ◀─ SFTPKit portable
+ └────────────────────────────────────────────┘
+        │ spawns
+        ▼
+ /usr/bin/ssh (ControlMaster) · sftp subsystem · /usr/lib/ssh-keychain.dylib (Secure Enclave)
+```
+
+Everything below the line is portable Swift (plus one small C target). It builds and tests on
+Linux, so the engine is developed test-first in a container with no Mac in the loop. Only the
+UI half needs macOS.
+
+## Modules today
+
+| Target | Platform | Role |
+| --- | --- | --- |
+| `CPTY` | macOS, Linux | `openpty` → `fork` → `setsid` → `TIOCSCTTY` → `dup2` → `execve`, in C |
+| `PTYKit` | macOS, Linux | `PseudoTerminal` (non-blocking master, resize, password-prompt detection, child-exit watch, hang-up), `ShellLaunch`, `SmokeTest` |
+| `VTCore` | macOS, Linux | the engine: parser, screens and scrollback, reflow, SGR, modes, reports, OSC/DCS; key, mouse, focus and paste encoding |
+| `ScreenProtocol` | macOS, Linux | `ScreenDelta`, `DeltaBuilder` (session side), `MirrorGrid` (app side), `DeltaCodec` (bytes for XPC) |
+| `SessionKit` | macOS, Linux | `Session`: one thread per shell owning its PTY and engine, a locked mailbox for deltas and commands |
+| `vthost` | macOS, Linux | headless host CLI: `smoke` now; `run`, `replay`, `dump`, `bench`, esctest later |
+| `LegendsUI` | macOS | design system: tokens, `Wordmark999`, `NeonBorder`, `Starfield`, `Tagline` |
+| `DeathRaceApp` | macOS | the SwiftUI app; Phase 0 shows a first-lap window and checks the login shell |
+| `DeathRace` | macOS | executable; `--smoke-test` runs the headless end-to-end check |
+
+## Decisions
+
+### Our own engine, with a referee
+
+We write the VT engine (`VTCore`). It is the longest part of the project, so it is held to
+external standards from day one: esctest (run through `vthost`, with a known-failures ratchet),
+libFuzzer, differential tests against SwiftTerm (a test-only dependency in a separate package,
+never in the app), and a corpus of recorded real-app sessions with golden final screens. The
+renderer reads screens through `ScreenSource`, so a stand-in engine could be swapped in if
+`VTCore` ever blocks a milestone.
+
+### One thread per session, no shared engine
+
+SwiftTerm found that a lock shared between the parse thread and the main thread lets the
+parser barge back in and stall the main thread for seconds. So no engine is shared:
+
+```
+ Session thread (one per tab; QoS userInitiated when focused, utility in background tabs)
+   poll([pty, wakeFD])                      blocks: zero work at idle
+   PTY readable → read into a 64 KiB batch until EAGAIN (Darwin PTYs hand back ~1 KiB per read)
+                → terminal.feed(batch) → write replies → check for a password prompt
+                → rows changed, input drained, synchronized output (2026) not holding:
+                    publish ONE coalesced ScreenDelta, wake main
+   wakeFD → input (backpressured) · resize (reflow + TIOCSWINSZ) · fetchRows · search · ack · visibility
+ Main thread (v1)
+   NSView.displayLink → apply delta to MirrorGrid → ack → rebuild changed rows → present
+                      → nothing new for N ticks → pause the link (0 frames at idle)
+   keyDown → KeyEncoder (mirrored modes) → session.send; never a blocking write on main
+   cursor blink: a Core Animation layer animation, no app wakeups; stops after 30 s idle
+```
+
+As built: the thread also polls a child-exit descriptor (a kqueue on macOS, a pidfd on Linux),
+so a shell's exit is seen even while a background job keeps the terminal open. Resizes
+coalesce to the last one and reach the engine before the program, so its redraw finds the new
+size. Typing returns a scrolled-back view to the bottom. Synchronized output holds a frame for
+at most a second. Debug builds send every delta through `DeltaCodec`. The tests run real
+shells, and CI runs them under Thread Sanitizer.
+
+Nothing a program does can grow memory without bound or starve the app's commands:
+
+| What | Bound |
+| --- | --- |
+| Output read before commands are handled again | 1 MiB or 20 ms, whichever comes first |
+| Output read after the shell exits (a background job can keep a Linux terminal open) | 1 MiB or 100 ms, then hang up |
+| Typed input waiting for the shell | 16 MiB; `send` refuses more |
+| Replies waiting for a program that does not read them | 1 MiB; later batches are dropped whole |
+| Events waiting for the app | folded: one bell, the latest title, directory, progress and clipboard write, the newest 16 notifications and 64 prompt marks |
+| Combining marks on one cell | 32; the scrollback budget counts them |
+| Work per byte | REP and the tab-count sequences cost what the characters they print cost |
+
+`CAMetalDisplayLink` on a background run loop is reported never to fire on macOS, so v1
+renders on main through `NSView.displayLink`. If p95 frame CPU on main exceeds 2 ms, encoding
+moves to a render thread signalled from main.
+
+### ScreenProtocol: built now for the daemon later
+
+A `ScreenDelta` carries generation, version, size, the viewport's row ids, cursor, modes,
+changed rows (each with its own styles and graphemes) and events. It is current state, not a
+log: a newer delta replaces an unsent one, at most one is in flight per client, and a
+generation mismatch triggers a full snapshot. Each delta names the version it builds on, and a
+mirror applies it only if it holds exactly that state; otherwise it asks for a snapshot, and
+the session forgets everything the app took, so the snapshot cannot build on a delta the app
+dropped. The session builds a delta without holding the mailbox lock; if the app takes one
+meanwhile, the session builds again on the one taken. Phases 1–6 pass deltas in-process;
+`legendsd` will send the same encoded bytes over XPC.
+
+The session owns each client's viewport. Rows travel by id, so scrolling sends only the new
+line, and a viewport scrolled back into history stays on the same lines while output arrives
+below. Scrolling never changes a row's version; only content changes do. A randomized test
+feeds random output in random chunks (with resizes, screen switches and scrollback trimming),
+sends every delta through the codec, and checks that the app's mirror equals a fresh snapshot
+after each one. The decoder is defensive: counts are checked against the bytes that remain
+before anything is allocated, and invalid scalars, colors and tags are rejected.
+
+### VTCore design
+
+- **Parser.** Paul Williams' DEC/ANSI state machine, written as a `switch` per state and
+  generic over its handler, so the hot loop has no protocol dispatch. The plan called for
+  tables generated by a `vtgen` tool; a switch on a small enum compiles to the same jump
+  table, can be checked against the published state diagram line by line, and has no
+  generator to keep in sync. If a profile ever shows dispatch itself is hot, tables are a
+  local change. Printable ASCII runs are found eight bytes at a time (SWAR) and written one
+  row segment at a time. UTF-8 is decoded in the ground state, with one U+FFFD per maximal
+  subpart. Colon sub-parameters (`38:2::r:g:b`, `4:3`) keep a per-parameter "colon follows"
+  bit. 8-bit C1 controls are ignored; OSC, DCS and APC strings cap at 8 MiB, parameters at 32.
+- **Grid: rows, not pages.** A screen is an array of `Row` objects, and scrollback is a ring
+  of them under a byte budget (50 MB). Cells are 8 bytes: a 21-bit scalar, a width state
+  (narrow, wide, spacer tail, spacer head), grapheme, protected and hyperlink bits, and a
+  16-bit style index. Each row interns its own styles. That departs from Ghostty's per-page,
+  reference-counted style tables for two reasons: a row is self-contained when it travels in
+  a `ScreenDelta`, and a row never needs more distinct styles than it has cells, so the
+  16-bit index cannot overflow and compaction is one pass over one row. The extra scalars of
+  multi-scalar characters live in a per-row side table. Scrolling and scroll regions move row
+  references; nothing is copied, and retired rows are recycled.
+- **Damage tracking.** Every row has a stable id and a version from a clock both screens
+  share; the session sends rows whose version moved. A `generation` bumps on screen switches,
+  resizes and resets, which means "redraw everything".
+- **Unicode.** Width and grapheme properties are generated from Unicode 18.0 by
+  `scripts/gen-unicode-tables.py`, which records the SHA-256 of every input file. With mode
+  2027 (on by default) graphemes decide width: ZWJ sequences, skin-tone modifiers, flags and
+  VS16 emoji are one character. `CSI ? 2027 l` returns to code-point widths.
+- **Side effects are data.** Replies (device attributes, cursor reports) are bytes for the
+  PTY; titles, bells, notifications, clipboard writes, progress and prompt marks are events.
+  The engine never touches the system, which keeps it testable on Linux and movable into the
+  daemon.
+- **Replies never echo a program's text.** Reply injection, where a program makes the
+  terminal type its text into the shell, is a classic terminal vulnerability. So the window
+  title cannot be reported, XTGETTCAP answers only names that decode as hex, and OSC 52 reads
+  are refused.
+- Kitty keyboard protocol in v1, with a flag stack per screen; synchronized output (2026)
+  with a 1 s watchdog; DECRQCRA only in test mode, because it lets a program read the screen.
+
+### Process spawning in C
+
+After `fork()` only async-signal-safe calls are allowed, and Swift cannot promise that. `CPTY`
+blocks signals across the fork, resets dispositions in the child, makes the slave the
+controlling terminal, closes inherited descriptors (`close_range` on Linux) and execs. Shells
+get `TERM=xterm-256color`: a custom TERM breaks every SSH host that lacks its terminfo.
+
+Teardown closes the master before waiting for the child, and never waits without a limit. On
+macOS the last close of a terminal's slave side waits for unread output to drain while the
+master is open, so a shell whose final prompt nobody read cannot finish exiting: waiting for
+it first deadlocks. Linux does not drain on close, so only macOS CI catches this.
+
+### Rendering
+
+`TerminalSurfaceView` (NSView + CAMetalLayer + NSTextInputClient) draws from `MirrorGrid`: a
+cols×rows background texture, one instanced glyph draw from CoreText-rasterized atlases, and
+decorations in the shader. Shaders compile at runtime from bundled source, because Xcode 26
+ships its Metal toolchain as a separate download and builds can hang silently without it.
+Glow, XDR Neon (EDR), ligature shaping and images are a late polish phase, and they only ever
+draw on frames that are happening anyway.
+
+### The Termius layer rides OpenSSH
+
+We never implement SSH crypto. `SSHKit` runs `/usr/bin/ssh` with ControlMaster
+(`ControlPath=~/.deathrace/cm/%C`, since socket paths cap at 104 bytes), supplies passwords
+through an askpass helper backed by the Keychain and Touch ID, and creates Secure Enclave keys
+with macOS 26's `/usr/lib/ssh-keychain.dylib`. Tunnels are `ssh -O forward/cancel/check` on
+the live connection. The SFTP browser speaks SFTP v3 itself over `ssh -s <host> sftp`, on the
+same authenticated connection.
+
+### Signing
+
+`scripts/bundle.sh` signs with the Apple Development identity already in your keychain, the
+one MenuGlance uses. Ad-hoc signatures change with every build, which resets Keychain access,
+privacy permissions and login-item approval each time.
+
+## Known risks
+
+- **The daemon and privacy permissions.** A LaunchAgent is its own responsible process, so
+  shells it spawns do not inherit the app's grants, and a PTY host re-parented to launchd has
+  hit "Failed to create Attribution Chain" on macOS 26.3.1. Phase 2 includes a one-day spike;
+  its verdict goes here before Phase 7 is designed. Never double-fork.
+- **Secure Keyboard Entry is global.** Enable and disable calls must balance, and it is dropped
+  whenever the app deactivates. It cannot see password prompts on the far side of SSH.
+- **A password prompt is canonical input with echo off**, not echo off alone. Shells' line
+  editors (zsh's ZLE, bash's readline) turn echo off at every prompt and echo keys
+  themselves, but they read in raw mode; getpass and readpassphrase (sudo, ssh) read a line in
+  canonical mode. The mode is checked when output arrives, and those readers turn echo off
+  before printing their prompt, so the prompt reveals it. Checking echo alone would have
+  enabled Secure Keyboard Entry at every zsh prompt. macOS CI caught it: Linux's `/bin/sh` is
+  dash, which has no line editor.
+- **The notch is shared with MenuGlance.** A DistributedNotificationCenter handshake makes
+  MenuGlance hide its island while Lucid Dreams is open.
+- **CI has no GPU.** macOS runners are VMs; renderer golden-image tests skip without a Metal
+  device and run locally.
+
+## Roadmap
+
+| Phase | What |
+| --- | --- |
+| 0 | Visual spec (design system + canvas), scaffold, CI, cloud session hook |
+| 1 | VTCore, ScreenProtocol, SessionKit, vthost; esctest, fuzzing, corpus, benchmarks |
+| 2 | First pixels: CPTY on Darwin, TerminalSurfaceView, RenderKit v1, tabs; daemon spike |
+| 3 | Pit Lane shell: WRLD sidebar, tab pills, splits, palette, settings, 8 themes, fonts |
+| 4 | Termius layer: vault, SSH launcher, Secure Enclave keys, tunnels, snippets, broadcast |
+| 5 | Lucid Dreams: the notch quick terminal |
+| 6 | Maze: the SFTP browser |
+| 7 | Legends Never Die: `legendsd` keeps sessions alive |
+| 8 | Conversations, Fast and Ring Ring: shell integration, blocks, timers, alerts |
+| 9 | Renderer polish: glow, XDR Neon, ligatures, inline images |

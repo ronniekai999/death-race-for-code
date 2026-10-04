@@ -1,6 +1,5 @@
 import Foundation
 import PTYKit
-import Synchronization
 
 @testable import SSHKit
 
@@ -8,7 +7,7 @@ import Synchronization
 /// prints. Anything unscripted fails, saying so. Every command run is kept.
 final class ScriptedRunner: ProcessRunner {
     private let script: [[String]: ChildResult]
-    private let ran = Mutex<[Command]>([])
+    private let ran = Locked<[Command]>([])
 
     init(_ script: [[String]: ChildResult]) {
         self.script = script

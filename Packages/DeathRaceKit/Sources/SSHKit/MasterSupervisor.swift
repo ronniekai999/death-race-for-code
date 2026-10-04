@@ -1,6 +1,5 @@
 import Foundation
 import PTYKit
-import Synchronization
 
 #if canImport(Darwin)
     import Darwin
@@ -44,7 +43,7 @@ public final class MasterSupervisor: Sendable {
     private let environment: [String: String]
     private let marker: String
     private let onChange: @Sendable (State) -> Void
-    private let shared = Mutex(Shared())
+    private let shared = Locked(Shared())
 
     /// How long ssh has after SIGTERM before SIGKILL.
     static let termGrace = 2_000

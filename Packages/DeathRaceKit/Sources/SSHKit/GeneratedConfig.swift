@@ -256,21 +256,10 @@ public struct GeneratedConfig: Equatable, Sendable {
 
     /// One word with nothing ssh_config or a shell would read as more: no spaces, quotes,
     /// comments, control characters or percent tokens.
-    static func isWord(_ value: String) -> Bool {
-        !value.isEmpty && value.utf8.count <= 255
-            && value.unicodeScalars.allSatisfy { scalar in
-                scalar.value > 0x20 && scalar.value != 0x7F && !"\"'#%\\".unicodeScalars.contains(scalar)
-                    && !(0x80...0x9F).contains(scalar.value)
-            }
-    }
+    static func isWord(_ value: String) -> Bool { SSHValue.isWord(value) }
 
     /// A path ssh can be given: no control characters or double quotes (spaces are quoted).
-    static func isPath(_ value: String) -> Bool {
-        !value.isEmpty && value.utf8.count <= 1_024
-            && value.unicodeScalars.allSatisfy { scalar in
-                scalar.value >= 0x20 && scalar.value != 0x7F && scalar != "\"" && !(0x80...0x9F).contains(scalar.value)
-            }
-    }
+    static func isPath(_ value: String) -> Bool { SSHValue.isPath(value) }
 
     /// A path as a value for `IdentityFile` and `ControlPath`: `%` doubled (ssh expands `%`
     /// tokens in these), and in double quotes when it has a space.

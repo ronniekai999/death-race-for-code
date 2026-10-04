@@ -129,6 +129,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         for pane in allPanes { pane.shutDown() }
     }
 
+    // MARK: - WRLD
+
+    /// The New Host sheet while it's open.
+    private var newHostSheet: NewHostSheet?
+
+    /// "New Host…": a sheet on the window in front; the host opens in a new tab once added.
+    @objc func newHost(_ sender: Any?) {
+        guard let wrld, newHostSheet == nil else { return }
+        let parent = NSApp.keyWindow ?? NSApp.mainWindow
+        let sheet = NewHostSheet(
+            jumpHosts: wrld.jumpHostChoices, parent: parent,
+            add: { draft in
+                do {
+                    return .success(try await wrld.add(draft))
+                } catch {
+                    return .failure(error)
+                }
+            },
+            finished: { [weak self] id in
+                self?.newHostSheet = nil
+                guard let id else { return }
+                let controller =
+                    self?.windows.first { $0.window === parent } ?? self?.windows.first
+                controller?.open(.vault(id), beside: false)
+            })
+        newHostSheet = sheet
+        sheet.show()
+    }
+
     // MARK: - Windows
 
     @objc func newWindow(_ sender: Any?) {

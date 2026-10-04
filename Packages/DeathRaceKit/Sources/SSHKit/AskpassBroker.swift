@@ -1,6 +1,6 @@
 import CPTY
 import Foundation
-import Synchronization
+import PTYKit
 
 #if canImport(Darwin)
     import Darwin
@@ -147,7 +147,7 @@ public final class AskpassBroker: Sendable {
     /// How long a question waits for the app to learn the pid of the process it gave the
     /// token to: ssh can ask before spawning has returned to the app.
     private let startupWait: Int
-    private let state = Mutex(State())
+    private let state = Locked(State())
 
     /// How deep below its registered process a peer may be.
     static let deepestPeer = 4
@@ -425,7 +425,7 @@ public final class AskpassBroker: Sendable {
     /// Runs `work` and blocks this thread (one of the broker's own, never the main thread
     /// or Swift's shared pool) until it finishes.
     private static func waitFor(_ work: @escaping @Sendable () async -> AskpassWire.Reply) -> AskpassWire.Reply {
-        let box = Mutex<AskpassWire.Reply?>(nil)
+        let box = Locked<AskpassWire.Reply?>(nil)
         let done = DispatchSemaphore(value: 0)
         Task.detached {
             let reply = await work()

@@ -1,14 +1,14 @@
 import Foundation
-import Synchronization
+import PTYKit
 
 @testable import SSHKit
 
 /// Saved secrets in memory, as the Keychain would keep them.
 final class MemorySecretStore: SecretStore {
-    private let items: Mutex<[SecretRef: (secret: String, label: String)]>
+    private let items: Locked<[SecretRef: (secret: String, label: String)]>
 
     init(_ secrets: [SecretRef: String] = [:]) {
-        items = Mutex(secrets.mapValues { ($0, "") })
+        items = Locked(secrets.mapValues { ($0, "") })
     }
 
     func contains(_ ref: SecretRef) -> Bool { items.withLock { $0[ref] != nil } }
@@ -24,7 +24,7 @@ final class MemorySecretStore: SecretStore {
 /// Touch ID that always answers the same, and remembers why it was asked.
 final class ScriptedPresence: UserPresence {
     let allows: Bool
-    private let asked = Mutex<[String]>([])
+    private let asked = Locked<[String]>([])
 
     init(allows: Bool = true) { self.allows = allows }
 
@@ -39,10 +39,10 @@ final class ScriptedPresence: UserPresence {
 /// Sheets answered from a script, in order (cancel once it runs out). Every question and
 /// notice is kept.
 final class ScriptedPresenter: PromptPresenter {
-    private let state: Mutex<(answers: [PromptAnswer], questions: [AskpassQuestion], notices: [AskpassPrompt])>
+    private let state: Locked<(answers: [PromptAnswer], questions: [AskpassQuestion], notices: [AskpassPrompt])>
 
     init(_ answers: [PromptAnswer] = []) {
-        state = Mutex((answers, [], []))
+        state = Locked((answers, [], []))
     }
 
     func answer(_ question: AskpassQuestion) async -> PromptAnswer {
@@ -62,7 +62,7 @@ final class ScriptedPresenter: PromptPresenter {
 
 /// A sheet that stays up until the test answers it, or its question is cancelled.
 final class GatedPresenter: PromptPresenter {
-    private let waiting = Mutex<CheckedContinuation<PromptAnswer, Never>?>(nil)
+    private let waiting = Locked<CheckedContinuation<PromptAnswer, Never>?>(nil)
 
     func answer(_ question: AskpassQuestion) async -> PromptAnswer {
         await withTaskCancellationHandler {
@@ -99,7 +99,7 @@ struct FakePeers: PeerInspector {
 
 /// Counts calls from any thread.
 final class Counter: Sendable {
-    private let value = Mutex(0)
+    private let value = Locked(0)
 
     func add() { value.withLock { $0 += 1 } }
     var count: Int { value.withLock { $0 } }

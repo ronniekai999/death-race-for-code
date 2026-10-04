@@ -32,6 +32,8 @@ final class WRLDService: HostConnecting {
 
     private var broker: AskpassBroker?
     private var pool: MasterPool?
+    /// New Secure Enclave keys waiting to go onto their hosts, over the first connection.
+    private var pendingKeys: [HostID: KeyID] = [:]
     private var login: [String: String]?
     private var starting: Task<MasterPool?, Never>?
 
@@ -138,6 +140,9 @@ final class WRLDService: HostConnecting {
         }
         switch await pool.connect(target, for: Self.user(pane), secrets: savedSecrets) {
         case .ready:
+            if case .vault(let id) = host, let key = pendingKeys[id] {
+                Task { await install(key, on: id, alias: target.alias) }
+            }
             let arguments = SSHCommand.session(alias: target.alias, config: paths.generatedConfig)
             return .ready(
                 ShellLaunchPlan.ssh(
@@ -178,6 +183,98 @@ final class WRLDService: HostConnecting {
     }
 
     private static func user(_ pane: PaneID) -> String { "pane:\(pane.rawValue)" }
+
+    // MARK: - Adding hosts and keys
+
+    enum AddFailure: Error, Equatable {
+        case draft(HostDraft.Problem)
+        case key(SecureEnclaveKeys.Failure)
+        case notSaved(VaultStore.Failure)
+
+        var sentence: String {
+            switch self {
+            case .draft(let problem): problem.sentence
+            case .key(.notCreated(let line)): "macOS didn’t make the key: \(line)"
+            case .key(.notDownloaded(let line)): "The key was made, but ssh couldn’t read it back: \(line)"
+            case .key(.notFound): "The key was made, but ssh couldn’t tell which key it is."
+            case .key(.notSaved(let line)): "The key couldn’t be kept: \(line)"
+            case .notSaved: "WRLD couldn’t save the host."
+            }
+        }
+    }
+
+    /// Saves the host the sheet describes, making its Secure Enclave key first when it asks
+    /// for one (Touch ID asks then). Returns the new host's id.
+    func add(_ draft: HostDraft) async throws(AddFailure) -> HostID {
+        let host: WRLDHost
+        do {
+            host = try draft.host()
+        } catch {
+            throw .draft(error)
+        }
+        var newKey: Key?
+        if draft.signIn == .newSecureEnclaveKey {
+            let id = KeyID.make()
+            let keys = SecureEnclaveKeys(
+                runner: SystemProcessRunner(),
+                environment: LoginEnvironment.merging(await loginEnvironment(), into: environment),
+                keysFolder: paths.keysFolder)
+            do {
+                let created = try await keys.create(label: "Death Race", fileName: id.rawValue)
+                newKey = Key(
+                    id: id, kind: .secureEnclave, label: "Death Race", handle: created.handle,
+                    publicKey: created.publicKey)
+            } catch {
+                throw .key(error)
+            }
+        }
+        var updated = vault
+        updated.hosts.append(host)
+        if let newKey { updated.keys.append(newKey) }
+        do {
+            try store.save(updated)
+        } catch {
+            throw .notSaved(error)
+        }
+        reload()
+        if let newKey { pendingKeys[host.id] = newKey.id }
+        return host.id
+    }
+
+    /// Puts `key` on the host through its master, then has the host sign in with it.
+    private func install(_ key: KeyID, on hostID: HostID, alias: String) async {
+        guard let publicKey = vault.keys.first(where: { $0.id == key })?.publicKey else { return }
+        do {
+            try await AuthorizedKeys.install(
+                publicKey, alias: alias, config: paths.generatedConfig, runner: SystemProcessRunner(),
+                environment: LoginEnvironment.merging(login ?? [:], into: environment))
+        } catch {
+            log.error("The Secure Enclave key didn't go onto its host: \(String(describing: error), privacy: .public)")
+            return
+        }
+        var updated = vault
+        guard let index = updated.hosts.firstIndex(where: { $0.id == hostID }),
+            case .wrld(var connection) = updated.hosts[index].source
+        else { return }
+        connection.identity = .secureEnclave(key)
+        updated.hosts[index].source = .wrld(connection)
+        do {
+            try store.save(updated)
+        } catch {
+            log.error("WRLD couldn't save the host's new key: \(String(describing: error), privacy: .public)")
+            return
+        }
+        pendingKeys[hostID] = nil
+        reload()
+    }
+
+    /// The hosts a jump host can be chosen from: WRLD's own.
+    var jumpHostChoices: [(id: HostID, name: String)] {
+        vault.hosts.compactMap { host in
+            if case .wrld = host.source { return (host.id, host.name) }
+            return nil
+        }
+    }
 
     // MARK: - Starting and stopping
 

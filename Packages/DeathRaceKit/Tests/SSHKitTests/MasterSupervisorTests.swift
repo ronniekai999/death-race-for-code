@@ -1,6 +1,5 @@
 import Foundation
 import PTYKit
-import Synchronization
 import Testing
 import Vault
 
@@ -232,7 +231,7 @@ struct MasterSupervisorTests {
 
 /// Every state a master reported, in order.
 final class StateLog: Sendable {
-    private let states = Mutex<[MasterSupervisor.State]>([])
+    private let states = Locked<[MasterSupervisor.State]>([])
 
     func add(_ state: MasterSupervisor.State) { states.withLock { $0.append(state) } }
     var all: [MasterSupervisor.State] { states.withLock { $0 } }

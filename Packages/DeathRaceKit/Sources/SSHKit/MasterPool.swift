@@ -1,6 +1,5 @@
 import Foundation
 import PTYKit
-import Synchronization
 
 /// A host as the pool connects to it: its name in the generated config, and its socket.
 public struct ConnectionTarget: Hashable, Sendable {
@@ -71,7 +70,7 @@ public final class MasterPool: Sendable {
     private let runner: any ProcessRunner
     private let settings: Settings
     private let onEnd: @Sendable (String, MasterSupervisor.Ending) -> Void
-    private let state = Mutex(State())
+    private let state = Locked(State())
 
     /// What starting a master came to: the master, or why there is none.
     struct Started: Sendable {
@@ -285,7 +284,7 @@ public final class MasterPool: Sendable {
 
 /// The supervisor a broker registration ends on Cancel, known only once it exists.
 private final class LateSupervisor: Sendable {
-    private let master = Mutex<MasterSupervisor?>(nil)
+    private let master = Locked<MasterSupervisor?>(nil)
 
     func set(_ value: MasterSupervisor) { master.withLock { $0 = value } }
     var value: MasterSupervisor? { master.withLock { $0 } }

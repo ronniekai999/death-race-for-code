@@ -1,6 +1,5 @@
 import Foundation
 import PTYKit
-import Synchronization
 import Testing
 import Vault
 
@@ -35,7 +34,7 @@ enum TestSSHD {
 /// A master's broker registration, which needs the master to cancel and the master needs
 /// its token first.
 private final class LateMaster: Sendable {
-    private let master = Mutex<MasterSupervisor?>(nil)
+    private let master = Locked<MasterSupervisor?>(nil)
 
     func set(_ value: MasterSupervisor) { master.withLock { $0 = value } }
     func end(_ ending: MasterSupervisor.Ending) { master.withLock { $0 }?.end(ending) }
@@ -61,7 +60,7 @@ private final class Rig: Sendable {
     let presence: ScriptedPresence
     let presenter: ScriptedPresenter
     let broker: AskpassBroker
-    private let masters = Mutex<[MasterSupervisor]>([])
+    private let masters = Locked<[MasterSupervisor]>([])
 
     /// `settings` go first in the included user config, so they win over the defaults
     /// after them.
@@ -364,6 +363,47 @@ struct SSHDTests {
         await rig.finish()
     }
 
+    // MARK: - Keys
+
+    @Test func aKeyAddedThroughTheMasterIsAddedOnceAndLogsIn() async throws {
+        let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword])
+        let master = try await rig.master(Rig.jumpID)
+        await expectReady(master)
+        let key = rig.folder + "/id_test"
+        let made = try ChildProcess.run(
+            executable: "/usr/bin/ssh-keygen",
+            arguments: ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "Death Race test", "-f", key],
+            environment: ["PATH": "/usr/bin:/bin"])
+        try #require(made.succeeded, "\(made.errorText)")
+        let publicKey = try String(contentsOfFile: key + ".pub", encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let blob = String(publicKey.split(separator: " ")[1])
+        let alias = try #require(rig.config.aliases[Rig.jumpID])
+        for _ in 0..<2 {
+            try await AuthorizedKeys.install(
+                publicKey, alias: alias, config: rig.paths.generatedConfig, runner: SystemProcessRunner(),
+                environment: ["PATH": "/usr/bin:/bin"])
+        }
+        let count = try await rig.run(on: Rig.jumpID, "grep -cF \(blob) ~/.ssh/authorized_keys")
+        #expect(count.outputText == "1\n")
+
+        // The key logs in by itself, with no master and no password.
+        let login = try await SystemProcessRunner().run(
+            Command(
+                [
+                    "/usr/bin/ssh", "-F", "none", "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
+                    "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-p",
+                    String(TestSSHD.jump.port), "\(TestSSHD.jumpUser)@\(TestSSHD.jump.address)", "echo", "key-works",
+                ], environment: ["PATH": "/usr/bin:/bin"]))
+        #expect(login.outputText == "key-works\n", "\(login.errorText)")
+
+        // Leave the server as it was.
+        _ = try await rig.run(
+            on: Rig.jumpID,
+            "grep -vF \(blob) ~/.ssh/authorized_keys > ~/.ssh/k.tmp; mv ~/.ssh/k.tmp ~/.ssh/authorized_keys")
+        await rig.finish()
+    }
+
     // MARK: - Come & Go
 
     @Test func localRemoteAndDynamicForwardsCarryTrafficAndClose() async throws {
@@ -447,7 +487,7 @@ private func expectReady(_ master: MasterSupervisor, sourceLocation: SourceLocat
 
 /// Every master a pool reported ending, in order.
 final class EndingLog: Sendable {
-    private let endings = Mutex<[(String, MasterSupervisor.Ending)]>([])
+    private let endings = Locked<[(String, MasterSupervisor.Ending)]>([])
 
     func add(_ key: String, _ ending: MasterSupervisor.Ending) { endings.withLock { $0.append((key, ending)) } }
     var all: [String] { endings.withLock { $0.map { "\($0.0): \($0.1)" } } }

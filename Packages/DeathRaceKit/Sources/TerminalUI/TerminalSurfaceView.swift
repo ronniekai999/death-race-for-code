@@ -76,6 +76,15 @@ public final class TerminalSurfaceView: NSView {
     public var onExit: ((Session.Status) -> Void)?
     /// `readsPassword` changed.
     public var onPasswordInputChange: (() -> Void)?
+    /// The view became first responder: a click, or focus moved to it. The window marks
+    /// its pane active.
+    public var onFirstResponder: (() -> Void)?
+    /// `isFocused` changed.
+    public var onFocusChange: ((Bool) -> Void)?
+    /// The screen changed: output arrived, even while out of sight. For tab activity.
+    public var onOutput: (() -> Void)?
+    /// Return was pressed: a command may have started, or the directory changed.
+    public var onReturnKey: (() -> Void)?
 
     public private(set) var grid: GridLayout
     public private(set) var model: SurfaceModel?
@@ -247,6 +256,7 @@ public final class TerminalSurfaceView: NSView {
         // A new screen (a resize, the alternate screen): the selection's lines are gone.
         if selection != nil, model.mirror.generation != selectionGeneration { clearSelection() }
         if update.titleChanged { onTitleChange?(model.mirror.title) }
+        if !update.rows.isEmpty || update.replaced { onOutput?() }
         if !update.events.isEmpty { onEvents?(update.events) }
         if model.mirror.readingPassword != reportedReadsPassword {
             reportedReadsPassword = model.mirror.readingPassword
@@ -261,6 +271,12 @@ public final class TerminalSurfaceView: NSView {
 
     /// The program is reading a password: a line with echo off, as sudo and ssh read them.
     public var readsPassword: Bool { reportedReadsPassword }
+
+    /// Clear to Start (⌘K) or Clear Scrollback (⌥⌘K); the alternate screen is left alone.
+    public func clear(_ kind: Terminal.ClearKind) {
+        clearSelection()
+        session?.clear(kind)
+    }
 
     // MARK: - Drawing
 
@@ -524,7 +540,10 @@ public final class TerminalSurfaceView: NSView {
     override public func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
         // The window records its new first responder only after this returns.
-        if became { focusChanged(firstResponder: true) }
+        if became {
+            focusChanged(firstResponder: true)
+            onFirstResponder?()
+        }
         return became
     }
 
@@ -544,6 +563,7 @@ public final class TerminalSurfaceView: NSView {
         let focused = firstResponder && window?.isKeyWindow == true && NSApp.isActive
         guard focused != isFocused else { return }
         isFocused = focused
+        onFocusChange?(focused)
         session?.setFocused(focused)
         if let mirror = model?.mirror {
             let report = InputEncoder.focus(focused, modes: mirror.modes)
@@ -613,14 +633,16 @@ public final class TerminalSurfaceView: NSView {
     }
 
     /// Sizes the drawable to the view and the grid to whole cells, and tells the session
-    /// when the grid changed.
+    /// when the grid changed. When neither changed it does nothing, so a layout pass of the
+    /// window around it (a title or a status change) draws no frame.
     private func layoutGrid(force: Bool = false) {
         let scale = window?.backingScaleFactor ?? CGFloat(cell.scale)
-        metalLayer?.drawableSize = CGSize(
-            width: (bounds.width * scale).rounded(), height: (bounds.height * scale).rounded())
+        let drawableSize = CGSize(width: (bounds.width * scale).rounded(), height: (bounds.height * scale).rounded())
         let layout = GridLayout(
             width: Double(bounds.width), height: Double(bounds.height), cell: cell, paddingX: padding.x,
             paddingY: padding.y)
+        guard force || layout != grid || metalLayer?.drawableSize != drawableSize else { return }
+        metalLayer?.drawableSize = drawableSize
         needsFrame = true
         if force || layout != grid {
             grid = layout

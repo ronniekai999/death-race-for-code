@@ -31,6 +31,8 @@ extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
         restartBlink = true
         updateCursor()
         if pendingKeyTime == nil { pendingKeyTime = CACurrentMediaTime() }
+        // Return or Enter on the keypad, with no input method composing.
+        if (event.keyCode == 0x24 || event.keyCode == 0x4C) && !hasMarkedText() { onReturnKey?() }
         let press = KeyPress(event)
         switch KeyRouting.route(press, optionAsMeta: optionAsMeta, composing: hasMarkedText()) {
         case .encode(let keyEvent):

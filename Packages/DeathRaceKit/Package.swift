@@ -101,6 +101,13 @@ var targets: [Target] = [
         .executableTarget(name: "legendsd-spike", dependencies: ["PTYKit"], path: "Tools/legendsd-spike"),
         .testTarget(
             name: "RenderKitTests", dependencies: ["RenderKit", "SurfaceCore", "ConfigKit", "ScreenProtocol", "VTCore"]),
+        // The window and its tabs and panes, driven headless with stand-in sessions.
+        .testTarget(
+            name: "DeathRaceAppTests",
+            dependencies: [
+                "DeathRaceApp", "AppCore", "TerminalUI", "SurfaceCore", "SessionKit", "ScreenProtocol", "ConfigKit",
+                "PTYKit", "VTCore",
+            ]),
     ]
 #endif
 

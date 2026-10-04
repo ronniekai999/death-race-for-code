@@ -1,19 +1,30 @@
+import AppCore
 import AppKit
 import ConfigKit
 import PTYKit
 import SessionKit
 
-/// Opens windows and tabs, owns their controllers, and answers the app-wide menu items.
+/// Opens windows, owns their controllers, and answers the app-wide menu items.
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     private let configStore = ConfigStore()
-    private var controllers: [TerminalWindowController] = []
+    private(set) var windows: [PitLaneWindowController] = []
     private let about = AboutWindow()
     private lazy var secureInput = SecureInputController(mode: configStore.config.secureKeyboardEntry)
     /// Where the next new window's top-left corner goes, so windows cascade.
     private var cascadePoint: NSPoint?
+    let ids = IDSource()
+    let makeSession: SessionMaker
+
+    init(makeSession: @escaping SessionMaker = PaneController.realSession) {
+        self.makeSession = makeSession
+        super.init()
+    }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // Tabs are the window's own: no native tab bar, Show All Tabs or Merge All Windows,
+        // and the "prefer tabs" setting never merges Death Race windows.
+        NSWindow.allowsAutomaticWindowTabbing = false
         // A held key repeats, as terminals expect, instead of offering accented letters.
         UserDefaults.standard.register(defaults: ["ApplePressAndHoldEnabled": false])
     }
@@ -22,9 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // `swift run` starts a bare executable as a background process: promote it so its
         // windows take keystrokes. In the bundled app this changes nothing.
         NSApp.setActivationPolicy(.regular)
-        if controllers.isEmpty { newWindow(nil) }
+        if windows.isEmpty { newWindow(nil) }
         NSApp.activate()
-        configStore.reportProblems(in: controllers.first?.window)
+        configStore.reportProblems(in: windows.first?.window)
     }
 
     /// A click on the Dock icon with no windows open opens one.
@@ -40,33 +51,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Focus follows the app as well as the window: a terminal in a background app is not
     // focused (its cursor goes hollow, programs get a focus-out report).
     func applicationDidBecomeActive(_ notification: Notification) {
-        for controller in controllers { controller.surface.focusChanged() }
+        for pane in allPanes { pane.surface.focusChanged() }
         updateSecureInput()
     }
 
     func applicationDidResignActive(_ notification: Notification) {
-        for controller in controllers { controller.surface.focusChanged() }
+        for pane in allPanes { pane.surface.focusChanged() }
         updateSecureInput()
     }
 
-    /// Quitting with programs running in any tab asks once, for all of them.
+    private var allPanes: [PaneController] {
+        windows.flatMap { Array($0.panes.values) }
+    }
+
+    /// Quitting with programs running in any pane asks once, for all of them.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let sessions = controllers.compactMap(\.session).filter { $0.status == .running }
-        guard configStore.config.confirmClose, !sessions.isEmpty else { return .terminateNow }
+        let running = allPanes.filter(\.isRunning)
+        guard configStore.config.confirmClose, !running.isEmpty else { return .terminateNow }
         Task {
-            var running: [String] = []
-            for session in sessions {
-                if let process = await session.foregroundProcess(), !process.isShell {
-                    running.append(process.name.isEmpty ? "a program" : process.name)
-                }
+            var programs: [String] = []
+            for pane in running {
+                if let program = await pane.runningProgram() { programs.append(program) }
             }
-            guard !running.isEmpty else { return NSApp.reply(toApplicationShouldTerminate: true) }
+            guard !programs.isEmpty else { return NSApp.reply(toApplicationShouldTerminate: true) }
             let alert = NSAlert()
             alert.messageText = "Goodbye & Good Riddance?"
             alert.informativeText =
-                running.count == 1
-                ? "\(running[0]) is still running. Quit anyway?"
-                : "\(ListFormatter.localizedString(byJoining: running)) are still running. Quit anyway?"
+                programs.count == 1
+                ? "\(programs[0]) is still running. Quit anyway?"
+                : "\(ListFormatter.localizedString(byJoining: programs)) are still running. Quit anyway?"
             alert.addButton(withTitle: "Quit")
             alert.addButton(withTitle: "Cancel")
             NSApp.reply(toApplicationShouldTerminate: alert.runModal() == .alertFirstButtonReturn)
@@ -76,69 +89,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         secureInput.update(appIsActive: false, focusedTabReadsPassword: false)
-        for controller in controllers { controller.session?.close() }
+        for pane in allPanes { pane.shutDown() }
     }
 
-    // MARK: - Windows and tabs
+    // MARK: - Windows
 
     @objc func newWindow(_ sender: Any?) {
-        let controller = makeController(directory: nil)
+        let controller = PitLaneWindowController(config: configStore.config, host: self, directory: nil)
+        show(controller)
+    }
+
+    /// ⌘T with no window to add a tab to.
+    @objc func newTab(_ sender: Any?) {
+        newWindow(sender)
+    }
+
+    private func show(_ controller: PitLaneWindowController, near other: NSWindow? = nil) {
         guard let window = controller.window else { return }
-        // A new window, even when the user prefers tabs: ⌘T is for tabs.
-        window.tabbingMode = .disallowed
-        if let point = cascadePoint {
+        controller.onSettingsProblemsClick = { [weak self] in self?.openSettingsFile(nil) }
+        controller.settingsProblems = configStore.diagnostics.count
+        windows.append(controller)
+        if let other {
+            window.setFrameTopLeftPoint(window.cascadeTopLeft(from: NSPoint(x: other.frame.minX, y: other.frame.maxY)))
+        } else if let point = cascadePoint {
             cascadePoint = window.cascadeTopLeft(from: point)
         } else {
             window.center()
             cascadePoint = window.cascadeTopLeft(from: NSPoint(x: window.frame.minX, y: window.frame.maxY))
         }
         controller.showWindow(nil)
-        window.tabbingMode = .automatic
     }
 
-    /// ⌘T with no terminal window to add a tab to.
-    @objc func newWindowForTab(_ sender: Any?) {
-        newWindow(sender)
-    }
-
-    private func openTab(beside existing: TerminalWindowController) {
-        // A new tab starts where the current one is (with `working-directory = inherit`),
-        // which takes a question to its session.
-        Task {
-            let directory = await existing.currentDirectory()
-            guard let existingWindow = existing.window, existingWindow.isVisible else { return newWindow(nil) }
-            let controller = makeController(directory: directory)
-            guard let window = controller.window else { return }
-            existingWindow.addTabbedWindow(window, ordered: .above)
-            window.makeKeyAndOrderFront(nil)
+    func windowClosed(_ controller: PitLaneWindowController) {
+        // Released once AppKit has finished closing the window.
+        Task { @MainActor in
+            self.windows.removeAll { $0 === controller }
+            self.updateSecureInput()
         }
     }
 
-    private func makeController(directory: String?) -> TerminalWindowController {
-        let controller = TerminalWindowController(
-            config: configStore.config, directory: directory,
-            onNewTab: { [weak self] existing in self?.openTab(beside: existing) },
-            onClose: { [weak self] closed in
-                // Released once AppKit has finished closing the window.
-                Task { @MainActor in
-                    self?.controllers.removeAll { $0 === closed }
-                }
-            })
-        controller.onInputStateChange = { [weak self] in self?.updateSecureInput() }
-        controllers.append(controller)
-        return controller
+    func inputStateChanged() {
+        updateSecureInput()
+    }
+
+    /// Move Tab to New Window: a window for the tab, beside the one it left.
+    func open(
+        detached tab: TabModel, panes: [PaneController], area: PaneAreaView, from controller: PitLaneWindowController
+    ) {
+        let window = PitLaneWindowController(
+            config: configStore.config, host: self, adopting: tab, panes: panes, area: area)
+        show(window, near: controller.window)
     }
 
     // MARK: - Secure Keyboard Entry
 
-    /// Secure Keyboard Entry follows the active app, the focused tab and the menu item; the
-    /// focused window shows a lock while it is on.
+    /// Secure Keyboard Entry follows the active app, the key window's active pane and the
+    /// menu item; that window's status bar shows it while it is on.
     private func updateSecureInput() {
-        let focused = NSApp.isActive ? NSApp.keyWindow?.windowController as? TerminalWindowController : nil
+        let focused = NSApp.isActive ? NSApp.keyWindow?.windowController as? PitLaneWindowController : nil
         secureInput.update(
-            appIsActive: NSApp.isActive, focusedTabReadsPassword: focused?.surface.readsPassword ?? false)
-        for controller in controllers {
-            controller.showsSecureInputLock = secureInput.isEnabled && controller === focused
+            appIsActive: NSApp.isActive, focusedTabReadsPassword: focused?.activePane?.surface.readsPassword ?? false)
+        for controller in windows {
+            controller.showsSecureInput = secureInput.isEnabled && controller === focused
         }
     }
 
@@ -153,7 +165,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         about.show()
     }
 
+    /// Settings… opens the settings file until the Settings window arrives.
     @objc func openSettings(_ sender: Any?) {
+        openSettingsFile(sender)
+    }
+
+    @objc func openSettingsFile(_ sender: Any?) {
         do {
             try configStore.openInEditor()
         } catch {
@@ -167,7 +184,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func reloadConfiguration(_ sender: Any?) {
         configStore.load()
-        for controller in controllers { controller.apply(configStore.config) }
+        for controller in windows {
+            controller.apply(configStore.config)
+            controller.settingsProblems = configStore.diagnostics.count
+        }
         secureInput.setMode(configStore.config.secureKeyboardEntry)
         updateSecureInput()
         configStore.reportProblems(in: NSApp.keyWindow)

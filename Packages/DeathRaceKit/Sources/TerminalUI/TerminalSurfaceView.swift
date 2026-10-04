@@ -161,7 +161,7 @@ public final class TerminalSurfaceView: NSView {
     /// The session has something new.
     public func sessionDidUpdate() {
         guard model != nil else { return }
-        if canDraw {
+        if isSeen {
             wake()
         } else if !hiddenDrainScheduled {
             // Out of sight: keep up with titles, bells and the shell's exit without drawing,
@@ -176,7 +176,7 @@ public final class TerminalSurfaceView: NSView {
     private func drainWhileHidden() {
         hiddenDrainScheduled = false
         // Shown again in the meantime: the next frame takes the update.
-        if canDraw { wake() } else { drain() }
+        if isSeen { wake() } else { drain() }
     }
 
     /// Stops drawing and lets go of the display link; closing the session is the caller's.
@@ -219,7 +219,7 @@ public final class TerminalSurfaceView: NSView {
 
     /// Something changed: make sure the display link is running.
     func wake() {
-        guard canDraw, pacer.wake() else { return }
+        guard isSeen, pacer.wake() else { return }
         if link == nil {
             let link = displayLink(target: self, selector: #selector(displayLinkFired(_:)))
             link.add(to: .main, forMode: .common)
@@ -234,8 +234,9 @@ public final class TerminalSurfaceView: NSView {
         if !pacer.tick(drew: drew) { link.isPaused = true }
     }
 
-    /// Whether drawing would be seen: in a window, on screen, not hidden.
-    private var canDraw: Bool {
+    /// Whether drawing would be seen: in a window, on screen, not hidden. (Not `canDraw`:
+    /// NSView has a deprecated property of that name.)
+    private var isSeen: Bool {
         guard let window, !isHiddenOrHasHiddenAncestor else { return false }
         return window.occlusionState.contains(.visible)
     }
@@ -503,7 +504,7 @@ public final class TerminalSurfaceView: NSView {
                 columns: layout.columns, rows: layout.rows, cellPixelWidth: cell.width, cellPixelHeight: cell.height)
             onGridChange?(layout)
         }
-        if inLiveResize, canDraw {
+        if inLiveResize, isSeen {
             // Draw now rather than on the next tick, so the window never shows a stretched frame.
             drain()
             _ = drawFrame()
@@ -526,7 +527,7 @@ public final class TerminalSurfaceView: NSView {
 
     /// The window was shown, hidden or covered: draw again once it is seen.
     public func visibilityChanged() {
-        if canDraw {
+        if isSeen {
             redraw()
         } else {
             pauseDrawing()

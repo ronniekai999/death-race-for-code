@@ -255,6 +255,43 @@ private func press(
         #expect(KeyEncoder.encode(composed, modes: TerminalModes(), kittyFlags: 0) == Array("日本".utf8))
     }
 
+    @Test func releasesReachOnlyProgramsThatAskForThem() {
+        let up = KeyRouting.release(press(0x7E, [.function]), optionAsMeta: .left, composing: false)
+        #expect(up == KeyEvent(.up, action: .release, text: ""))
+        let letter = KeyRouting.release(press(0x00, typed: "a"), optionAsMeta: .left, composing: false)
+        #expect(letter == KeyEvent(.character("a"), action: .release, text: ""))
+        // The press went to the input method, so the release is its too.
+        #expect(KeyRouting.release(press(0x00, typed: "a"), optionAsMeta: .left, composing: true) == nil)
+        guard let up, let letter else { return }
+        #expect(KeyEncoder.encode(up, modes: TerminalModes(), kittyFlags: 0).isEmpty)
+        #expect(KeyEncoder.encode(letter, modes: TerminalModes(), kittyFlags: 0).isEmpty)
+        // Kitty's "report event types" (2) asks for them.
+        #expect(KeyEncoder.encode(up, modes: TerminalModes(), kittyFlags: 0b11) == Array("\u{1B}[1;1:3A".utf8))
+        #expect(KeyEncoder.encode(letter, modes: TerminalModes(), kittyFlags: 0b11) == Array("\u{1B}[97;1:3u".utf8))
+    }
+
+    @Test func modifierKeysOnTheirOwn() {
+        // Left Shift down, then up: flagsChanged with and without its device bit.
+        let down = KeyRouting.modifierKey(press(0x38, [.shift, .leftShift]), optionAsMeta: .left)
+        let up = KeyRouting.modifierKey(press(0x38), optionAsMeta: .left)
+        #expect(down == KeyEvent(.modifier(.leftShift), modifiers: .shift, text: ""))
+        #expect(up == KeyEvent(.modifier(.leftShift), action: .release, text: ""))
+        // The right Shift going up while the left one stays down.
+        let rightUp = KeyRouting.modifierKey(press(0x3C, [.shift, .leftShift]), optionAsMeta: .left)
+        #expect(rightUp?.action == .release)
+        // The right Option, when it types characters, is not Alt.
+        let rightOption = KeyRouting.modifierKey(press(0x3D, [.option, .rightOption]), optionAsMeta: .left)
+        #expect(rightOption == KeyEvent(.modifier(.rightAlt), text: ""))
+        #expect(KeyRouting.modifierKey(press(0x39, .capsLock), optionAsMeta: .left) == nil)
+        #expect(KeyRouting.modifierKey(press(0x00, typed: "a"), optionAsMeta: .left) == nil)
+        guard let down, let up else { return }
+        // Only "report all keys" (8) reports them.
+        #expect(KeyEncoder.encode(down, modes: TerminalModes(), kittyFlags: 0).isEmpty)
+        #expect(KeyEncoder.encode(down, modes: TerminalModes(), kittyFlags: 0b1).isEmpty)
+        #expect(KeyEncoder.encode(down, modes: TerminalModes(), kittyFlags: 0b1011) == Array("\u{1B}[57441;2u".utf8))
+        #expect(KeyEncoder.encode(up, modes: TerminalModes(), kittyFlags: 0b1011) == Array("\u{1B}[57441;1:3u".utf8))
+    }
+
     @Test func keyCodes() {
         #expect(MacKeyCode.key(for: 0x35) == .escape)
         #expect(MacKeyCode.key(for: 0x72) == .insert)

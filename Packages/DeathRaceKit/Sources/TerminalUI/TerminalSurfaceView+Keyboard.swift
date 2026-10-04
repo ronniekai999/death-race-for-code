@@ -37,6 +37,25 @@ extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
         }
     }
 
+    /// A release, for programs that asked the Kitty protocol for them (the encoder drops it
+    /// for the rest).
+    override public func keyUp(with event: NSEvent) {
+        guard model != nil else { return }
+        if let keyEvent = KeyRouting.release(KeyPress(event), optionAsMeta: optionAsMeta, composing: hasMarkedText()) {
+            send(keyEvent)
+        }
+    }
+
+    /// A modifier key alone, for programs that asked the Kitty protocol for every key.
+    override public func flagsChanged(with event: NSEvent) {
+        guard model != nil, !hasMarkedText() else { return }
+        // A flagsChanged event has no characters: asking for them raises an exception.
+        let press = KeyPress(
+            keyCode: event.keyCode, flags: EventFlags(rawValue: event.modifierFlags.rawValue), characters: "",
+            plainCharacters: "", unmodifiedCharacters: "", isRepeat: false)
+        if let keyEvent = KeyRouting.modifierKey(press, optionAsMeta: optionAsMeta) { send(keyEvent) }
+    }
+
     /// Encodes a key for the program, in the modes it set, and sends it.
     func send(_ keyEvent: KeyEvent) {
         guard let mirror = model?.mirror else { return }
@@ -57,7 +76,7 @@ extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
     /// AppKit's editing commands (insertNewline:, deleteBackward:…): the keys that mean
     /// something to a terminal were encoded before they got here, so there is nothing to do,
     /// and doing nothing keeps AppKit from beeping.
-    public func doCommand(by selector: Selector) {}
+    override public func doCommand(by selector: Selector) {}
 
     public func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         if let attributed = string as? NSAttributedString {

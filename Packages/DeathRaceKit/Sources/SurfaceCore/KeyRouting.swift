@@ -74,9 +74,16 @@ public struct EventFlags: OptionSet, Sendable, Hashable {
     public static let command = EventFlags(rawValue: 1 << 20)
     public static let numericPad = EventFlags(rawValue: 1 << 21)
     public static let function = EventFlags(rawValue: 1 << 23)
-    /// IOKit's NX_DEVICELALTKEYMASK and NX_DEVICERALTKEYMASK: which Option key is down.
+    /// IOKit's device-dependent bits (NX_DEVICELCTLKEYMASK and the rest): which of each pair
+    /// of modifier keys is down.
+    public static let leftControl = EventFlags(rawValue: 0x01)
+    public static let leftShift = EventFlags(rawValue: 0x02)
+    public static let rightShift = EventFlags(rawValue: 0x04)
+    public static let leftCommand = EventFlags(rawValue: 0x08)
+    public static let rightCommand = EventFlags(rawValue: 0x10)
     public static let leftOption = EventFlags(rawValue: 0x20)
     public static let rightOption = EventFlags(rawValue: 0x40)
+    public static let rightControl = EventFlags(rawValue: 0x2000)
 }
 
 /// A key press as AppKit reports it, with nothing from AppKit in it.
@@ -125,24 +132,65 @@ public enum KeyRouting {
     public static func route(_ press: KeyPress, optionAsMeta: OptionAsMeta, composing: Bool) -> Route {
         if composing { return .inputMethod }
         let flags = press.flags
-        let meta = optionIsMeta(flags, optionAsMeta)
-        var modifiers = KeyModifiers()
-        if flags.contains(.shift) { modifiers.insert(.shift) }
-        if flags.contains(.control) { modifiers.insert(.control) }
-        if flags.contains(.command) { modifiers.insert(.command) }
-        if flags.contains(.capsLock) { modifiers.insert(.capsLock) }
-        if meta { modifiers.insert(.alt) }
+        let modifiers = modifiers(flags, optionAsMeta)
         let action: KeyEvent.Action = press.isRepeat ? .repeat : .press
 
         if let key = MacKeyCode.key(for: press.keyCode) {
             return .encode(KeyEvent(key, modifiers: modifiers, action: action))
         }
-        let commandLike = flags.contains(.control) || flags.contains(.command) || meta
+        let commandLike = flags.contains(.control) || flags.contains(.command) || modifiers.contains(.alt)
         guard commandLike, let key = characterKey(press) else { return .inputMethod }
         return .encode(
             KeyEvent(
                 key, modifiers: modifiers, action: action, text: press.plainCharacters,
                 baseLayoutKey: baseLayoutKey(press, key)))
+    }
+
+    /// The release of `press`'s key. The encoder sends it only to programs that asked the
+    /// Kitty protocol for releases. Nil while an input method composes: the press was its.
+    public static func release(_ press: KeyPress, optionAsMeta: OptionAsMeta, composing: Bool) -> KeyEvent? {
+        guard !composing, let key = MacKeyCode.key(for: press.keyCode) ?? characterKey(press) else { return nil }
+        return KeyEvent(
+            key, modifiers: modifiers(press.flags, optionAsMeta), action: .release, text: "",
+            baseLayoutKey: baseLayoutKey(press, key))
+    }
+
+    /// A modifier key going down or up on its own (AppKit's flagsChanged), with the modifiers
+    /// as they are after it. The encoder sends it only to programs that asked the Kitty
+    /// protocol for every key. Nil for other keys (Caps Lock, Fn).
+    public static func modifierKey(_ press: KeyPress, optionAsMeta: OptionAsMeta) -> KeyEvent? {
+        guard case .modifier(let modifier)? = MacKeyCode.key(for: press.keyCode), let bit = deviceBit(modifier) else {
+            return nil
+        }
+        let isDown = press.flags.contains(bit)
+        return KeyEvent(
+            .modifier(modifier), modifiers: modifiers(press.flags, optionAsMeta), action: isDown ? .press : .release,
+            text: "")
+    }
+
+    private static func deviceBit(_ modifier: ModifierKey) -> EventFlags? {
+        switch modifier {
+        case .leftShift: .leftShift
+        case .rightShift: .rightShift
+        case .leftControl: .leftControl
+        case .rightControl: .rightControl
+        case .leftAlt: .leftOption
+        case .rightAlt: .rightOption
+        case .leftCommand: .leftCommand
+        case .rightCommand: .rightCommand
+        case .leftHyper, .leftMeta, .rightHyper, .rightMeta: nil
+        }
+    }
+
+    /// The modifiers held, as the encoder knows them; Option only when it acts as Meta.
+    static func modifiers(_ flags: EventFlags, _ optionAsMeta: OptionAsMeta) -> KeyModifiers {
+        var modifiers = KeyModifiers()
+        if flags.contains(.shift) { modifiers.insert(.shift) }
+        if flags.contains(.control) { modifiers.insert(.control) }
+        if flags.contains(.command) { modifiers.insert(.command) }
+        if flags.contains(.capsLock) { modifiers.insert(.capsLock) }
+        if optionIsMeta(flags, optionAsMeta) { modifiers.insert(.alt) }
+        return modifiers
     }
 
     /// The event for text the input method inserted for `press`: what a plain key typed, or

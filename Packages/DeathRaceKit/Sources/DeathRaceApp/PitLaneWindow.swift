@@ -152,11 +152,13 @@ final class PitLaneRootView: NSView {
         if view.frame != frame { view.frame = frame }
     }
 
-    /// The window size, in points, that gives the panes of a one-pane tab `surface` points.
-    static func windowSize(forSurface surface: NSSize) -> NSSize {
+    /// The window size, in points, that gives the panes of a one-pane tab `surface` points,
+    /// under a header if it has one.
+    static func windowSize(forSurface surface: NSSize, header: Bool = false) -> NSSize {
         let around = (Chrome.paneMargin + Chrome.cardInset) * 2
+        let top = header ? Chrome.paneHeaderHeight - Chrome.cardInset : 0
         return NSSize(
             width: surface.width + around,
-            height: surface.height + around + Chrome.titleRowHeight + Chrome.statusBarHeight)
+            height: surface.height + around + top + Chrome.titleRowHeight + Chrome.statusBarHeight)
     }
 }

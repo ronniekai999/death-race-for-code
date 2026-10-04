@@ -1,22 +1,24 @@
 import AppCore
 import AppKit
 import QuartzCore
+import SurfaceCore
 import TerminalUI
 import VTCore
 
 /// One pane on the ground: a rounded card with the terminal view inside it. The card draws
 /// the rounded fill, in the terminal's background color, and the border; the terminal view
-/// sits `Chrome.cardInset` inside, clear of the corners, so nothing is masked and nothing
-/// is composited offscreen while it draws.
+/// sits `Chrome.cardInset` inside, clear of the corners (under the header, when there is
+/// one), so nothing is masked and nothing is composited offscreen while it draws.
 @MainActor
 final class PaneCardView: NSView {
     let pane: PaneID
     let surface: TerminalSurfaceView
     private let neon = NeonBorderView()
+    private let headerView = PaneHeaderView()
     private var banner: EndBannerView?
     private var chrome: Chrome
-    /// The terminal's background now (a program can change it with OSC 11).
-    private var fill: RGB
+    /// The background the terminal last reported: the theme's, or a program's (OSC 11).
+    private var reportedFill: RGB?
 
     /// The tab's active pane: the NeonBorder marks it.
     var isActive = false {
@@ -26,12 +28,27 @@ final class PaneCardView: NSView {
     var isWindowKey = false {
         didSet { if isWindowKey != oldValue { applyState() } }
     }
+    /// Another pane of the split tab is the active one: this one fades toward the ground.
+    var isDimmed = false {
+        didSet { if isDimmed != oldValue { applyDimming() } }
+    }
+    /// The row along the top, while the tab is split (or as `pane-headers` says).
+    var showsHeader = false {
+        didSet {
+            guard showsHeader != oldValue else { return }
+            headerView.isHidden = !showsHeader
+            needsLayout = true
+        }
+    }
+    var header: PaneHeader {
+        get { headerView.content }
+        set { headerView.content = newValue }
+    }
 
     init(pane: PaneID, surface: TerminalSurfaceView, chrome: Chrome) {
         self.pane = pane
         self.surface = surface
         self.chrome = chrome
-        fill = chrome.terminalBackground
         super.init(frame: .zero)
         wantsLayer = true
         layerContentsRedrawPolicy = .never
@@ -39,8 +56,12 @@ final class PaneCardView: NSView {
         layer?.cornerCurve = .continuous
         layer?.shadowOffset = .zero
         layer?.shadowRadius = Chrome.glowRadius
+        headerView.isHidden = true
+        headerView.chrome = chrome
         addSubview(surface)
+        addSubview(headerView)
         addSubview(neon)
+        surface.onBackgroundChange = { [weak self] color in self?.setFill(color) }
         applyColors()
     }
 
@@ -53,8 +74,13 @@ final class PaneCardView: NSView {
 
     override func layout() {
         super.layout()
-        let inner = bounds.insetBy(dx: Chrome.cardInset, dy: Chrome.cardInset)
+        let inset = Chrome.cardInset
+        let top = showsHeader ? Chrome.paneHeaderHeight : inset
+        let inner = NSRect(
+            x: inset, y: top, width: max(bounds.width - inset * 2, 0), height: max(bounds.height - top - inset, 0))
         if surface.frame != inner { surface.frame = inner }
+        let headerFrame = NSRect(x: 0, y: 0, width: bounds.width, height: Chrome.paneHeaderHeight)
+        if headerView.frame != headerFrame { headerView.frame = headerFrame }
         if neon.frame != bounds { neon.frame = bounds }
         if let banner {
             let height: CGFloat = 40
@@ -71,7 +97,7 @@ final class PaneCardView: NSView {
 
     func setChrome(_ chrome: Chrome) {
         self.chrome = chrome
-        fill = chrome.terminalBackground
+        headerView.chrome = chrome
         banner?.chrome = chrome
         applyColors()
     }
@@ -88,19 +114,25 @@ final class PaneCardView: NSView {
         needsLayout = true
     }
 
-    /// A program set the terminal's background (OSC 11): the card's rim follows it.
+    /// The terminal's background changed (a new theme, or a program's OSC 11): the card's
+    /// rim follows it.
     func setFill(_ color: RGB) {
-        guard color != fill else { return }
-        fill = color
+        guard color != reportedFill else { return }
+        reportedFill = color
         layer?.backgroundColor = color.cgColor
     }
 
     private func applyColors() {
-        layer?.backgroundColor = fill.cgColor
+        layer?.backgroundColor = (reportedFill ?? chrome.terminalBackground).cgColor
         layer?.borderColor = chrome.colors.line.cgColor
         layer?.shadowColor = chrome.colors.glow.cgColor
         neon.colors = chrome.colors.neon
         applyState()
+        applyDimming()
+    }
+
+    private func applyDimming() {
+        surface.dimming = isDimmed ? Dimming(color: chrome.colors.ground, amount: Chrome.inactiveDim) : nil
     }
 
     private func applyState() {
@@ -266,7 +298,8 @@ final class NeonBorderView: NSView {
     }
 }
 
-/// A tab's panes on the ground: laid out from its split tree, or the zoomed one alone.
+/// A tab's panes on the ground: laid out from its split tree, or the zoomed one alone. The
+/// gaps between them are the dividers, which drag.
 @MainActor
 final class PaneAreaView: NSView {
     private(set) var cards: [PaneID: PaneCardView] = [:]
@@ -276,6 +309,12 @@ final class PaneAreaView: NSView {
     var zoomedPane: PaneID? {
         didSet { if zoomedPane != oldValue { needsLayout = true } }
     }
+    /// A divider was dragged: the split at `path` divides `position` points from its start.
+    var onDividerDrag: ((_ path: [SplitTree.Branch], _ position: Double) -> Void)?
+    /// A divider was double-clicked.
+    var onDividerDoubleClick: (() -> Void)?
+    /// The divider being dragged, and how far into it the pointer took hold.
+    private var dragging: (divider: SplitTree.Divider, grip: Double)?
 
     init(tree: SplitTree) {
         self.tree = tree
@@ -290,6 +329,8 @@ final class PaneAreaView: NSView {
     }
 
     override var isFlipped: Bool { true }
+    /// A drag here moves a divider, never the window.
+    override var mouseDownCanMoveWindow: Bool { false }
 
     func setChrome(_ chrome: Chrome) {
         layer?.backgroundColor = chrome.colors.ground.cgColor
@@ -329,6 +370,54 @@ final class PaneAreaView: NSView {
             let rect = NSRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height)
             if card.frame != rect { card.frame = rect }
         }
+        window?.invalidateCursorRects(for: self)
+    }
+
+    // MARK: - Dividers
+
+    /// The gaps between panes, unless one is zoomed.
+    var dividers: [SplitTree.Divider] {
+        guard zoomedPane == nil else { return [] }
+        return tree.dividers(
+            in: paneRect, gap: Double(Chrome.paneGap), scale: Double(window?.backingScaleFactor ?? 2))
+    }
+
+    static func rect(_ rect: LayoutRect) -> NSRect {
+        NSRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
+    }
+
+    override func resetCursorRects() {
+        for divider in dividers {
+            addCursorRect(Self.rect(divider.rect), cursor: divider.axis == .sideBySide ? .columnResize : .rowResize)
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let divider = dividers.first(where: { Self.rect($0.rect).contains(point) }) else { return }
+        if event.clickCount == 2 {
+            dragging = nil
+            onDividerDoubleClick?()
+            return
+        }
+        let grip =
+            divider.axis == .sideBySide ? Double(point.x) - divider.rect.x : Double(point.y) - divider.rect.y
+        dragging = (divider, grip)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let dragging else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        let divider = dragging.divider
+        let position =
+            divider.axis == .sideBySide
+            ? Double(point.x) - dragging.grip - divider.span.x
+            : Double(point.y) - dragging.grip - divider.span.y
+        onDividerDrag?(divider.path, position)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        dragging = nil
     }
 }
 

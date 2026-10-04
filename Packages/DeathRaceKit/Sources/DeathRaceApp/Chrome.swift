@@ -41,6 +41,10 @@ struct Chrome {
     static let cardInset: CGFloat = 4
     static let neonWidth: CGFloat = 1.5
     static let glowRadius: CGFloat = 14
+    /// The row along a card's top while its tab is split.
+    static let paneHeaderHeight: CGFloat = 26
+    /// How far a pane that is not the active one fades toward the ground.
+    static let inactiveDim = 0.14
 }
 
 /// Text filled with a gradient, drawn once into an image: cheaper than a gradient layer

@@ -235,6 +235,73 @@ final class WindowTests {
         #expect(controller.activePane?.surface.theme == ThemeCatalog.righteous.terminal)
     }
 
+    /// The visible tab's pane area.
+    func area(of controller: PitLaneWindowController) throws -> PaneAreaView {
+        try #require(controller.root.tabArea.subviews.compactMap { $0 as? PaneAreaView }.first { !$0.isHidden })
+    }
+
+    @Test func aSplitShowsHeadersAndDimsThePaneNotInUse() async throws {
+        let host = TestHost()
+        let controller = makeWindow(host)
+        defer { controller.window?.close() }
+        let first = try #require(controller.activePane)
+        let single = try #require(try area(of: controller).cards[first.id])
+        #expect(!single.showsHeader)
+        #expect(first.surface.dimming == nil)
+
+        controller.splitRight(nil)
+        await eventually { controller.panes.count == 2 }
+        let second = try #require(controller.activePane)
+        #expect(second !== first)
+        let cards = try area(of: controller).cards
+        let firstCard = try #require(cards[first.id])
+        let secondCard = try #require(cards[second.id])
+        #expect(firstCard.showsHeader && secondCard.showsHeader)
+        #expect(firstCard.header.number == 1 && secondCard.header.number == 2)
+        #expect(!firstCard.header.program.isEmpty)
+        #expect(first.surface.dimming != nil)
+        #expect(second.surface.dimming == nil)
+
+        // Zoomed, the one pane shown is not dimmed.
+        controller.togglePaneZoom(nil)
+        #expect(second.surface.dimming == nil)
+        #expect(first.surface.dimming == nil)
+    }
+
+    @Test func draggingTheDividerResizesThePanes() async throws {
+        let host = TestHost()
+        let controller = makeWindow(host)
+        defer { controller.window?.close() }
+        controller.splitRight(nil)
+        await eventually { controller.panes.count == 2 }
+        let window = try #require(controller.window)
+        window.layoutIfNeeded()
+        let area = try area(of: controller)
+        let divider = try #require(area.dividers.first)
+        let start = NSPoint(x: divider.rect.x + divider.rect.width / 2, y: divider.rect.y + 40)
+        let end = NSPoint(x: start.x - 100, y: start.y)
+        func event(_ type: NSEvent.EventType, _ point: NSPoint) throws -> NSEvent {
+            try #require(
+                NSEvent.mouseEvent(
+                    with: type, location: area.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        area.mouseDown(with: try event(.leftMouseDown, start))
+        area.mouseDragged(with: try event(.leftMouseDragged, end))
+        area.mouseUp(with: try event(.leftMouseUp, end))
+        window.layoutIfNeeded()
+        let moved = try #require(area.dividers.first)
+        #expect(abs(moved.rect.x - (divider.rect.x - 100)) <= 1)
+    }
+
+    @Test func paneNumbersRunToEightThenNineIsTheLast() {
+        #expect(PitLaneWindowController.paneNumber(0, of: 2) == 1)
+        #expect(PitLaneWindowController.paneNumber(7, of: 12) == 8)
+        #expect(PitLaneWindowController.paneNumber(8, of: 12) == nil)
+        #expect(PitLaneWindowController.paneNumber(11, of: 12) == 9)
+        #expect(PitLaneWindowController.paneNumber(8, of: 9) == 9)
+    }
+
     @Test func closeQuestionsNameThePrograms() {
         #expect(
             PitLaneWindowController.closeQuestion(["vim"], place: "tab")

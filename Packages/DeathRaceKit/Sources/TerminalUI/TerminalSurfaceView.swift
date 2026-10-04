@@ -56,6 +56,15 @@ public final class TerminalSurfaceView: NSView {
             if fontThicken != oldValue { resetGlyphs() }
         }
     }
+    /// A pane that is not its tab's active one fades toward the window's ground; nil draws
+    /// it as it is.
+    public var dimming: Dimming? {
+        didSet {
+            guard dimming != oldValue else { return }
+            cursorKey = nil
+            redraw()
+        }
+    }
     /// Lines a notch of a mouse wheel scrolls.
     public var mouseScrollMultiplier = 3.0
     /// On the alternate screen (less, man), the wheel sends arrow keys even when the program
@@ -68,6 +77,8 @@ public final class TerminalSurfaceView: NSView {
 
     /// The grid's size in cells changed.
     public var onGridChange: ((GridLayout) -> Void)?
+    /// The terminal's default background changed: the theme's, or a program's (OSC 11).
+    public var onBackgroundChange: ((RGB) -> Void)?
     /// The program set a new title.
     public var onTitleChange: ((String) -> Void)?
     /// Events for the window to act on: bells, notifications, clipboard writes, directories.
@@ -100,6 +111,7 @@ public final class TerminalSurfaceView: NSView {
     private var needsFrame = true
     private var reportedExit = false
     private var reportedReadsPassword = false
+    private var reportedBackground: RGB?
     /// A drain is scheduled for a view that is out of sight.
     private var hiddenDrainScheduled = false
     let cursorLayer = CALayer()
@@ -262,6 +274,10 @@ public final class TerminalSurfaceView: NSView {
             reportedReadsPassword = model.mirror.readingPassword
             onPasswordInputChange?()
         }
+        if model.mirror.generation != nil, model.mirror.palette.background != reportedBackground {
+            reportedBackground = model.mirror.palette.background
+            onBackgroundChange?(model.mirror.palette.background)
+        }
         if !reportedExit, case .exited = model.session.status {
             reportedExit = true
             onExit?(model.session.status)
@@ -342,7 +358,7 @@ public final class TerminalSurfaceView: NSView {
         guard
             renderer.encode(
                 frame, cell: cell, layout: layout, glyphs: glyphs, target: drawable.texture,
-                commandBuffer: commandBuffer)
+                commandBuffer: commandBuffer, dim: dimming?.packed ?? 0)
         else {
             needsFrame = true
             return true
@@ -412,7 +428,8 @@ public final class TerminalSurfaceView: NSView {
         let style = cursor.shape == .block ? cursorStyle : cursor.shape
         let rect = CellGeometry(cell: cell, layout: grid).rect(column: column, row: row, cells: cells)
         var frame = NSRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
-        let color = mirror.palette.cursor
+        // The cursor is a layer of its own, so it fades here as the frame does in the shaders.
+        let color = faded(mirror.palette.cursor)
 
         cursorLayer.isHidden = false
         if !isFocused {
@@ -433,7 +450,7 @@ public final class TerminalSurfaceView: NSView {
                 let key = CursorKey(
                     character: line.scalars(at: column), cells: cells, bold: style.attributes.contains(.bold),
                     italic: style.attributes.contains(.italic), cursor: color,
-                    text: theme.cursorText ?? mirror.palette.background)
+                    text: faded(theme.cursorText ?? mirror.palette.background))
                 if key != cursorKey {
                     let glyph =
                         key.character.isEmpty
@@ -458,6 +475,10 @@ public final class TerminalSurfaceView: NSView {
             }
         }
         cursorLayer.frame = convertToLayer(frame)
+    }
+
+    private func faded(_ color: RGB) -> RGB {
+        dimming?.apply(to: color) ?? color
     }
 
     private func hideCursor() {

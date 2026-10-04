@@ -230,6 +230,12 @@ final class PaletteButtonView: NSView {
 
 /// A key cap, as the mockups draw them: small semibold text in a rounded outline.
 enum KeyCap {
+    /// How wide `draw` makes the cap for `text`.
+    @MainActor
+    static func width(_ text: String, font: NSFont) -> CGFloat {
+        ((text as NSString).size(withAttributes: [.font: font]).width + 10).rounded(.up)
+    }
+
     @MainActor
     @discardableResult
     static func draw(_ text: String, at origin: NSPoint, height: CGFloat, colors: ChromeColors, font: NSFont) -> CGFloat
@@ -238,7 +244,7 @@ enum KeyCap {
             string: text, attributes: [.font: font, .foregroundColor: colors.inkMuted.nsColor])
         let size = label.size()
         let cap = NSRect(
-            x: origin.x, y: ((height - 16) / 2).rounded(), width: (size.width + 10).rounded(.up), height: 16)
+            x: origin.x, y: ((height - 16) / 2).rounded(), width: width(text, font: font), height: 16)
         let shape = NSBezierPath(roundedRect: cap.insetBy(dx: 0.5, dy: 0.5), xRadius: 5, yRadius: 5)
         colors.lineStrong.nsColor.setStroke()
         shape.lineWidth = 1

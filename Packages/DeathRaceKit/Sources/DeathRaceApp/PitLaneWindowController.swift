@@ -153,6 +153,12 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             for pane in tabPanes { area.add(PaneCardView(pane: pane.id, surface: pane.surface, chrome: chrome)) }
         }
         area.setChrome(chrome)
+        let id = tab.id
+        area.onDividerDrag = { [weak self] path, position in self?.dragDivider(in: id, at: path, to: position) }
+        area.onDividerDoubleClick = { [weak self] in
+            guard let self, self.model.activeTabID == id else { return }
+            self.equalizePanes(nil)
+        }
         areas[tab.id] = area
         root.tabArea.addSubview(area)
         root.needsLayout = true
@@ -164,9 +170,11 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     /// Sizes a new window for `window-size` cells in its first pane.
     private func sizeWindow(toFit pane: PaneController) {
         guard let window else { return }
+        let header = config.paneHeaders == .always
         let surface = pane.surface.size(columns: config.windowSize.columns, rows: config.windowSize.rows)
-        window.setContentSize(PitLaneRootView.windowSize(forSurface: surface))
-        window.contentMinSize = PitLaneRootView.windowSize(forSurface: pane.surface.size(columns: 20, rows: 4))
+        window.setContentSize(PitLaneRootView.windowSize(forSurface: surface, header: header))
+        window.contentMinSize = PitLaneRootView.windowSize(
+            forSurface: pane.surface.size(columns: 20, rows: 4), header: header)
     }
 
     // MARK: - Tabs
@@ -250,7 +258,9 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     }
 
     private func paneChanged(_ id: PaneID) {
-        guard let tab = model.tab(containing: id), tab.activePane == id else { return }
+        guard let tab = model.tab(containing: id) else { return }
+        refreshCards()
+        guard tab.activePane == id else { return }
         refreshTabs()
         if tab.id == model.activeTabID { refreshStatus(rereadBranch: true) }
     }
@@ -479,15 +489,44 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         let step = Double(direction == .left || direction == .right ? cell.width : cell.height) * 2
         let tree = tab.tree.resizing(
             tab.activePane, toward: direction, by: step, in: area.paneRect, gap: Double(Chrome.paneGap),
-            minimum: minimumPaneSize(pane))
+            minimum: minimumPaneSize(pane, header: showsHeaders(tab)))
         model.setTree(tree, of: tab.id)
         sync(tab.id)
     }
 
-    /// The least a pane may shrink to: 10 columns by 3 rows, with its card around them.
-    func minimumPaneSize(_ pane: PaneController) -> (width: Double, height: Double) {
+    /// A divider dragged with the mouse.
+    private func dragDivider(in tab: TabID, at path: [SplitTree.Branch], to position: Double) {
+        guard let tabModel = model.tabs.first(where: { $0.id == tab }), let area = areas[tab],
+            let pane = panes[tabModel.activePane]
+        else { return }
+        let tree = tabModel.tree.movingDivider(
+            at: path, to: position, in: area.paneRect, gap: Double(Chrome.paneGap),
+            minimum: minimumPaneSize(pane, header: showsHeaders(tabModel)))
+        model.setTree(tree, of: tab)
+        sync(tab)
+    }
+
+    /// The least a pane may shrink to: 10 columns by 3 rows, with its card (and header)
+    /// around them.
+    func minimumPaneSize(_ pane: PaneController, header: Bool) -> (width: Double, height: Double) {
         let size = pane.surface.size(columns: 10, rows: 3)
-        return (Double(size.width + Chrome.cardInset * 2), Double(size.height + Chrome.cardInset * 2))
+        let top = header ? Chrome.paneHeaderHeight : Chrome.cardInset
+        return (Double(size.width + Chrome.cardInset * 2), Double(size.height + top + Chrome.cardInset))
+    }
+
+    /// Whether `tab`'s cards show their headers, as `pane-headers` says.
+    func showsHeaders(_ tab: TabModel) -> Bool {
+        switch config.paneHeaders {
+        case .always: true
+        case .never: false
+        case .split: tab.isSplit
+        }
+    }
+
+    /// The N of ⌥⌘N for the pane at `index` in reading order: 1 to 8, and 9 for the last.
+    static func paneNumber(_ index: Int, of count: Int) -> Int? {
+        if index == count - 1, count >= 9 { return 9 }
+        return index < 8 ? index + 1 : nil
     }
 
     /// The model's tree and zoom, to the tab's view.
@@ -531,6 +570,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             chrome = Chrome(newConfig.namedTheme)
             applyChrome()
         }
+        refreshCards()
         refreshStatus()
     }
 
@@ -546,15 +586,32 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
 
     // MARK: - Keeping the chrome in step
 
+    /// The NeonBorder and glow on each tab's active pane, the others dimmed, and the headers.
     private func refreshCards() {
         let isKey = window?.isKeyWindow ?? false
         for tab in model.tabs {
             guard let area = areas[tab.id] else { continue }
-            for (id, card) in area.cards {
+            let headers = showsHeaders(tab)
+            for (index, id) in tab.panes.enumerated() {
+                guard let card = area.cards[id] else { continue }
                 card.isActive = id == tab.activePane
                 card.isWindowKey = isKey
+                card.isDimmed = tab.isSplit && tab.zoomedPane == nil && id != tab.activePane
+                card.showsHeader = headers
+                if headers, let pane = panes[id] {
+                    card.header = header(for: pane, number: Self.paneNumber(index, of: tab.panes.count))
+                }
             }
         }
+    }
+
+    private func header(for pane: PaneController, number: Int?) -> PaneHeader {
+        let directory = pane.directory
+        if let directory, branchIsStale(directory) { readBranch(at: directory) }
+        return PaneHeader(
+            program: pane.programName ?? pane.shellName,
+            directory: directory.map { abbreviatingHome($0, home: Self.home) },
+            branch: directory.flatMap { branches[$0] }, number: number)
     }
 
     private func refreshTabs() {
@@ -595,10 +652,14 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         facts.settingsProblems = settingsProblems
         if let directory = pane.directory {
             facts.branch = branches[directory]
-            let stale = branchRead[directory].map { Date().timeIntervalSince($0) > 2 } ?? true
-            if rereadBranch || stale { readBranch(at: directory) }
+            if rereadBranch || branchIsStale(directory) { readBranch(at: directory) }
         }
         root.statusBar.line = StatusLine(facts)
+    }
+
+    /// The branch shown for `directory` was read more than two seconds ago, or never.
+    private func branchIsStale(_ directory: String) -> Bool {
+        branchRead[directory].map { Date().timeIntervalSince($0) > 2 } ?? true
     }
 
     private func readBranch(at directory: String) {
@@ -612,6 +673,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     private func setBranch(_ branch: String?, for directory: String) {
         guard branches[directory] != branch else { return }
         branches[directory] = branch
+        refreshCards()
         refreshStatus()
     }
 

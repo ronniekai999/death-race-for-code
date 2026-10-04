@@ -23,8 +23,10 @@ public enum KeyEncoder {
     // MARK: - Legacy (xterm)
 
     static func legacy(_ event: KeyEvent, modes: TerminalModes) -> [UInt8] {
-        guard event.action != .release else { return [] }
-        let mods = event.modifiers.intersection([.shift, .alt, .control, .command])
+        // Command (super) has no legacy encoding; only the Kitty protocol carries it. Sent as
+        // its plain character, a ⌘K that no menu item took would type a k.
+        guard event.action != .release, !event.modifiers.contains(.command) else { return [] }
+        let mods = event.modifiers.intersection([.shift, .alt, .control])
         let alt = mods.contains(.alt)
         let escape: [UInt8] = alt ? [0x1B] : []
 
@@ -89,7 +91,7 @@ public enum KeyEncoder {
     }
 
     private static func legacyKeypad(_ key: KeypadKey, event: KeyEvent, modes: TerminalModes) -> [UInt8] {
-        let mods = event.modifiers.intersection([.shift, .alt, .control, .command])
+        let mods = event.modifiers.intersection([.shift, .alt, .control])
         if modes.applicationKeypad && mods.isEmpty, let final = applicationKeypadFinal(key) {
             return Array("\u{1B}O\(final)".utf8)
         }

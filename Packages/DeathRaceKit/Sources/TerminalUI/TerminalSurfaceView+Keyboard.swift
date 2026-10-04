@@ -34,7 +34,12 @@ extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
         let press = KeyPress(event)
         switch KeyRouting.route(press, optionAsMeta: optionAsMeta, composing: hasMarkedText()) {
         case .encode(let keyEvent):
-            send(keyEvent)
+            if !send(keyEvent), keyEvent.modifiers.contains(.command) {
+                // A ⌘ chord no menu item took, which the program cannot receive (only the
+                // Kitty protocol carries Command): up the responder chain, which beeps, as
+                // anywhere on macOS.
+                super.keyDown(with: event)
+            }
         case .inputMethod:
             currentPress = press
             interpretKeyEvents([event])
@@ -61,16 +66,19 @@ extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
         if let keyEvent = KeyRouting.modifierKey(press, optionAsMeta: optionAsMeta) { send(keyEvent) }
     }
 
-    /// Encodes a key for the program, in the modes it set, and sends it.
-    func send(_ keyEvent: KeyEvent) {
-        guard let mirror = model?.mirror else { return }
+    /// Encodes a key for the program, in the modes it set, and sends it. False when the key
+    /// means nothing to the program.
+    @discardableResult
+    func send(_ keyEvent: KeyEvent) -> Bool {
+        guard let mirror = model?.mirror else { return false }
         let bytes = KeyEncoder.encode(keyEvent, modes: mirror.modes, kittyFlags: mirror.kittyFlags)
-        guard !bytes.isEmpty else { return }
+        guard !bytes.isEmpty else { return false }
         // Typing clears the selection; a release or a modifier key alone does not.
         var isModifier = false
         if case .modifier = keyEvent.key { isModifier = true }
         if keyEvent.action != .release && !isModifier { clearSelection() }
         session?.send(bytes)
+        return true
     }
 
     // MARK: - NSTextInputClient

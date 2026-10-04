@@ -141,3 +141,60 @@ public struct FrameStats: Sendable {
         return "\(hundredths / 100).\(fraction < 10 ? "0" : "")\(fraction)"
     }
 }
+
+/// How fast a terminal view may draw, as a display link's preferred frame rate range.
+///
+/// Typing and scrolling get the display's full rate, so the next frame is never late.
+/// Output alone needs far less: a busy build at 60 frames a second looks the same and costs
+/// half as much (`output-frame-rate-cap`). Low Power Mode lowers both, and a hot Mac gets 30.
+public struct FrameRatePolicy: Sendable, Equatable {
+    /// The display's highest rate: 120 on ProMotion, usually 60 elsewhere.
+    public var displayMaximum: Double
+    public var followsLowPowerMode: Bool
+    public var capsOutput: Bool
+
+    public init(displayMaximum: Double = 120, followsLowPowerMode: Bool = true, capsOutput: Bool = true) {
+        self.displayMaximum = displayMaximum
+        self.followsLowPowerMode = followsLowPowerMode
+        self.capsOutput = capsOutput
+    }
+
+    /// ProcessInfo's thermal states, hottest last.
+    public enum Thermal: Int, Sendable, Comparable {
+        case nominal, fair, serious, critical
+        public static func < (a: Thermal, b: Thermal) -> Bool { a.rawValue < b.rawValue }
+    }
+
+    public struct Conditions: Sendable, Equatable {
+        /// A key press, a scroll or a selection drag in the last second.
+        public var recentInput: Bool
+        public var lowPowerMode: Bool
+        public var thermal: Thermal
+
+        public init(recentInput: Bool, lowPowerMode: Bool = false, thermal: Thermal = .nominal) {
+            self.recentInput = recentInput
+            self.lowPowerMode = lowPowerMode
+            self.thermal = thermal
+        }
+    }
+
+    /// What CAFrameRateRange takes: frames a second.
+    public struct Range: Sendable, Equatable {
+        public var minimum: Double
+        public var maximum: Double
+        public var preferred: Double
+    }
+
+    /// How long input counts as recent, in seconds.
+    public static let inputWindow = 1.0
+
+    public func range(for conditions: Conditions) -> Range {
+        let display = max(displayMaximum, 1)
+        var maximum = conditions.recentInput || !capsOutput ? display : min(60, display)
+        if followsLowPowerMode && conditions.lowPowerMode {
+            maximum = min(maximum, conditions.recentInput ? 60 : 30)
+        }
+        if conditions.thermal >= .serious { maximum = min(maximum, 30) }
+        return Range(minimum: (maximum / 2).rounded(.down), maximum: maximum, preferred: maximum)
+    }
+}

@@ -103,7 +103,7 @@ public final class Session: Sendable {
     /// The text of `range`, read on the session thread, so it reaches into history the app
     /// does not have. Nil when the screen is no longer the one of `generation` (the line
     /// numbers would point at other text) or the session has ended.
-    public func text(in range: TextRange, generation: UInt64) async -> String? {
+    public func text(in range: TextRegion, generation: UInt64) async -> String? {
         await withCheckedContinuation { continuation in
             channel.send(.query(.text(range, generation: generation, continuation)))
         }
@@ -151,7 +151,7 @@ final class SessionChannel: Sendable {
     /// A command that answers. Every query is answered exactly once: by the session thread,
     /// or with nil when the session has ended, so no caller waits forever.
     enum Query: Sendable {
-        case text(TextRange, generation: UInt64, CheckedContinuation<String?, Never>)
+        case text(TextRegion, generation: UInt64, CheckedContinuation<String?, Never>)
         case foregroundProcess(CheckedContinuation<ForegroundProcess?, Never>)
 
         /// Answers nil: there is no session to ask.

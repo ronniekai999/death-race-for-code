@@ -53,7 +53,7 @@ private struct Surface {
         return model.drain()
     }
 
-    func frame(selection: TextRange? = nil) -> Frame {
+    func frame(selection: TextRegion? = nil) -> Frame {
         builder.build(mirror: model.mirror, theme: theme, cell: Self.cell, selection: selection, glyphs: glyphs)
     }
 }
@@ -268,13 +268,13 @@ private struct Surface {
     @Test func selectionHighlightsItsCells() {
         let surface = Surface(columns: 4, rows: 2)
         surface.feed("abcd\r\nefgh")
-        let selection = TextRange(TextPoint(line: 0, column: 2), TextPoint(line: 1, column: 1))
+        let selection = TextRegion(TextPoint(line: 0, column: 2), TextPoint(line: 1, column: 1))
         let frame = surface.frame(selection: selection)
         let selected = Theme.legendsNeverDie.selectionBackground.packed
         let plain = Palette.legendsNeverDie.background.packed
         #expect(frame.backgrounds == [plain, plain, selected, selected, selected, selected, plain, plain])
         // Only rows whose selected columns changed rebuild.
-        _ = surface.frame(selection: TextRange(TextPoint(line: 0, column: 2), TextPoint(line: 1, column: 2)))
+        _ = surface.frame(selection: TextRegion(TextPoint(line: 0, column: 2), TextPoint(line: 1, column: 2)))
         #expect(surface.builder.rebuiltRows == 1)
     }
 

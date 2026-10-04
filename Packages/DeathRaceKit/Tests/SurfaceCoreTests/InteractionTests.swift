@@ -79,10 +79,10 @@ private func point(_ line: UInt64, _ column: Int, _ boundary: Int? = nil) -> Sel
         }
         #expect(selection.range == nil)
         selection.extend(to: point(0, 4, 5), columns: 20) { t.line($0) }
-        #expect(selection.range == TextRange(TextPoint(line: 0, column: 1), TextPoint(line: 0, column: 4)))
+        #expect(selection.range == TextRegion(TextPoint(line: 0, column: 1), TextPoint(line: 0, column: 4)))
         // Dragging back past the start selects the other way.
         selection.extend(to: point(0, 0, 0), columns: 20) { t.line($0) }
-        #expect(selection.range == TextRange(TextPoint(line: 0, column: 0), TextPoint(line: 0, column: 0)))
+        #expect(selection.range == TextRegion(TextPoint(line: 0, column: 0), TextPoint(line: 0, column: 0)))
         // Onto the next line at its start: the first line to its end.
         selection.extend(to: point(1, 0, 0), columns: 20) { t.line($0) }
         let text = selection.range.map { range in TextExtractor.text(in: range) { t.line($0) } }
@@ -92,12 +92,12 @@ private func point(_ line: UInt64, _ column: Int, _ boundary: Int? = nil) -> Sel
     @Test func wordSelectionsGrowByWords() {
         let t = screen("one two three four")
         var selection = Selection(at: point(0, 5), granularity: .word, rectangular: false, columns: 20) { t.line($0) }
-        #expect(selection.range == TextRange(TextPoint(line: 0, column: 4), TextPoint(line: 0, column: 6)))
+        #expect(selection.range == TextRegion(TextPoint(line: 0, column: 4), TextPoint(line: 0, column: 6)))
         selection.extend(to: point(0, 9), columns: 20) { t.line($0) }
-        #expect(selection.range == TextRange(TextPoint(line: 0, column: 4), TextPoint(line: 0, column: 12)))
+        #expect(selection.range == TextRegion(TextPoint(line: 0, column: 4), TextPoint(line: 0, column: 12)))
         // Back before the start: from that word to the end of the first one.
         selection.extend(to: point(0, 1), columns: 20) { t.line($0) }
-        #expect(selection.range == TextRange(TextPoint(line: 0, column: 0), TextPoint(line: 0, column: 6)))
+        #expect(selection.range == TextRegion(TextPoint(line: 0, column: 0), TextPoint(line: 0, column: 6)))
     }
 
     @Test func lineSelectionsFollowSoftWraps() {

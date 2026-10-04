@@ -18,8 +18,9 @@ public struct TextPoint: Sendable, Hashable, Comparable {
 }
 
 /// Text between two points, both included: running from one to the other through the
-/// lines between, or, when rectangular, the same columns on every line.
-public struct TextRange: Sendable, Hashable {
+/// lines between, or, when rectangular, the same columns on every line. (Not "TextRange":
+/// on macOS, Foundation brings in a Carbon struct of that name.)
+public struct TextRegion: Sendable, Hashable {
     public var start: TextPoint
     public var end: TextPoint
     public var isRectangular: Bool
@@ -69,7 +70,7 @@ extension RowSnapshot: TextLine {}
 public enum TextExtractor {
     /// The text of `range`; `line` gives the line with a number, or nil for one that is gone
     /// (trimmed from history), which then contributes nothing.
-    public static func text(in range: TextRange, line: (UInt64) -> (any TextLine)?) -> String {
+    public static func text(in range: TextRegion, line: (UInt64) -> (any TextLine)?) -> String {
         var out = ""
         var number = range.start.line
         while true {
@@ -145,7 +146,7 @@ extension MirrorGrid {
 
     /// The text of `range` if every line of it is in view; nil when some of it has to come
     /// from the session.
-    public func text(in range: TextRange) -> String? {
+    public func text(in range: TextRegion) -> String? {
         guard range.start.line >= viewportTopLine, range.end.line < viewportTopLine + UInt64(lines.count) else {
             return nil
         }

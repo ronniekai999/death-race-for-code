@@ -14,7 +14,7 @@ import VTCore
     private func text(_ terminal: Terminal, _ a: (UInt64, Int), _ b: (UInt64, Int), rectangular: Bool = false)
         -> String
     {
-        let range = TextRange(
+        let range = TextRegion(
             TextPoint(line: a.0, column: a.1), TextPoint(line: b.0, column: b.1), rectangular: rectangular)
         return TextExtractor.text(in: range) { terminal.line($0) }
     }
@@ -86,7 +86,7 @@ import VTCore
     }
 
     @Test func rangesAndColumns() {
-        let range = TextRange(TextPoint(line: 5, column: 7), TextPoint(line: 3, column: 2))
+        let range = TextRegion(TextPoint(line: 5, column: 7), TextPoint(line: 3, column: 2))
         #expect(range.start == TextPoint(line: 3, column: 2))
         #expect(range.columns(on: 3, width: 10) == 2...9)
         #expect(range.columns(on: 4, width: 10) == 0...9)
@@ -94,7 +94,7 @@ import VTCore
         #expect(range.columns(on: 6, width: 10) == nil)
         #expect(range.contains(TextPoint(line: 4, column: 0)))
         #expect(!range.contains(TextPoint(line: 3, column: 1)))
-        let rectangle = TextRange(TextPoint(line: 5, column: 7), TextPoint(line: 3, column: 2), rectangular: true)
+        let rectangle = TextRegion(TextPoint(line: 5, column: 7), TextPoint(line: 3, column: 2), rectangular: true)
         #expect(rectangle.start == TextPoint(line: 3, column: 2))
         #expect(rectangle.end == TextPoint(line: 5, column: 7))
         #expect(rectangle.columns(on: 4, width: 10) == 2...7)
@@ -108,8 +108,8 @@ import VTCore
         try mirror.apply(builder.makeDelta(from: t, events: []))
         #expect(mirror.viewportTopLine == 5)
         #expect(
-            mirror.text(in: TextRange(TextPoint(line: 5, column: 0), TextPoint(line: 8, column: 9))) == "6\n7\n8\n9")
-        #expect(mirror.text(in: TextRange(TextPoint(line: 4, column: 0), TextPoint(line: 8, column: 9))) == nil)
+            mirror.text(in: TextRegion(TextPoint(line: 5, column: 0), TextPoint(line: 8, column: 9))) == "6\n7\n8\n9")
+        #expect(mirror.text(in: TextRegion(TextPoint(line: 4, column: 0), TextPoint(line: 8, column: 9))) == nil)
         #expect(mirror.line(5).map { TextExtractor.text(of: $0, columns: 0...9) } == "6         ")
     }
 }

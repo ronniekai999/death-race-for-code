@@ -112,7 +112,7 @@ struct SessionTests {
         h.type("for i in 1 2 3 4 5 6 7 8; do echo line$i; done\n")
         #expect(h.waitUntil { $0.text.contains("line8") })
         let generation = try #require(h.mirror.generation)
-        let everything = TextRange(
+        let everything = TextRegion(
             TextPoint(line: 0, column: 0), TextPoint(line: h.mirror.viewportTopLine + 3, column: 39))
         let text = await h.session.text(in: everything, generation: generation)
         #expect(text?.contains("line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8") == true)
@@ -139,7 +139,7 @@ struct SessionTests {
                 return false
             })
         #expect(await h.session.foregroundProcess() == nil)
-        let range = TextRange(TextPoint(line: 0, column: 0), TextPoint(line: 0, column: 9))
+        let range = TextRegion(TextPoint(line: 0, column: 0), TextPoint(line: 0, column: 9))
         #expect(await h.session.text(in: range, generation: h.mirror.generation ?? 0) == nil)
     }
 

@@ -117,7 +117,7 @@ public struct Selection: Sendable, Equatable {
     private var anchorEnd: TextPoint
     private var head: TextPoint
     private var headEnd: TextPoint
-    public private(set) var range: TextRange?
+    public private(set) var range: TextRegion?
 
     /// Starts a selection at `point`. `line` gives the rows words and lines are read from.
     public init(
@@ -146,7 +146,7 @@ public struct Selection: Sendable, Equatable {
 
     private mutating func updateRange() {
         if isRectangular {
-            range = TextRange(anchorStart, head, rectangular: true)
+            range = TextRegion(anchorStart, head, rectangular: true)
             return
         }
         switch granularity {
@@ -159,11 +159,11 @@ public struct Selection: Sendable, Equatable {
                 return
             }
             let (from, to) = a < b ? (a, b) : (b, a)
-            range = TextRange(from, TextPoint(line: to.line, column: to.column - 1))
+            range = TextRegion(from, TextPoint(line: to.line, column: to.column - 1))
         case .word, .line:
             let from = min(anchorStart, head)
             let to = max(anchorEnd, headEnd)
-            range = TextRange(from, to)
+            range = TextRegion(from, to)
         }
     }
 

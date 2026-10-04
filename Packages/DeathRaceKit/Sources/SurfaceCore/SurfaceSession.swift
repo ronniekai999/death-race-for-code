@@ -16,7 +16,7 @@ public protocol SurfaceSession: AnyObject, Sendable {
     func requestSnapshot()
     func setFocused(_ focused: Bool)
     func setBasePalette(_ palette: Palette)
-    func text(in range: TextRange, generation: UInt64) async -> String?
+    func text(in range: TextRegion, generation: UInt64) async -> String?
 }
 
 extension Session: SurfaceSession {}
@@ -99,7 +99,7 @@ public final class ReplaySession: SurfaceSession, @unchecked Sendable {
         terminal.setBasePalette(palette)
     }
 
-    public func text(in range: TextRange, generation: UInt64) async -> String? {
+    public func text(in range: TextRegion, generation: UInt64) async -> String? {
         guard generation == terminal.generation else { return nil }
         return TextExtractor.text(in: range) { terminal.line($0) }
     }

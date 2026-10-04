@@ -96,7 +96,7 @@ public final class FrameBuilder {
 
     /// The frame for `mirror` drawn with `theme` at `cell`, with `selection` highlighted.
     public func build(
-        mirror: MirrorGrid, theme: Theme, cell: CellMetrics, selection: TextRange?, glyphs: any GlyphSource
+        mirror: MirrorGrid, theme: Theme, cell: CellMetrics, selection: TextRegion?, glyphs: any GlyphSource
     ) -> Frame {
         let current = Inputs(
             palette: mirror.palette, theme: theme, reverseVideo: mirror.modes.reverseVideo, cell: cell,

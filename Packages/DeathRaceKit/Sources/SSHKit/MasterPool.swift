@@ -83,7 +83,14 @@ public final class MasterPool: Sendable {
         var users: Set<String>
         var idle: Task<Void, Never>?
         var master: MasterSupervisor?
+        /// How the pool reached this host, so a later connection that jumps through it can
+        /// be matched to this entry by alias.
+        var target: ConnectionTarget
     }
+
+    /// The synthetic user a master holds on each jump host it reaches through, so the jump
+    /// host's master can't idle out from under it (its ProxyJump hop reuses that master).
+    private static func viaUser(_ key: String) -> String { "via:" + key }
 
     struct State {
         var entries: [String: Entry] = [:]
@@ -130,7 +137,7 @@ public final class MasterPool: Sendable {
                 return entry.startup
             }
             let task = Task { await self.start(target, secrets: secrets, mayAsk: mayAsk) }
-            state.entries[target.key] = Entry(startup: task, users: [user])
+            state.entries[target.key] = Entry(startup: task, users: [user], target: target)
             return task
         }
         let started = await startup.value
@@ -188,6 +195,7 @@ public final class MasterPool: Sendable {
         do {
             let pid = try master.start()
             broker.attach(token: token, rootPID: pid)
+            holdJumpHosts(chain, for: target)
             return Started(master: master)
         } catch .alreadyRunning {
             broker.unregister(token: token)
@@ -199,14 +207,35 @@ public final class MasterPool: Sendable {
     }
 
     /// A master ended: its entry goes, unless a newer master for the host has taken its
-    /// place, and whoever listens hears why.
+    /// place, and whoever listens hears why. When it goes, the hold it kept on the jump
+    /// hosts it reached through is released, so they can idle out once nothing else needs
+    /// them. (A newer master kept the entry, so it keeps the holds too.)
     private func ended(_ key: String, _ master: MasterSupervisor?, _ ending: MasterSupervisor.Ending) {
-        state.withLock { state in
-            guard let entry = state.entries[key], entry.master === master else { return }
+        let removed = state.withLock { state -> Bool in
+            guard let entry = state.entries[key], entry.master === master else { return false }
             entry.idle?.cancel()
             state.entries[key] = nil
+            return true
         }
+        if removed { release(Self.viaUser(key)) }
         onEnd(key, ending)
+    }
+
+    /// Holds the ready master of each jump host `target` reaches through, so it can't idle
+    /// out while this master lives: the ProxyJump hop (`ssh -W`) reuses that master's socket,
+    /// so ending it would drop every host behind it. The hold is released in `ended`.
+    private func holdJumpHosts(_ chain: HostChain, for target: ConnectionTarget) {
+        let jumpAliases = Set(chain.hops.dropLast().map(\.alias))
+        guard !jumpAliases.isEmpty else { return }
+        state.withLock { state in
+            for (key, var entry) in state.entries
+            where key != target.key && jumpAliases.contains(entry.target.alias) && entry.master?.state == .ready {
+                entry.idle?.cancel()
+                entry.idle = nil
+                entry.users.insert(Self.viaUser(target.key))
+                state.entries[key] = entry
+            }
+        }
     }
 
     /// Removes `key`'s entry if it's still the one `startup` began.
@@ -282,11 +311,15 @@ public final class MasterPool: Sendable {
     }
 }
 
-/// The supervisor a broker registration ends on Cancel, known only once it exists.
+/// The supervisor a broker registration ends on Cancel, known only once it exists. It holds
+/// the master *weakly*: the master's own state callback captures this, so a strong hold would
+/// be a cycle that leaks every master. The pool's `State` keeps the master alive while its
+/// entry lives, and once the entry goes the master should be freed.
 private final class LateSupervisor: Sendable {
-    private let master = Locked<MasterSupervisor?>(nil)
+    private final class Box { weak var master: MasterSupervisor? }
+    private let box = Locked(Box())
 
-    func set(_ value: MasterSupervisor) { master.withLock { $0 = value } }
-    var value: MasterSupervisor? { master.withLock { $0 } }
+    func set(_ value: MasterSupervisor) { box.withLock { $0.master = value } }
+    var value: MasterSupervisor? { box.withLock { $0.master } }
     func end(_ ending: MasterSupervisor.Ending) { value?.end(ending) }
 }

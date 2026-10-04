@@ -546,6 +546,31 @@ struct MasterPoolTests {
         await rig.finish()
     }
 
+    // Closing the only pane on a jump host must not take down the hosts behind it: their
+    // ProxyJump hops reuse that master's socket, so it stays up while anything needs it.
+    @Test func aJumpHostStaysUpWhileAHostBehindItIsConnected() async throws {
+        let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword, Rig.targetRef: TestSSHD.targetPassword])
+        let endings = EndingLog()
+        let pool = try rig.pool(idleClose: .milliseconds(300), endings: endings)
+        #expect(await pool.connect(try rig.target(Rig.jumpID), for: "pane-jump", secrets: rig.saved) == .ready)
+        #expect(await pool.connect(try rig.target(Rig.targetID), for: "pane-target", secrets: rig.saved) == .ready)
+        #expect(pool.connected == [Rig.jumpID.rawValue, Rig.targetID.rawValue])
+
+        // Close the jump pane. Well past the idle time, both masters are still up: the target
+        // behind it holds the jump host open.
+        pool.release("pane-jump")
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(pool.connected == [Rig.jumpID.rawValue, Rig.targetID.rawValue])
+        #expect(endings.all.isEmpty)
+
+        // Close the target too, and now both idle out: the target first, then the jump host
+        // once the target's hold is released.
+        pool.release("pane-target")
+        #expect(await eventually { pool.connected.isEmpty })
+        #expect(await eventually { Set(endings.all) == ["h-jump: closed", "h-target: closed"] })
+        await rig.finish()
+    }
+
     @Test func eachHopIsAskedOnceThroughTheJumpHostsOwnMaster() async throws {
         let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword, Rig.targetRef: TestSSHD.targetPassword])
         let pool = try rig.pool()

@@ -80,7 +80,9 @@ var targets: [Target] = [
         // Metal and CoreText: fonts, glyphs and the renderer.
         .target(name: "RenderKit", dependencies: ["SurfaceCore"]),
         // The terminal view: drawing, keys, input methods, the mouse and the pasteboard.
-        .target(name: "TerminalUI", dependencies: ["RenderKit", "SurfaceCore", "ConfigKit", "VTCore"]),
+        .target(
+            name: "TerminalUI",
+            dependencies: ["RenderKit", "SurfaceCore", "SessionKit", "ScreenProtocol", "ConfigKit", "VTCore"]),
         .target(
             name: "DeathRaceApp",
             dependencies: [

@@ -94,9 +94,11 @@ public final class FrameBuilder {
 
     public init() {}
 
-    /// The frame for `mirror` drawn with `theme` at `cell`, with `selection` highlighted.
+    /// The frame for `mirror` drawn with `theme` at `cell`, with `selection` highlighted and
+    /// an input method's composing text (`preedit`) drawn over the cells it covers, underlined.
     public func build(
-        mirror: MirrorGrid, theme: Theme, cell: CellMetrics, selection: TextRegion?, glyphs: any GlyphSource
+        mirror: MirrorGrid, theme: Theme, cell: CellMetrics, selection: TextRegion?, glyphs: any GlyphSource,
+        preedit: PreeditLayout? = nil
     ) -> Frame {
         let current = Inputs(
             palette: mirror.palette, theme: theme, reverseVideo: mirror.modes.reverseVideo, cell: cell,
@@ -142,8 +144,58 @@ public final class FrameBuilder {
         }
         // Rows that scrolled out of view are not kept.
         if cache.count > visible.count { cache = cache.filter { visible.contains($0.key) } }
+        if let preedit {
+            overlay(preedit, on: &frame, resolver: resolver, cell: cell, glyphs: glyphs, shelves: &shelves)
+        }
         glyphs.markUsed(shelves: Array(shelves))
         return frame
+    }
+
+    /// Composing text, drawn fresh each frame (it is never cached with the rows): the
+    /// default colors, and one underline under all of it.
+    private func overlay(
+        _ preedit: PreeditLayout, on frame: inout Frame, resolver: ColorResolver, cell: CellMetrics,
+        glyphs: any GlyphSource, shelves: inout Set<UInt16>
+    ) {
+        guard preedit.row >= 0, preedit.row < frame.rows, !preedit.cells.isEmpty else { return }
+        let plain = resolver.resolve(.default)
+        let cellY = UInt16(clamping: preedit.row)
+        for item in preedit.cells {
+            let span = item.isWide ? 2 : 1
+            guard item.column >= 0, item.column + span <= frame.columns else { continue }
+            // What the row drew under the composing text goes.
+            frame.glyphs.removeAll { $0.cellY == cellY && (item.column..<(item.column + span)).contains(Int($0.cellX)) }
+            for column in item.column..<(item.column + span) {
+                frame.backgrounds[preedit.row * frame.columns + column] = plain.background.packed
+            }
+            let key = GlyphKey(scalars: item.scalars, bold: false, italic: false, wide: item.isWide)
+            guard let placement = glyphs.placement(for: key) else {
+                frame.isComplete = false
+                continue
+            }
+            if !placement.isEmpty {
+                frame.glyphs.append(
+                    GlyphInstance(
+                        cellX: UInt16(clamping: item.column), cellY: cellY, atlasX: placement.x, atlasY: placement.y,
+                        width: placement.width, height: placement.height, offsetX: placement.offsetX,
+                        offsetY: placement.offsetY, color: plain.foreground.packed,
+                        flags: placement.atlas == .color ? GlyphInstance.colorAtlasFlag : 0))
+                shelves.insert(placement.shelf)
+            }
+        }
+        guard let first = preedit.cells.first, let last = preedit.cells.last else { return }
+        let end = last.column + (last.isWide ? 2 : 1)
+        frame.decorations.removeAll {
+            $0.cellY == cellY && Int($0.cellX) < end && Int($0.cellX + $0.cellCount) > first.column
+        }
+        let thickness = cell.underlineThickness
+        frame.decorations.append(
+            DecorationInstance(
+                cellX: UInt16(clamping: first.column), cellY: cellY, cellCount: UInt16(clamping: end - first.column),
+                kind: DecorationKind.underline.rawValue, thickness: UInt8(clamping: thickness),
+                top: Int16(clamping: min(cell.underlineTop, cell.height - thickness)),
+                height: Int16(clamping: thickness),
+                color: plain.foreground.packed))
     }
 
     private func buildRow(

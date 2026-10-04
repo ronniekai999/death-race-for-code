@@ -337,6 +337,27 @@ private struct Surface {
         #expect(surface.glyphs.usedShelves == [0, 1, 2])
     }
 
+    /// An input method's composing text covers the cells at the cursor, underlined, and is
+    /// gone from the next frame without it.
+    @Test func composingTextIsDrawnOverTheRow() {
+        let surface = Surface(columns: 8, rows: 2)
+        surface.feed("\u{1B}[41mabcdef")
+        let preedit = PreeditLayout(text: "日本", cursorColumn: 1, cursorRow: 0, columns: 8)
+        let frame = surface.builder.build(
+            mirror: surface.model.mirror, theme: surface.theme, cell: Surface.cell, selection: nil,
+            glyphs: surface.glyphs, preedit: preedit)
+        let red = Palette.legendsNeverDie.colors[1].packed
+        let plain = Palette.legendsNeverDie.background.packed
+        // The red background ends with "abcdef"; 日本 covers b to e in the default colors.
+        #expect(Array(frame.backgrounds[0..<8]) == [red, plain, plain, plain, plain, red, plain, plain])
+        // a, then 日 and 本 (wide), then f; b, c, d and e are covered.
+        #expect(frame.glyphs.map(\.cellX).sorted() == [0, 1, 3, 5])
+        #expect(frame.decorations.map { [Int($0.cellX), Int($0.cellCount)] } == [[1, 4]])
+        let without = surface.frame()
+        #expect(Array(without.backgrounds[0..<8]) == Array(repeating: red, count: 6) + [plain, plain])
+        #expect(without.decorations.isEmpty)
+    }
+
     /// The structs the shaders read have the sizes the shaders expect.
     @Test func instanceLayouts() {
         #expect(MemoryLayout<GlyphInstance>.size == 24)

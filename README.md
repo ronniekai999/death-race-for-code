@@ -9,9 +9,11 @@ L E G E N D S   N E V E R   D I E
 
 ## Status
 
-Phase 2, first pixels, is under way. The app is now an AppKit app with windows, native tabs,
-menus, a settings file and an About window; each tab lays out an empty terminal grid. The
-Metal renderer, input and live shells arrive over the next steps of this phase.
+Phase 2, first pixels, is under way. The app is an AppKit app with windows, native tabs,
+menus, a settings file and an About window, and each tab now runs your shell: drawn with
+Metal, with typing, input methods (Japanese, accents, emoji), Option as Meta, the mouse for
+programs that ask for it, scrolling through history, resizing and titles. Selection, copy and
+paste, cursor blink and the safety prompts arrive over the next steps of this phase.
 
 Phase 1 built the engine. It covers the v1 scope and passes 95% of xterm's conformance suite
 on that scope (esctest, ratcheted in CI). It reflows on resize, handles Unicode 18 graphemes,

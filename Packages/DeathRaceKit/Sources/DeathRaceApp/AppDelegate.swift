@@ -1,5 +1,6 @@
 import AppKit
 import ConfigKit
+import SessionKit
 
 /// Opens windows and tabs, owns their controllers, and answers the app-wide menu items.
 @MainActor
@@ -34,10 +35,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         true
     }
 
+    // Focus follows the app as well as the window: a terminal in a background app is not
+    // focused (its cursor goes hollow, programs get a focus-out report).
+    func applicationDidBecomeActive(_ notification: Notification) {
+        for controller in controllers { controller.surface.focusChanged() }
+    }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        for controller in controllers { controller.surface.focusChanged() }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        for controller in controllers { controller.session?.close() }
+    }
+
     // MARK: - Windows and tabs
 
     @objc func newWindow(_ sender: Any?) {
-        let controller = makeController()
+        let controller = makeController(directory: nil)
         guard let window = controller.window else { return }
         // A new window, even when the user prefers tabs: ⌘T is for tabs.
         window.tabbingMode = .disallowed
@@ -58,15 +73,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func openTab(beside existing: TerminalWindowController) {
         guard let existingWindow = existing.window else { return newWindow(nil) }
-        let controller = makeController()
+        // A new tab starts where the current one is (with `working-directory = inherit`).
+        let controller = makeController(directory: existing.workingDirectory)
         guard let window = controller.window else { return }
         existingWindow.addTabbedWindow(window, ordered: .above)
         window.makeKeyAndOrderFront(nil)
     }
 
-    private func makeController() -> TerminalWindowController {
+    private func makeController(directory: String?) -> TerminalWindowController {
         let controller = TerminalWindowController(
-            config: configStore.config,
+            config: configStore.config, directory: directory,
             onNewTab: { [weak self] existing in self?.openTab(beside: existing) },
             onClose: { [weak self] closed in
                 // Released once AppKit has finished closing the window.

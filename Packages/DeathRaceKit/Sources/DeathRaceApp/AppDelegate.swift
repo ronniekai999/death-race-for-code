@@ -6,6 +6,7 @@ import PTYKit
 import RenderKit
 import SSHKit
 import SessionKit
+import Vault
 
 /// Opens windows, owns their controllers, and answers the app-wide menu items.
 @MainActor
@@ -149,6 +150,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     private var newHostSheet: NewHostSheet?
     /// wrld.json and ~/.ssh/config, watched.
     private var wrldWatchers: [ConfigWatcher] = []
+    /// The WRLD window, while it's open.
+    private(set) var wrldWindow: WRLDWindowController?
+
+    /// ⌘O: the WRLD window, made on first use.
+    @objc func openWRLD(_ sender: Any?) {
+        showWRLD(nil)
+    }
+
+    /// The WRLD window at `place`, when given.
+    func showWRLD(_ place: WRLDBoard.Place?) {
+        guard let wrld else { return }
+        let controller =
+            wrldWindow ?? WRLDWindowController(wrld: wrld, host: self, chrome: Chrome(configStore.config.namedTheme))
+        if wrldWindow == nil {
+            controller.onClose = { [weak self, weak controller] in
+                // Released once AppKit has finished closing it.
+                Task { @MainActor in
+                    if let self, self.wrldWindow === controller { self.wrldWindow = nil }
+                }
+            }
+            wrldWindow = controller
+        }
+        controller.show(place)
+    }
+
+    /// The Pit Lane window in front, or a new one when none is open.
+    private var frontWindow: PitLaneWindowController {
+        if let front = NSApp.orderedWindows.lazy.compactMap({ $0.windowController as? PitLaneWindowController })
+            .first
+        {
+            return front
+        }
+        if let any = windows.first { return any }
+        newWindow(nil)
+        return windows[windows.count - 1]
+    }
 
     /// Hand edits to wrld.json and changes to ~/.ssh/config apply at once, as the settings
     /// file's do.
@@ -371,6 +408,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         secureInput.setMode(config.secureKeyboardEntry)
         updateSecureInput()
         settingsWindow?.update(config: config, chrome: Chrome(config.namedTheme))
+        wrldWindow?.setChrome(Chrome(config.namedTheme))
         wrld?.checksHosts = config.checkHosts
         wrld?.readsHostOS = config.readHostOS
     }
@@ -411,5 +449,20 @@ extension AppDelegate: NSMenuItemValidation {
         guard menuItem.action == #selector(toggleSecureKeyboardEntry(_:)) else { return true }
         menuItem.state = secureInput.isChecked ? .on : .off
         return secureInput.canToggle
+    }
+}
+
+extension AppDelegate: WRLDWindowHost {
+    func connect(_ host: HostRef, beside: Bool) {
+        let controller = frontWindow
+        controller.window?.makeKeyAndOrderFront(nil)
+        controller.open(host, beside: beside)
+    }
+
+    func typeSnippet(_ command: String, run: Bool, from snippet: SnippetID) {
+        let controller = frontWindow
+        controller.window?.makeKeyAndOrderFront(nil)
+        controller.typeSnippet(command, run: run)
+        wrld?.used(snippet)
     }
 }

@@ -5,7 +5,8 @@ public enum ActionID: String, CaseIterable, Sendable {
     // The app menu
     case about, settings, openSettingsFile, reloadConfiguration, secureKeyboardEntry, hide, hideOthers, showAll, quit
     // Shell
-    case newWindow, newTab, newHost, splitRight, splitDown, armedAndDangerous, closePane, closeTab, closeWindow
+    case newWindow, newTab, newHost, openWRLD, splitRight, splitDown, armedAndDangerous, closePane, closeTab,
+        closeWindow
     // Edit
     case copy, paste, selectAll, saveSelectionToWishingWell, clearToStart, clearScrollback
     // View
@@ -124,6 +125,9 @@ public enum ActionCatalog {
         Action(
             .newHost, "New Host…", "New host", .shell,
             keywords: ["wrld", "ssh", "server", "add host", "secure enclave", "key"]),
+        Action(
+            .openWRLD, "Open WRLD", "Open WRLD", .shell, KeyShortcut(.character("o")),
+            keywords: ["hosts", "vault", "servers", "keys", "known hosts", "tunnels", "snippets"]),
         Action(
             .splitRight, "Split Right", "Split pane right", .shell, KeyShortcut(.character("d")),
             keywords: ["vertical", "side by side"]),

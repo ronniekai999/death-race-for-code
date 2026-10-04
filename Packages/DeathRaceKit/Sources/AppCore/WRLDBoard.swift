@@ -109,7 +109,10 @@ public enum WRLDBoard {
 
     static func tunnelCount(_ vault: Vault) -> Int { vault.hosts.reduce(0) { $0 + $1.tunnels.count } }
 
-    static func counted(_ count: Int, _ noun: String) -> String { count == 1 ? "1 \(noun)" : "\(count) \(noun)s" }
+    /// "1 host", "3 hosts".
+    public static func counted(_ count: Int, _ noun: String) -> String {
+        count == 1 ? "1 \(noun)" : "\(count) \(noun)s"
+    }
 
     // MARK: - Hosts from ~/.ssh/config
 

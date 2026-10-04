@@ -1,5 +1,6 @@
 import AppCore
 import Foundation
+import Network
 import PTYKit
 import SSHKit
 import Vault
@@ -34,6 +35,13 @@ final class WRLDService: HostConnecting {
     /// network before you'd connected (checked again once you have).
     private var checking: Set<HostID> = []
     private var skippedLocal: Set<HostID> = []
+    /// What shows WRLD now (the sidebars, the WRLD window), and while anything does, the
+    /// five-minute check and the network's changes.
+    private var viewers: Set<ObjectIdentifier> = []
+    private var checkTimer: Timer?
+    private var pathMonitor: NWPathMonitor?
+    private var pathSeen = false
+    private var networkChangedAt: Date?
     /// Concrete names in ~/.ssh/config, for the palette and their control blocks.
     private(set) var discovered: [SSHConfigDiscovery.Alias] = []
     private(set) var generated: GeneratedConfig
@@ -283,6 +291,24 @@ final class WRLDService: HostConnecting {
         return true
     }
 
+    /// Takes `host` out of WRLD, closing its open tunnels first.
+    func remove(_ host: HostID) async {
+        if let board, let tunnels = vault.host(host)?.tunnels {
+            for tunnel in tunnels where board.row(tunnel.id)?.isOpen == true { await board.close(tunnel.id) }
+            Self.tunnelsChanged()
+        }
+        edit { $0.removeHost(host) }
+    }
+
+    /// Takes a tunnel out of WRLD, closing it first if it's open.
+    func removeTunnel(_ id: TunnelID) async {
+        if let board, board.row(id)?.isOpen == true {
+            await board.close(id)
+            Self.tunnelsChanged()
+        }
+        edit { $0.removeTunnel(id) }
+    }
+
     /// The sidebar and the WRLD window draw again.
     static func changed() {
         NotificationCenter.default.post(name: .wrldChanged, object: nil)
@@ -372,6 +398,72 @@ final class WRLDService: HostConnecting {
                 }
             }
         }
+    }
+
+    // MARK: - Saved passwords
+
+    /// Whether the Keychain holds a password for `host`. Asks nothing.
+    func hasSavedPassword(_ host: HostID) -> Bool {
+        guard let saved = vault.host(host) else { return false }
+        return secrets.contains(SecretRef(.hostPassword, GeneratedConfig.controlKey(for: saved)))
+    }
+
+    /// Forgets the password the Keychain holds for `host`: the next login asks again.
+    func forgetPassword(_ host: HostID) {
+        guard let saved = vault.host(host) else { return }
+        do {
+            try secrets.delete(SecretRef(.hostPassword, GeneratedConfig.controlKey(for: saved)))
+        } catch {
+            log.error("WRLD couldn't forget a password: \(String(describing: error), privacy: .public)")
+        }
+        Self.changed()
+    }
+
+    // MARK: - While WRLD shows
+
+    /// The sidebar or the WRLD window came on screen: the Legends that are due are checked
+    /// now, then every five minutes and after each network change while anything shows
+    /// them. Nothing runs while nothing does.
+    func shown(by viewer: AnyObject) {
+        let first = viewers.isEmpty
+        viewers.insert(ObjectIdentifier(viewer))
+        guard first else { return }
+        checkLatency(networkChangedAt: networkChangedAt)
+        let timer = Timer(timeInterval: HostChecks.latencyInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.checkLatency(networkChangedAt: self.networkChangedAt)
+            }
+        }
+        // Five minutes give or take one, so macOS can fold the wakeup in with others.
+        timer.tolerance = 60
+        RunLoop.main.add(timer, forMode: .common)
+        checkTimer = timer
+        let monitor = NWPathMonitor()
+        pathSeen = false
+        monitor.pathUpdateHandler = { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // The first update is the network as it is, not a change.
+                guard self.pathSeen else {
+                    self.pathSeen = true
+                    return
+                }
+                self.networkChangedAt = Date()
+                self.checkLatency(networkChangedAt: self.networkChangedAt)
+            }
+        }
+        monitor.start(queue: .main)
+        pathMonitor = monitor
+    }
+
+    func hidden(by viewer: AnyObject) {
+        viewers.remove(ObjectIdentifier(viewer))
+        guard viewers.isEmpty else { return }
+        checkTimer?.invalidate()
+        checkTimer = nil
+        pathMonitor?.cancel()
+        pathMonitor = nil
     }
 
     // MARK: - Known hosts

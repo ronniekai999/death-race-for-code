@@ -582,7 +582,7 @@ extension AppDelegate: WRLDWindowHost {
         controller.open(host, beside: beside)
     }
 
-    func openMaze(_ host: HostRef) {
+    func openMaze(for host: HostRef) {
         showMaze(host)
     }
 

@@ -47,7 +47,8 @@ protocol WindowHost: AnyObject {
     /// The WRLD window at `place`, with `host` in its inspector when given.
     func showWRLD(at place: WRLDBoard.Place, selecting host: HostID?)
     /// Maze on `host`: its window comes forward, or its files are opened and one is made.
-    func openMaze(_ host: HostRef)
+    /// Labelled, so it never collides with the `@objc` menu action of the same name.
+    func openMaze(for host: HostRef)
     /// Whether a new window opens with the WRLD sidebar: as the last one was left.
     var sidebarPreferred: Bool { get set }
     /// Writes `theme = id` for every window.
@@ -62,7 +63,7 @@ extension WindowHost {
     /// No WRLD: previews and window tests that don't connect anywhere.
     var connections: (any HostConnecting)? { nil }
     func showWRLD(at place: WRLDBoard.Place, selecting host: HostID?) {}
-    func openMaze(_ host: HostRef) {}
+    func openMaze(for host: HostRef) {}
     var sidebarPreferred: Bool {
         get { false }
         set {}
@@ -976,7 +977,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         case .host(let ref):
             add("Connect") { [weak self] in self?.open(ref, beside: false) }
             add("Connect Beside") { [weak self] in self?.open(ref, beside: true) }
-            add("Open in Maze") { [weak self] in self?.host?.openMaze(ref) }
+            add("Open in Maze") { [weak self] in self?.host?.openMaze(for: ref) }
             guard case .vault(let id) = ref, let connections = host?.connections, let saved = connections.host(id)
             else { return menu }
             menu.addItem(.separator())

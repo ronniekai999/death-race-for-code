@@ -571,7 +571,13 @@ daemons starting together would otherwise both bind and the second would leave t
 listening on a socket nothing points at, holding live sessions nobody could reach. Standard
 output and error are reopened onto `~/.deathrace/run/legendsd.log` before anything else: a
 daemon whose log is a pipe the app holds would block on a log line once the app went, taking
-every session with it.
+every session with it. **Every file it opens by a known path is opened `O_NOFOLLOW` and then
+checked through the descriptor** — an ordinary file, ours — and the lock file the same. A
+0700 folder keeps other users out and does nothing about another process of this one, and
+this daemon is the app's own child precisely so that it carries the app's privacy
+attribution: a symlink planted at the log's path, followed and then pruned, would hand a
+process with no grants of its own a way to destroy a file macOS was keeping it out of. With
+no log to be had, output goes to `/dev/null` rather than back down the app's pipes.
 
 **Lifetime.** Sessions live until they are closed. The daemon exits once it holds no sessions
 and nobody is connected. A shell that exited with nobody attached keeps its last screen and its

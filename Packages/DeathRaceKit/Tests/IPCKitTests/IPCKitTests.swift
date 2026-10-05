@@ -231,6 +231,34 @@ struct ProcessLockTests {
         #expect(ProcessLock.take(at: folder + "/twice.lock") != nil)
     }
 
+    /// A security review's finding. The folder the lock sits in keeps other users out and
+    /// does nothing about another process of this one, so what is at the path is not to be
+    /// trusted just because the path is. Following a symlink here would have this process
+    /// create a file wherever it pointed, carrying whatever privacy attribution it has — on a
+    /// Mac the daemon is the app's own child precisely so that it has the app's, which is more
+    /// than whoever planted the link could get for themselves.
+    @Test("a symlink planted at the lock's path is refused")
+    func aSymlinkIsRefused() throws {
+        let folder = shortTemporaryFolder()
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        let elsewhere = folder + "/private"
+        let path = folder + "/legendsd.lock"
+        #expect(symlink(elsewhere, path) == 0)
+
+        #expect(ProcessLock.take(at: path) == nil, "it followed a symlink")
+        #expect(!FileManager.default.fileExists(atPath: elsewhere), "it created the file it pointed at")
+    }
+
+    /// And a lock path that is something other than an ordinary file of ours.
+    @Test("a directory at the lock's path is refused")
+    func aDirectoryIsRefused() throws {
+        let folder = shortTemporaryFolder()
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        let path = folder + "/legendsd.lock"
+        try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        #expect(ProcessLock.take(at: path) == nil)
+    }
+
     /// The file is left behind on purpose: it is the lock on it that means something, not
     /// that it exists. Finding one says nothing about whether a daemon is running.
     @Test("the file outlives the lock")

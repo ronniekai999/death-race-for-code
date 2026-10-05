@@ -83,7 +83,7 @@ var targets: [Target] = [
     .target(name: "SFTPKit", dependencies: ["Vault", "PTYKit", "CPTY", "SSHKit"]),
     // The session daemon: it holds the pseudo-terminals and engines so sessions outlive the
     // app. Portable, so the whole of it is tested on Linux as a real second process.
-    .executableTarget(name: "legendsd", dependencies: ["SessionIPC"]),
+    .executableTarget(name: "legendsd", dependencies: ["SessionIPC", "IPCKit"]),
     // ssh's SSH_ASKPASS: hands each question to the app's broker and prints its answer.
     // The app bundles it in Contents/MacOS.
     .executableTarget(name: "deathrace-askpass", dependencies: ["SSHKit"]),

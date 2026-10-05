@@ -26,8 +26,18 @@ public final class ProcessLock: @unchecked Sendable {
     /// Takes the lock at `path`, or nil if another process holds it — or if the file could
     /// not be opened at all, which a caller that must not proceed should treat the same way.
     public static func take(at path: String) -> ProcessLock? {
-        let fd = open(path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        // `O_NOFOLLOW`, and then a look at what was actually opened. The folder this sits in
+        // keeps other users out and does nothing about another process of this one, and a
+        // symlink planted here would otherwise have this process create a file wherever it
+        // pointed — carrying whatever privacy attribution this process has, which may be more
+        // than whoever planted it could get for themselves.
+        let fd = open(path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0o600)
         guard fd >= 0 else { return nil }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_uid == getuid() else {
+            close(fd)
+            return nil
+        }
         while flock(fd, LOCK_EX | LOCK_NB) != 0 {
             if errno == EINTR { continue }
             close(fd)

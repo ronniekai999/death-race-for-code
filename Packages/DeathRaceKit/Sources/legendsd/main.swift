@@ -12,6 +12,7 @@
 // exits on its own once it holds nothing at all.
 
 import Foundation
+import IPCKit
 import PTYKit
 import SessionIPC
 
@@ -43,19 +44,41 @@ guard let socketPath = value(after: "--socket"), let lockPath = value(after: "--
 // The app starts the daemon, so without this they are pipes the app holds — and when the app
 // goes, a write to one would fail, or worse, fill and block the thread that made it. A daemon
 // that freezes on a log line takes every session it holds with it.
+//
+// The path is ours, but what is at it need not be. The folder is 0700, which keeps other
+// users out and does nothing at all about another process of this one — and this daemon is
+// the app's own child precisely so that it carries the app's privacy attribution, so it can
+// open files a process without that attribution cannot. A symlink planted at this path would
+// otherwise be followed, and the pruning below would truncate whatever it pointed at: a
+// process with no grants of its own would have found a way to destroy a file macOS was
+// keeping it out of. So the folder is checked first, the open refuses a symlink, and what
+// comes back has to be an ordinary file belonging to this user.
+var logFD: Int32 = -1
 if let logPath = value(after: "--log") {
-    let log = open(logPath, O_WRONLY | O_CREAT | O_APPEND, 0o600)
-    if log >= 0 {
-        // A log nobody prunes is a disk nobody has. A megabyte is plenty to see why something
-        // went wrong, and the daemon starts often enough that losing the old one costs little.
+    let folder = (logPath as NSString).deletingLastPathComponent
+    if (try? secureFolder(folder, what: "the session daemon's folder")) != nil {
+        let log = open(logPath, O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW | O_CLOEXEC, 0o600)
         var info = stat()
-        if fstat(log, &info) == 0, info.st_size > 1 << 20 { ftruncate(log, 0) }
-        dup2(log, 1)
-        dup2(log, 2)
-        close(log)
+        if log >= 0, fstat(log, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_uid == getuid() {
+            // A log nobody prunes is a disk nobody has. A megabyte is plenty to see why
+            // something went wrong, and the daemon starts often enough that losing the old one
+            // costs little.
+            if info.st_size > 1 << 20 { ftruncate(log, 0) }
+            logFD = log
+        } else if log >= 0 {
+            close(log)
+        }
     }
 }
-// Whatever happened above, nothing is read from standard input ever again.
+// Whatever happened above, this is not writing down the app's pipes: with no log to be had,
+// output goes nowhere rather than somewhere that can block.
+let out = logFD >= 0 ? logFD : open("/dev/null", O_WRONLY)
+if out >= 0 {
+    dup2(out, 1)
+    dup2(out, 2)
+    close(out)
+}
+// And nothing is read from standard input ever again.
 let null = open("/dev/null", O_RDONLY)
 if null >= 0 {
     dup2(null, 0)

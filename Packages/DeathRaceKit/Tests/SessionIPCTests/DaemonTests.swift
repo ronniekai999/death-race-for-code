@@ -326,6 +326,43 @@ struct DaemonTests {
         #expect(session.send(Array("x".utf8)), "a single byte was refused after the run")
     }
 
+    /// A security review's finding, against the real binary. The daemon reopens its own
+    /// output onto a log before anything else, and the folder that log sits in keeps other
+    /// users out while doing nothing about another process of this one. Following a symlink
+    /// there — and then pruning the file it pointed at — would hand a process with no privacy
+    /// grants of its own a way to destroy a file macOS was keeping it out of, because this
+    /// daemon is the app's own child and carries the app's attribution.
+    @Test("a symlink planted at the log's path is not followed or truncated")
+    func aPlantedLogIsRefused() throws {
+        let folder = NSTemporaryDirectory() + "lgdlog-" + String(UInt32.random(in: .min ... .max), radix: 16)
+        try FileManager.default.createDirectory(
+            atPath: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+
+        // Something the daemon must not touch, over a megabyte so the pruning would fire.
+        let victim = folder + "/precious"
+        let contents = Data([UInt8](repeating: 0x2e, count: (1 << 20) + 16))
+        try contents.write(to: URL(fileURLWithPath: victim))
+        #expect(symlink(victim, folder + "/d.log") == 0)
+
+        let executable = try #require(BuiltBinary.path("legendsd"), BuiltBinary.missing("legendsd"))
+        let daemon = try ChildProcess.spawn(
+            executable: executable,
+            arguments: [
+                "legendsd", "--socket", folder + "/s.sock", "--lock", folder + "/s.lock", "--log",
+                folder + "/d.log", "--idle-exit", String(patience(500)),
+            ],
+            environment: ["PATH": "/usr/bin:/bin"], workingDirectory: "/", newSession: true)
+        defer {
+            daemon.signal(SIGKILL)
+            _ = daemon.waitForExit(timeoutMilliseconds: 2_000)
+        }
+        _ = daemon.waitForExit(timeoutMilliseconds: patience(5_000))
+
+        let after = try #require(FileManager.default.attributesOfItem(atPath: victim)[.size] as? Int)
+        #expect(after == contents.count, "the file the link pointed at was changed: \(after) bytes")
+    }
+
     @Test("it holds no more sessions than it was told to")
     func itsLimit() throws {
         let rig = try DaemonRig(sessions: 2)

@@ -8,19 +8,21 @@ them. Read it before changing anything that moves bytes between the shell and th
 ## The shape
 
 ```
- DeathRace.app (UI process)                           legendsd (Phase 7, LaunchAgent)
+ DeathRace.app (UI process)                           legendsd (the app spawns it)
  ┌────────────────────────────────────────────┐       ┌───────────────────────────────┐
- │ DeathRaceApp  AppKit shell: WRLD sidebar,  │       │ SessionHost over XPC          │
- │   tabs, splits, Hear Me Calling, settings, │       │  owns PTYs + VTCore engines   │
- │   LucidDreams panel                        │       │  survives quit/crash/update   │
- │ TerminalUI  NSView: keys/IME/mouse/select  │◀─────▶│  same ScreenDelta bytes       │
- │ RenderKit   Metal: atlas, cells, cursor    │       └───────────────────────────────┘
- │ LegendsUI   tokens + Neon components       │
- │ MirrorGrid  screen copy the renderer draws │
- ├────────────────────────────────────────────┤
+ │ DeathRaceApp  AppKit shell: WRLD sidebar,  │       │ SessionRegistry + a bridge    │
+ │   tabs, splits, Hear Me Calling, settings, │       │  per attached session         │
+ │   LucidDreams panel                        │       │  owns PTYs + VTCore engines   │
+ │ TerminalUI  NSView: keys/IME/mouse/select  │       │  survives quit/crash/update   │
+ │ RenderKit   Metal: atlas, cells, cursor    │◀─────▶│  the same ScreenDelta bytes   │
+ │ LegendsUI   tokens + Neon components       │       └───────────────────────────────┘
+ │ MirrorGrid  screen copy the renderer draws │   a framed Unix socket per session,
+ ├────────────────────────────────────────────┤   plus one for control
  │ SurfaceCore  geometry · colors · frames    │  ◀─ portable: the view's logic, Linux-tested
  │ ConfigKit   the settings file              │  ◀─ portable
- │ SessionKit  session thread: PTY + engine   │  ◀─ portable; moves into legendsd in Phase 7
+ │ SessionKit  the session seam; a session    │  ◀─ portable; the daemon runs the same loop
+ │   thread: PTY + engine                     │
+ │ SessionIPC · IPCKit  the wire, both ends   │  ◀─ portable; the daemon is Linux-tested
  │ ScreenProtocol  ScreenDelta · DeltaCodec   │  ◀─ portable
  │ VTCore      parser · grid · scrollback     │  ◀─ portable, fuzzed, Linux-tested
  │ PTYKit      C spawn · termios · kqueue     │  ◀─ portable (Darwin + glibc)
@@ -42,8 +44,11 @@ UI half needs macOS.
 | `CPTY` | macOS, Linux | `openpty` → `fork` → `setsid` → `TIOCSCTTY` → `dup2` → `execve`, in C |
 | `PTYKit` | macOS, Linux | `PseudoTerminal` (non-blocking master, resize, password-prompt detection, child-exit watch, hang-up), `ShellLaunch`, `SmokeTest` |
 | `VTCore` | macOS, Linux | the engine: parser, screens and scrollback, reflow, SGR, modes, reports, OSC/DCS (OSC 8 links in per-row tables); key, mouse, focus and paste encoding |
-| `ScreenProtocol` | macOS, Linux | `ScreenDelta`, `DeltaBuilder` (session side), `MirrorGrid` (app side), `DeltaCodec` (bytes for XPC, format 3) |
-| `SessionKit` | macOS, Linux | `Session`: one thread per shell owning its PTY and engine, a locked mailbox for deltas and commands |
+| `ScreenProtocol` | macOS, Linux | `ScreenDelta`, `DeltaBuilder` (session side), `MirrorGrid` (app side), `DeltaCodec` (the bytes a session sends the app, format 3) |
+| `SessionKit` | macOS, Linux | `TerminalSession`/`ShellSession`/`SessionHost`, the seam a session is reached through; `Session`: one thread per shell owning its PTY and engine, a locked mailbox for deltas and commands; `InProcessHost` |
+| `IPCKit` | macOS, Linux | what the askpass broker and the session daemon both need and neither owns: `UnixSocket`, `FrameReader`/`FrameWriter` (a control lane drained before a bulk one), `PeerInspector`, `PeerCode` (macOS: a peer's audit token against a requirement built from our own signature), `secureFolder`, `ProcessLock`, constant-time compare |
+| `SessionIPC` | macOS, Linux | Legends Never Die: `SessionWire`/`ControlWire`/`StreamWire` (the messages and their bounds), `SessionRegistry`, `ControlConnection`, `SessionBridge` (one per attached session, with a one-delta acknowledgement window), `Daemon`; the app's end — `DaemonHost`, `RemoteSession`, `SpawnLauncher`, `PeerPolicy`, `Legends`, `SessionPlacement` |
+| `legendsd` | macOS, Linux | the session daemon: it holds the pseudo-terminals and the engines so a session outlives the app |
 | `ConfigKit` | macOS, Linux | the settings file: `ConfigSchema` (one table drives the parser, the defaults and the template), `ConfigParser` with diagnostics, `Config`, `Theme`; `ThemeCatalog` (the eight themes, terminal and chrome) with `Contrast`; `ConfigEditor` (changes one setting, every other line as it was) |
 | `Vault` | macOS, Linux | WRLD's data: `Vault` (hosts, groups, snippets, keys, tunnels) and `VaultStore` (`wrld.json`), `VaultEdits` (changes that keep references whole), `HostDraft`, `SnippetTemplate`, `TunnelSpec`, `WRLDState` (`state.json`: last connected, OS, latency, uses), `AtomicFile` |
 | `SSHKit` | macOS, Linux | OpenSSH, driven: `GeneratedConfig`, `MasterSupervisor`/`MasterPool`/`MasterLog`, `AskpassBroker` and its wire format, `TunnelController`/`TunnelBoard`, `HostChain`, `LoginEnvironment`, `SecureEnclaveKeys`/`AuthorizedKeys`, `KnownHosts`, `HostChecks` (latency and OS, and when they may run), `PaneBanner`, `SSHConfigDiscovery`, `LocalNetwork`, `ProcessRunner` |
@@ -120,8 +125,9 @@ generation mismatch triggers a full snapshot. Each delta names the version it bu
 mirror applies it only if it holds exactly that state; otherwise it asks for a snapshot, and
 the session forgets everything the app took, so the snapshot cannot build on a delta the app
 dropped. The session builds a delta without holding the mailbox lock; if the app takes one
-meanwhile, the session builds again on the one taken. Phases 1–6 pass deltas in-process;
-`legendsd` will send the same encoded bytes over XPC.
+meanwhile, the session builds again on the one taken. A session in this process passes
+deltas as values; `legendsd` sends the same encoded bytes over its socket, and waits for the
+app's acknowledgement before taking the next one so the chain of bases is never broken.
 
 The session owns each client's viewport. Rows travel by id, so scrolling sends only the new
 line, and a viewport scrolled back into history stays on the same lines while output arrives
@@ -473,6 +479,106 @@ through, can't report progress, and its output is text meant for people.
   between the two panes and Finder-into-Maze drops all work; `NSFilePromiseProvider` (a
   remote file dragged to the Desktop) would be new ground that CI can't check.
 
+### Legends Never Die: a daemon that holds the shells
+
+`legendsd` owns the pseudo-terminals and the engines, so a session outlives the app that
+started it — quit, crash or update — and is taken up again with its scrollback when one comes
+back. `legends-never-die` is on by default.
+
+**The daemon is never required.** A missing binary, a folder it cannot have, a handshake it
+cannot finish, a version it does not share, a deadline it misses: each one ends with a session
+in this process, as every phase before this one ran them, and the status bar says "Sessions end
+with the app" with the reason in the log. A terminal that will not open because a daemon would
+not start is a worse terminal than one whose sessions do not outlive it.
+
+**A framed Unix-domain socket, not XPC.** This overrides the roadmap's "XPC with peer
+code-signing requirements", for reasons worth keeping:
+
+- **It is the only way this phase gets automated coverage.** `legendsd` is a portable
+  executable the test target depends on, the way `deathrace-askpass` already is, so `swift
+  test` on Linux runs the daemon as a real second process: reattach, the version handshake,
+  `kill -9` survival, the orphan policy and backpressure are all checked on every push, under
+  the Thread Sanitizer. XPC would have left that half of Phase 7 with none. Phase 6 is the
+  argument: `swiftc -parse` missed five compile errors that only macOS CI found.
+- **It reuses what is already hardened** — `UnixSocket`, the frame reader, the peer check, the
+  `O_NOFOLLOW` folder check — instead of adding a second IPC stack.
+- **The peer check is not weaker.** `getsockopt(SOL_LOCAL, LOCAL_PEERTOKEN)` gives the peer's
+  audit token, which names one run of one program, so `SecCodeCopyGuestWithAttributes` plus
+  `SecCodeCheckValidity` has no pid-reuse race — unlike the `LOCAL_PEERPID` the askpass broker
+  uses. The requirement is built at runtime from our own signature, so a development build and
+  a distribution one both work with no team identifier in the source. An ad-hoc build has
+  nothing to pin: it falls back to the uid alone and says so in its log rather than letting a
+  reader assume a check that is not being made. Asked for a check it cannot make, it refuses
+  everyone rather than returning true.
+- **One code path on both platforms.** With XPC the code that runs on the Mac would be the
+  untested one.
+- The cost, honestly: about forty lines of `SecCode` work instead of
+  `NSXPCConnection.setCodeSigningRequirement`, and no on-demand start from launchd.
+
+**The app starts it, launchd does not.** TCC responsibility passes down through fork and exec
+and is reassigned only where launchd or LaunchServices starts something, so a daemon the app
+spawned — in a session of its own, never double-forked — should stay attributed to Death Race,
+and so should its shells. A LaunchAgent is its own responsible process and would not. That is
+the reasoning, not a measurement: the spike [below](#the-legendsd-spike) is what measures it,
+and `DaemonLauncher` is a seam so its answer can change the arrangement without touching
+anything else.
+
+**One socket per session, plus a control socket.** A program that has stopped reading its
+pseudo-terminal fills its input queue; on one shared socket the daemon would then have to stop
+reading at all, holding up typing in every other pane. A socket each gets that backpressure
+from the kernel, per session, for nothing.
+
+**The app takes one delta at a time.** `DeltaBuilder` builds each delta on the last one
+delivered, and `MirrorGrid` refuses one whose base it has not applied. In process that is safe
+because there is only ever one untaken delta. Across a socket the daemon waits for the client's
+acknowledgement before taking the next, so the chain never breaks; the session loop itself
+never waits — it keeps coalescing into its mailbox exactly as before.
+
+**Idle costs nothing by construction.** Every thread is parked in `poll` with no timeout: the
+listener, one per control connection, one per session loop, one per session bridge. There are
+no timers and nothing periodic. A detached session stops building deltas altogether
+(`setPublishing(false)`), so a `yes` nobody is watching costs parser time and no more.
+
+**Sessions come back where they were.** Every move of a tab or a pane records window, tab and
+slot against the session, as bytes the daemon stores and never reads. A relaunch groups what it
+finds and rebuilds it: one app window per window, one tab per tab, panes split in the order they
+sat in. What is restored is membership and order, not the proportions of a split someone had
+dragged. Bytes a build does not understand — a daemon an older or newer app left running —
+decode to nothing, and those sessions simply come back in a window of their own.
+
+**Closing and quitting are different, everywhere.** Closing a pane, a tab or a window ends its
+shell, as before; quitting detaches and leaves it running. `shutDown(leaving:)` makes every
+call site say which it means, and the quit question asks only about what is actually ending, so
+a window of local shells quits without a word while a tunnel or an ssh pane still asks.
+
+**Sessions on a host are not kept, and cannot be.** An ssh pane is a session on a master this
+app owns, with its askpass broker, its Touch ID and its tunnels; the master dies with the app
+by design (`ControlPersist no`, so nothing is left holding ports). Moving `MasterPool` into the
+daemon would mean moving the Keychain, Touch ID and the prompt sheets with it — the daemon would
+need its own privacy grants and its own path to the user — and is explicitly not this phase.
+The setting's own text says so: "Sessions on a host are not kept." The quick terminal is not
+kept either: it has no tab and no window, so there would be nowhere to put it back.
+
+**An older daemon is told to hand over, never killed.** The preamble's shape never changes, so
+version negotiation itself cannot break. When an updated app meets a daemon with no version in
+common, the daemon is asked to stop accepting new sessions and to exit when its last one ends —
+destroying the sessions would destroy the thing the feature exists to protect. That path is
+built and tested from the first version, not from the version it first matters in.
+
+**Order at startup.** Harden the folder (`O_NOFOLLOW`, our uid, nobody else's write bit), take
+an `flock`, and only then listen — `UnixSocket.listen` replaces whatever is at its path, so two
+daemons starting together would otherwise both bind and the second would leave the first
+listening on a socket nothing points at, holding live sessions nobody could reach. Standard
+output and error are reopened onto `~/.deathrace/run/legendsd.log` before anything else: a
+daemon whose log is a pipe the app holds would block on a log line once the app went, taking
+every session with it.
+
+**Lifetime.** Sessions live until they are closed. The daemon exits once it holds no sessions
+and nobody is connected. A shell that exited with nobody attached keeps its last screen and its
+exit status for five minutes, so a relaunching app can show how it ended. SIGTERM leaves every
+shell running; SIGINT, which means a developer in a terminal, ends them. Caps: 64 sessions, 64
+outstanding questions, a single-use attach token good for ten seconds, 4 KiB of placement.
+
 ### Signing
 
 `scripts/bundle.sh` signs with the Apple Development identity already in your keychain, the
@@ -481,22 +587,34 @@ privacy permissions and login-item approval each time.
 
 ### The legendsd spike
 
-Phase 7's daemon depends on one question: are shells that a LaunchAgent starts on a
-pseudo-terminal still attributed to Death Race by macOS privacy protection (TCC)? Or is the
-agent its own responsible process, needing grants of its own? `legendsd-spike` measures it
-on a real Mac: [SPIKE.md](SPIKE.md) has the steps and the three possible outcomes.
+One question hangs over the daemon: are shells it starts on a pseudo-terminal still attributed
+to Death Race by macOS privacy protection (TCC), or does the thing that started them count as
+its own responsible process, needing grants of its own? `legendsd-spike` measures it on a real
+Mac: [SPIKE.md](SPIKE.md) has the steps and the four possible outcomes.
 
-**Verdict: pending.** It is recorded here with the macOS build it was measured on, and decides
-whether Phase 7 builds legendsd as planned, adds an onboarding step for its grants, or keeps
-shells in the app and keeps sessions alive another way.
+It measures two arrangements, because they are not the same question. A **LaunchAgent** is its
+own responsible process, which is what the original worry was about. A daemon **the app
+spawned** should inherit the app's attribution, since TCC responsibility passes down through
+fork and exec, and that is the arrangement Phase 7 built — so the fourth outcome is the one it
+expects to find, and the one nothing else can confirm.
+
+**Verdict: pending.** Phase 7 shipped on the reasoning rather than the measurement, which is
+why `DaemonLauncher` is a seam and why a session in this process is a first-class fallback
+rather than an error path. When the verdict comes in it is recorded here with the macOS build
+it was measured on. If it says a spawned daemon's shells lose the app's grants, what changes is
+the hosting: `legends-never-die` defaults to off and the setting says what it costs, or the
+daemon gains an onboarding step for grants of its own. Nothing in `IPCKit`, `SessionIPC` or the
+seam depends on the answer.
 
 ## Known risks
 
-- **The daemon and privacy permissions.** A LaunchAgent is its own responsible process, so
-  shells it spawns do not inherit the app's grants, and a PTY host re-parented to launchd has
-  hit "Failed to create Attribution Chain" on macOS 26.3.1. Phase 2 includes a one-day spike
-  ([above](#the-legendsd-spike)); its verdict goes there before Phase 7 is designed. Never
-  double-fork.
+- **The daemon and privacy permissions — still open.** A LaunchAgent is its own responsible
+  process, so shells it spawns do not inherit the app's grants, and a PTY host re-parented to
+  launchd has hit "Failed to create Attribution Chain" on macOS 26.3.1. Phase 7 therefore
+  spawns the daemon itself, as a child in a session of its own, where responsibility should
+  pass down through fork and exec. "Should" is the risk: only the spike
+  ([above](#the-legendsd-spike)) can say, and it has not been run. Until it has, the fallback
+  to a session in this process is what makes the risk survivable. Never double-fork.
 - **Secure Keyboard Entry is global.** Enable and disable calls must balance, and it is dropped
   whenever the app deactivates. It cannot see password prompts on the far side of SSH.
 - **A password prompt is canonical input with echo off**, not echo off alone. Shells' line
@@ -524,6 +642,6 @@ shells in the app and keeps sessions alive another way.
 | 4 | Termius layer: WRLD (vault, window, sidebar), app-owned ssh masters and askpass with Touch ID, Secure Enclave keys, Come & Go tunnels, Wishing Well snippets, Armed and Dangerous |
 | 5 | Lucid Dreams: the notch quick terminal |
 | 6 | Maze: the SFTP browser — SFTPKit (our own SFTP v3), a window per host, transfers with a queue and bars, core drag-and-drop (dragging out to Finder deferred) |
-| 7 | Legends Never Die: `legendsd` keeps sessions alive |
+| 7 | Legends Never Die: `legendsd` holds the pseudo-terminals and engines, so local shells outlive the app and come back where they were (sessions on a host are not kept) |
 | 8 | Conversations, Fast and Ring Ring: shell integration, blocks, timers, alerts |
 | 9 | Renderer polish: glow, XDR Neon, ligatures, inline images |

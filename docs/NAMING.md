@@ -31,5 +31,20 @@ before a transfer overwrites, "Maze moves files, not folders." for a dropped fol
 failed transfer carries the server's own reason on its row ("Permission denied") rather than
 a code. Sizes get their unit, as every number does: "4.2 MB of 48 MB".
 
+Legends Never Die's copy never promises what is not happening. The setting reads "Keep local
+shells running when Death Race quits", with "They go back in their windows next time. Sessions
+on a host are not kept." under it — because a session on a host cannot be kept, and the words
+have to say so rather than letting someone find out at quit. When the daemon was asked for and
+could not be had, the status bar says "Sessions end with the app", in the warning colour, and
+a click opens Settings at the Sessions group; the reason itself is a sentence in the log, not
+in the bar, where it would not fit and could not be read. The one line that counts is counted
+properly: "1 session kept running while the app was closed." and "3 sessions kept running
+while the app was closed."
+
+Quitting asks only about what is actually ending. A window of local shells quits without a
+word, because nothing in it is going; a tunnel, an ssh pane or a transfer still asks. Closing
+is the opposite and says so: closing a pane, a tab or a window ends its shell, and the
+question is "Goodbye & Good Riddance?" as it always was.
+
 Never quote lyrics, use slang, or add emoji to interface copy. Use sentence case, and give
 every number a unit.

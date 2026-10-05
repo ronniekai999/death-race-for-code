@@ -124,6 +124,25 @@ The Phase 2 budgets above are checked by hand on the M5, with a debug build
     caps everything at 30.
   - The display link's range is set only when the answer changes, from notifications rather
     than polling.
+- **The session daemon is free at rest.** Every thread in `legendsd` is parked in `poll` with
+  no timeout: the listener, one per control connection, one per session loop, one per session
+  bridge. There are no timers and nothing periodic, so idle cost is zero by construction
+  rather than by tuning. A detached session stops building deltas at all, so a `yes` nobody
+  is watching costs the parser and no more — what would otherwise be spent is a full-viewport
+  delta on every publish, since nothing is taking them and `delivered` would never advance
+  (and in debug builds each one round-tripped through `DeltaCodec`). The app's thread count is
+  unchanged: a bridge thread stands where a session thread stood.
+  - Measured on Linux CI on every push, from `/proc/<pid>/stat`: three sessions, the client
+    killed, and the processor time the daemon spends over two seconds. The budget is loose on
+    purpose and the comment says what the test actually proves — that nothing polls — rather
+    than pretending a millisecond count is a law.
+  - On the Mac: `sudo powermetrics --samplers tasks` with the app quit and sessions held.
+- **Reattaching costs one snapshot a session.** The app never holds scrollback, so coming back
+  is connect, list, adopt, one snapshot each; scrolling up afterwards reaches the daemon's
+  history through `scroll(by:)` like any other scroll.
+- **Where each session sits is written on a move, not on a clock.** Tabs and panes moving is
+  something someone did, so the record is written then; a title changing never writes, which
+  matters because a program can rewrite its title many times a second.
 - **Settings and the palette cost nothing when closed.** Both are made when they open and
   released when they close.
   - The settings file is watched with kernel event sources.

@@ -6,7 +6,7 @@ import PackageDescription
 // One package with two halves:
 //
 // * Portable targets (CPTY, PTYKit, VTCore, ScreenProtocol, SessionKit, ConfigKit, SurfaceCore,
-//   Vault, SSHKit, AppCore, vthost, deathrace-askpass) build and test on Linux as well as macOS. The engine, and everything the
+//   Vault, SSHKit, SFTPKit, AppCore, vthost, deathrace-askpass) build and test on Linux as well as macOS. The engine, and everything the
 //   terminal view and the app do apart from AppKit and Metal, is developed test-first in a
 //   Linux container with no Mac in the loop, and the same code runs inside the app on macOS.
 //
@@ -25,6 +25,7 @@ var products: [Product] = [
     .library(name: "SurfaceCore", targets: ["SurfaceCore"]),
     .library(name: "Vault", targets: ["Vault"]),
     .library(name: "SSHKit", targets: ["SSHKit"]),
+    .library(name: "SFTPKit", targets: ["SFTPKit"]),
     .library(name: "AppCore", targets: ["AppCore"]),
     .executable(name: "vthost", targets: ["vthost"]),
     .executable(name: "deathrace-askpass", targets: ["deathrace-askpass"]),
@@ -67,6 +68,10 @@ var targets: [Target] = [
     // ssh's command lines, prompts and their answers, and what a master's errors mean. Runs
     // macOS's own ssh; no SSH crypto of ours.
     .target(name: "SSHKit", dependencies: ["Vault", "PTYKit", "CPTY"]),
+    // Maze: an SFTP v3 client we speak ourselves over a host's existing ssh connection
+    // (`ssh … -s sftp`). The packet codec, the client, the transfer queue and the local-file
+    // seam are portable and Linux-tested against a real sftp-server.
+    .target(name: "SFTPKit", dependencies: ["Vault", "PTYKit", "CPTY", "SSHKit"]),
     // ssh's SSH_ASKPASS: hands each question to the app's broker and prints its answer.
     // The app bundles it in Contents/MacOS.
     .executableTarget(name: "deathrace-askpass", dependencies: ["SSHKit"]),
@@ -86,6 +91,7 @@ var targets: [Target] = [
     .testTarget(name: "VaultTests", dependencies: ["Vault"]),
     // Depends on the helper so `swift test` builds it: the tests run it against the broker.
     .testTarget(name: "SSHKitTests", dependencies: ["SSHKit", "Vault", "PTYKit", "deathrace-askpass"]),
+    .testTarget(name: "SFTPKitTests", dependencies: ["SFTPKit", "SSHKit", "Vault", "PTYKit", "deathrace-askpass"]),
 ]
 
 #if os(macOS)

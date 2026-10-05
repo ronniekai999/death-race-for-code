@@ -19,6 +19,7 @@ import PackageDescription
 var products: [Product] = [
     .library(name: "VTCore", targets: ["VTCore"]),
     .library(name: "PTYKit", targets: ["PTYKit"]),
+    .library(name: "IPCKit", targets: ["IPCKit"]),
     .library(name: "ScreenProtocol", targets: ["ScreenProtocol"]),
     .library(name: "SessionKit", targets: ["SessionKit"]),
     .library(name: "ConfigKit", targets: ["ConfigKit"]),
@@ -39,6 +40,9 @@ var targets: [Target] = [
         linkerSettings: [.linkedLibrary("util", .when(platforms: [.linux]))]
     ),
     .target(name: "PTYKit", dependencies: ["CPTY"]),
+    // Unix-domain sockets, frames, and who is at the other end: what the askpass broker and
+    // the session daemon both need, with nothing of either in it.
+    .target(name: "IPCKit", dependencies: ["CPTY"]),
     .target(
         name: "VTCore",
         swiftSettings: [
@@ -67,7 +71,7 @@ var targets: [Target] = [
     // The Termius layer's OpenSSH side: reading ~/.ssh/config, the config WRLD compiles to,
     // ssh's command lines, prompts and their answers, and what a master's errors mean. Runs
     // macOS's own ssh; no SSH crypto of ours.
-    .target(name: "SSHKit", dependencies: ["Vault", "PTYKit", "CPTY"]),
+    .target(name: "SSHKit", dependencies: ["Vault", "PTYKit", "CPTY", "IPCKit"]),
     // Maze: an SFTP v3 client we speak ourselves over a host's existing ssh connection
     // (`ssh … -s sftp`). The packet codec, the client, the transfer queue and the local-file
     // seam are portable and Linux-tested against a real sftp-server.
@@ -81,6 +85,7 @@ var targets: [Target] = [
         path: "Tools/vthost"
     ),
     .testTarget(name: "PTYKitTests", dependencies: ["PTYKit", "CPTY"]),
+    .testTarget(name: "IPCKitTests", dependencies: ["IPCKit", "CPTY", "PTYKit"]),
     .testTarget(name: "VTCoreTests", dependencies: ["VTCore"]),
     .testTarget(name: "ScreenProtocolTests", dependencies: ["ScreenProtocol", "VTCore"]),
     .testTarget(name: "SessionKitTests", dependencies: ["SessionKit", "ScreenProtocol", "PTYKit", "VTCore"]),
@@ -90,7 +95,8 @@ var targets: [Target] = [
     .testTarget(name: "AppCoreTests", dependencies: ["AppCore", "ConfigKit", "PTYKit", "Vault"]),
     .testTarget(name: "VaultTests", dependencies: ["Vault"]),
     // Depends on the helper so `swift test` builds it: the tests run it against the broker.
-    .testTarget(name: "SSHKitTests", dependencies: ["SSHKit", "Vault", "PTYKit", "deathrace-askpass"]),
+    .testTarget(
+        name: "SSHKitTests", dependencies: ["SSHKit", "Vault", "PTYKit", "IPCKit", "deathrace-askpass"]),
     .testTarget(name: "SFTPKitTests", dependencies: ["SFTPKit", "SSHKit", "Vault", "PTYKit", "deathrace-askpass"]),
 ]
 

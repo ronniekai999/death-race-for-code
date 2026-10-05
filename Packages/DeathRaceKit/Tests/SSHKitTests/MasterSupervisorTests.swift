@@ -1,4 +1,5 @@
 import Foundation
+import IPCKit
 import PTYKit
 import Testing
 import Vault

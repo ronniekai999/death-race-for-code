@@ -6,14 +6,15 @@ import CPTY
     import Glibc
 #endif
 
-/// Unix-domain stream sockets: the askpass broker's, and a master's control socket.
-enum UnixSocket {
-    enum Failure: Error, Equatable {
+/// Unix-domain stream sockets: the askpass broker's, a master's control socket, and the
+/// session daemon's.
+public enum UnixSocket {
+    public enum Failure: Error, Equatable {
         case pathTooLong(String)
         case system(String, errno: Int32)
     }
 
-    static func make() throws(Failure) -> Int32 {
+    public static func make() throws(Failure) -> Int32 {
         #if canImport(Darwin)
             let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         #else
@@ -29,7 +30,9 @@ enum UnixSocket {
     }
 
     /// Runs `body` with `path` as a `sockaddr_un`.
-    static func withAddress<T>(_ path: String, _ body: (UnsafePointer<sockaddr>, socklen_t) -> T) throws(Failure) -> T {
+    public static func withAddress<T>(_ path: String, _ body: (UnsafePointer<sockaddr>, socklen_t) -> T) throws(Failure)
+        -> T
+    {
         var address = sockaddr_un()
         let bytes = Array(path.utf8)
         let capacity = MemoryLayout.size(ofValue: address.sun_path)
@@ -50,7 +53,7 @@ enum UnixSocket {
     }
 
     /// A connected socket to `path`, or nil if nothing listens there.
-    static func connect(to path: String) -> Int32? {
+    public static func connect(to path: String) -> Int32? {
         guard let fd = try? make() else { return nil }
         let result = (try? withAddress(path) { address, length in systemConnect(fd, address, length) }) ?? -1
         guard result == 0 else {
@@ -60,8 +63,13 @@ enum UnixSocket {
         return fd
     }
 
-    /// Whether something accepts connections at `path`: a master's control socket is ready.
-    static func accepts(_ path: String) -> Bool {
+    /// Whether something accepts connections at `path`: a master's control socket is ready,
+    /// or a daemon is already listening.
+    ///
+    /// It connects and hangs up, so it leaves a connection in the listener's backlog that the
+    /// listener will accept and find already closed. Anything that both asks this and accepts
+    /// has to expect one of those.
+    public static func accepts(_ path: String) -> Bool {
         guard let fd = connect(to: path) else { return false }
         close(fd)
         return true
@@ -69,7 +77,12 @@ enum UnixSocket {
 
     /// A listening socket at `path`, readable and writable by this user only. A stale socket
     /// left there by a crash is replaced.
-    static func listen(at path: String) throws(Failure) -> Int32 {
+    ///
+    /// It replaces the socket **unconditionally**, so anything that must be the only listener
+    /// at a path has to hold a `ProcessLock` before it calls this: two processes racing here
+    /// would both bind, and the second would leave the first listening on a socket no name
+    /// points at any more.
+    public static func listen(at path: String) throws(Failure) -> Int32 {
         let fd = try make()
         unlink(path)
         let bound = try withAddress(path) { address, length in bind(fd, address, length) }
@@ -88,7 +101,7 @@ enum UnixSocket {
     }
 
     /// Writes all of `bytes`; false if the other end went away.
-    static func writeAll(_ fd: Int32, _ bytes: [UInt8]) -> Bool {
+    public static func writeAll(_ fd: Int32, _ bytes: [UInt8]) -> Bool {
         var offset = 0
         while offset < bytes.count {
             let written = bytes.withUnsafeBytes {
@@ -105,10 +118,15 @@ enum UnixSocket {
         return true
     }
 
-    /// Reads one framed payload, waiting at most `timeoutMilliseconds` in all (nil: no
-    /// limit). Nil on timeout, end of file, or a frame too large.
-    static func readFrame(_ fd: Int32, timeoutMilliseconds: Int?) -> [UInt8]? {
-        var reader = AskpassWire.Reader()
+    /// Reads one framed payload no larger than `limit`, waiting at most
+    /// `timeoutMilliseconds` in all (nil: no limit). Nil on timeout, end of file, or a frame
+    /// too large.
+    ///
+    /// This waits, so it belongs to a handshake and not to a data path; a connection that
+    /// carries frames both ways at once wants `FrameReader` and `FrameWriter` around its own
+    /// `poll` instead.
+    public static func readFrame(_ fd: Int32, limit: Int, timeoutMilliseconds: Int?) -> [UInt8]? {
+        var reader = FrameReader(limit: limit)
         var buffer = [UInt8](repeating: 0, count: 4_096)
         let deadline = timeoutMilliseconds.map { monotonicMilliseconds() + $0 }
         while true {
@@ -130,7 +148,7 @@ enum UnixSocket {
         }
     }
 
-    static func monotonicMilliseconds() -> Int {
+    public static func monotonicMilliseconds() -> Int {
         var now = timespec()
         clock_gettime(CLOCK_MONOTONIC, &now)
         return Int(now.tv_sec) * 1_000 + Int(now.tv_nsec) / 1_000_000

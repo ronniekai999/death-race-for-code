@@ -261,8 +261,21 @@ final class SessionBridge {
         retryIn = Self.firstRetry
     }
 
-    /// The program has not been reading; try again, and while it has not, leave the socket
-    /// unread so the client is held up rather than this.
+    /// Try the held bytes again, and while they will not go, leave the socket unread so the
+    /// client is held up rather than this.
+    ///
+    /// Holding only happens when a session's own mailbox is full — sixteen megabytes pasted
+    /// into a program that has stopped reading — or when its shell has ended, and the second
+    /// of those is no longer held at all. That is why the retry matters and is not tested
+    /// here: reaching the first state needs sixteen megabytes through a socket, a
+    /// pseudo-terminal and an engine, and the review's other claim about this state — that it
+    /// span a core — was measured and turned out to belong to the ended-shell case, which is
+    /// gone. With nothing held for an ended shell there is nothing latched for `poll` to keep
+    /// reporting, and putting the old behaviour back moved two seconds of daemon time from
+    /// 190 ms to 220 ms, which is noise. The read is still switched off while holding, because
+    /// it is what makes the kernel do the holding up, but the load-bearing part is this retry:
+    /// nothing else will wake this loop, since a program that reads without printing publishes
+    /// no screen.
     private func retryHeldInput() {
         guard let held = heldInput, let session else { return }
         guard session.status == .running else {

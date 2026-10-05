@@ -373,6 +373,7 @@ struct DaemonTests {
         let budget = underThreadSanitizer ? 400 : 40
         #expect(after - before <= budget, "four idle sessions cost \(after - before) ms over two seconds")
     }
+
 }
 
 @Suite("The app's end of the daemon", .serialized, .timeLimit(.minutes(1)))

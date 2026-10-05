@@ -288,7 +288,10 @@ struct DaemonTests {
         guard let before = processorMilliseconds(pid) else { return }  // only /proc can say
         usleep(2_000_000)
         let after = try #require(processorMilliseconds(pid))
-        #expect(after - before <= 40, "four idle sessions cost \(after - before) ms over two seconds")
+        // The Thread Sanitizer makes every instruction cost more, so the budget is about the
+        // shape — nothing periodic, nothing polling — rather than an absolute.
+        let budget = underThreadSanitizer ? 400 : 40
+        #expect(after - before <= budget, "four idle sessions cost \(after - before) ms over two seconds")
     }
 }
 

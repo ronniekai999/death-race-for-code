@@ -65,9 +65,11 @@ final class DaemonRig {
         let executable = try #require(BuiltBinary.path("legendsd"), BuiltBinary.missing("legendsd"))
         var arguments = ["legendsd", "--socket", socket, "--lock", lock, "--log", logPath]
         if let sessions { arguments += ["--sessions", String(sessions)] }
-        if let writeStallMilliseconds { arguments += ["--write-stall", String(writeStallMilliseconds)] }
+        if let writeStallMilliseconds {
+            arguments += ["--write-stall", String(patience(writeStallMilliseconds))]
+        }
         if let idleExitMilliseconds {
-            arguments += ["--idle-exit", String(idleExitMilliseconds)]
+            arguments += ["--idle-exit", String(patience(idleExitMilliseconds))]
         } else {
             arguments.append("--stay")
         }

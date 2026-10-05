@@ -31,6 +31,14 @@ public enum SFTPError: Error, Equatable, Sendable {
 public enum SFTP {
     public static let version: UInt32 = 3
 
+    /// The most entries one `NAME` reply may carry. OpenSSH sends about a hundred per
+    /// `READDIR`, so this is generous; it exists because the length check alone lets a single
+    /// legal frame declare over a million minimal entries.
+    public static let maxNameEntries = 65_536
+    /// The most of a `STATUS` message to keep. The rest is dropped rather than carried into a
+    /// sentence on screen, a log line and a transfer row that is kept until you clear it.
+    public static let maxStatusMessage = 512
+
     /// Packet type tags.
     public enum Kind {
         public static let initialize: UInt8 = 1
@@ -293,15 +301,20 @@ public enum SFTPPacket: Equatable, Sendable {
         case SFTP.Kind.status:
             let id = try r.u32()
             let code = try r.u32()
-            // v3 adds a message and language tag; older servers omit them.
-            let message = r.remaining > 0 ? try r.string() : ""
+            // v3 adds a message and language tag; older servers omit them. The server chooses
+            // every byte, and it ends up in a sentence on screen, so keep only a line of it.
+            let message = r.remaining > 0 ? String(try r.string().prefix(SFTP.maxStatusMessage)) : ""
             return .status(id: id, code: code, message: message)
         case SFTP.Kind.handle: return .handle(id: try r.u32(), handle: try r.byteString())
         case SFTP.Kind.data: return .data(id: try r.u32(), data: try r.byteString())
         case SFTP.Kind.name:
             let id = try r.u32()
-            // Each entry is two strings and an attributes block: at least 12 bytes.
+            // Each entry is two strings and an attributes block: at least 12 bytes. The
+            // bytes-remaining check alone is not enough here — a legal 16 MiB frame can
+            // declare 1.4 million minimal entries, which decode to a hundred megabytes of
+            // `SFTPName`. So this also has an absolute cap, as `DeltaCodec`'s rows do.
             let count = try r.count(elementSize: 12)
+            guard count <= SFTP.maxNameEntries else { throw .invalid("too many entries in one NAME") }
             var entries: [SFTPName] = []
             entries.reserveCapacity(count)
             for _ in 0..<count {
@@ -400,9 +413,13 @@ struct SFTPReader {
         return try take(n)
     }
 
-    /// A `uint32`-length-prefixed UTF-8 string.
+    /// A `uint32`-length-prefixed UTF-8 string. A NUL is refused: Swift keeps it, but every C
+    /// API the string later reaches — `open`, `rename` — stops there, so `".zshrc\0.txt"`
+    /// would show one name and write another. POSIX forbids NUL in a filename anyway.
     mutating func string() throws(SFTPError) -> String {
-        String(decoding: try byteString(), as: UTF8.self)
+        let bytes = try byteString()
+        guard !bytes.contains(0) else { throw .invalid("a string with a NUL in it") }
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     mutating func attributes() throws(SFTPError) -> SFTPAttributes {

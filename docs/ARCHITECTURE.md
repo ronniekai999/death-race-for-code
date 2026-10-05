@@ -450,6 +450,18 @@ through, can't report progress, and its output is text meant for people.
   signals the child's process group — rather than closing its stdin and trusting end of file
   to travel: `ssh -s` holds its channel until the server closes it, and a close that only shut
   stdin left the ssh in `poll` and the reader in `read`, which hung one CI run for 21 minutes.
+- **A name from a server is only ever a name.** The host chooses every byte of a filename,
+  and Maze joins it with a folder on this Mac and writes there, so `Listing.remote` refuses
+  any name holding a separator, `.`, `..`, a control character, a NUL, or a lossy UTF-8
+  decode, and Download checks again before it writes. Without that, a listing could name
+  `Library/LaunchAgents/x.plist` and a download would write a launch agent — content and path
+  both chosen by a host you merely browsed, and the write goes through `AtomicFile`, which
+  creates the folders on the way. This is the stance OpenSSH's own sftp and scp took after
+  CVE-2019-6111: the local path comes from what we asked for, never from what the server
+  answered. **Every reply is bounded too** — entries per `NAME` and per directory, bytes
+  queued for the client, bytes in a download, `DATA` no longer than the `READ` that asked for
+  it, and a reply only for a request id actually issued — because a hostile server is
+  otherwise an unbounded sink on the far end of a pipe.
 - **The window is only a window.** `MazeModel` holds the two listings and the
   `TransferQueue` behind the `RemoteFiles` and `LocalFileSystem` seams, so
   `DeathRaceAppTests` drives every path — list, step in, upload, download, replace, Stop, a

@@ -221,6 +221,21 @@ struct MazeModelTests {
         #expect(model.localRows.map(\.name) == ["index.html"])
     }
 
+    /// `Listing.remote` already refuses a name holding a separator, but Download is the line
+    /// that decides where a host's bytes land on this Mac, so it checks for itself: a row that
+    /// got past the listing somehow must still not write outside the folder on screen.
+    @Test func downloadRefusesANameThatIsNotAName() async throws {
+        let disk = FakeLocalDisk()
+        let host = FakeRemoteFiles()
+        let model = makeModel(host, disk)
+        await model.start()
+        model.remoteRows = [FileEntry(name: "../../.ssh/authorized_keys", kind: .file, size: 7)]
+        await model.download("../../.ssh/authorized_keys")
+        #expect(model.transfers.transfers.isEmpty)
+        #expect(model.problem == "The host offered a file whose name can't be used here.")
+        #expect(disk.file("/Users/r/.ssh/authorized_keys") == nil)
+    }
+
     @Test func aFolderIsNeverDownloaded() async throws {
         let host = FakeRemoteFiles()
         await host.add(directory: "/var/www/releases")

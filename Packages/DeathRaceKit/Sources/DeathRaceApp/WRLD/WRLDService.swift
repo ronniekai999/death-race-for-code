@@ -224,6 +224,16 @@ final class WRLDService: HostConnecting {
             return nil
         }
         let client = SFTPClient(transport: session)
+        // A host can accept the subsystem and then say nothing; the handshake waits on a
+        // continuation with no deadline, so without this the open never returns, the host's
+        // Maze can never be opened again, and its master is held for the life of the app.
+        // Closing the session ends the ssh, which is what makes the handshake throw.
+        let watchdog = Task {
+            try? await Task.sleep(for: .seconds(20))
+            guard !Task.isCancelled else { return }
+            await session.close()
+        }
+        defer { watchdog.cancel() }
         do {
             try await client.start()
             return client

@@ -34,12 +34,43 @@ public enum Listing {
         return .file
     }
 
-    /// Display rows for a remote directory, from the server's raw `NAME` entries: drop `.` and
-    /// `..`, classify each, and sort.
+    /// The longest name a real filesystem will give us (`NAME_MAX`). Anything longer is a
+    /// server making something up.
+    public static let longestName = 255
+
+    /// Whether a name a server sent may be used as a file on this Mac. **A server chooses
+    /// every byte of this**, and Maze joins it with a local folder and writes there, so it is
+    /// only ever a name — never a path:
+    ///
+    /// - A name holding `/` is refused. `Listing.join` would otherwise take
+    ///   `Library/LaunchAgents/x.plist` straight out of the folder on screen, and the write
+    ///   goes through `AtomicFile`, which creates the folders on the way. From the default
+    ///   Downloads folder that reaches a launch agent, `~/.zshrc` or `~/.ssh/config` — content
+    ///   and path both chosen by a host you merely browsed.
+    /// - `.`, `..` and the empty name are refused, so a name can't climb either.
+    /// - A name holding a control character is refused: it would lie on screen.
+    /// - A name that didn't survive its UTF-8 decode (so it holds U+FFFD) is refused, because
+    ///   the path we would send back in `OPEN` is no longer the bytes the server listed, and
+    ///   two different files can collapse into one row.
+    ///
+    /// This is the same stance OpenSSH's own sftp and scp took after CVE-2019-6111: the local
+    /// path comes from what we asked for, never from what the server answered.
+    public static func isUsableName(_ name: String) -> Bool {
+        guard !name.isEmpty, name != ".", name != "..", name.utf8.count <= longestName else { return false }
+        return !name.unicodeScalars.contains {
+            $0 == "/" || $0 == "\u{FFFD}" || $0.properties.generalCategory == .control
+        }
+    }
+
+    /// Display rows for a remote directory, from the server's raw `NAME` entries: drop
+    /// anything that isn't a usable name (see `isUsableName`), classify each, and sort.
+    /// Duplicates are dropped too — `FileEntry`'s identity is its name, and `ForEach` must
+    /// not see the same id twice.
     public static func remote(_ names: [SFTPName]) -> [FileEntry] {
+        var seen: Set<String> = []
         let entries =
             names
-            .filter { $0.filename != "." && $0.filename != ".." }
+            .filter { isUsableName($0.filename) && seen.insert($0.filename).inserted }
             .map {
                 FileEntry(
                     name: $0.filename, kind: kind(of: $0.attributes),

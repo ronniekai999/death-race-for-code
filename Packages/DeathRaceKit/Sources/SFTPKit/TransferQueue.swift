@@ -67,6 +67,11 @@ public struct TransferQueue: Equatable, Sendable {
     public private(set) var transfers: [Transfer] = []
     private var nextID: UInt64 = 0
 
+    /// How many rows to keep. Rows only leave when you press Clear, so a host that fails
+    /// every transfer — each failure carrying its own message — would otherwise grow this
+    /// without end. The oldest row that is no longer active goes first.
+    public static let maxRows = 200
+
     public init() {}
 
     /// Add a transfer in the `queued` state and return its id.
@@ -78,6 +83,9 @@ public struct TransferQueue: Equatable, Sendable {
         let id = TransferID(nextID)
         transfers.append(
             Transfer(id: id, direction: direction, name: name, localPath: localPath, remotePath: remotePath))
+        while transfers.count > Self.maxRows, let oldest = transfers.firstIndex(where: { !$0.isActive }) {
+            transfers.remove(at: oldest)
+        }
         return id
     }
 

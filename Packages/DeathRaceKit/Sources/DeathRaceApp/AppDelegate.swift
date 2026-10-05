@@ -236,8 +236,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         guard let wrld, !openingMaze.contains(host) else { return }
         openingMaze.insert(host)
         Task {
+            // In a `defer`: a host whose files never open must still be openable again, and
+            // `openSFTP` is a long await on a connection that may not answer.
+            defer { openingMaze.remove(host) }
             let files = await wrld.openSFTP(host)
-            openingMaze.remove(host)
             guard let files else {
                 let alert = NSAlert()
                 alert.alertStyle = .warning

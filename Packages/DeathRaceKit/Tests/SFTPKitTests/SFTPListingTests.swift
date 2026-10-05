@@ -43,6 +43,31 @@ private final class Scratch {
         #expect(Listing.join("/var/www/", "app") == "/var/www/app")
     }
 
+    /// The server chooses every byte of a filename, and Maze joins it with a local folder and
+    /// writes there. A name holding a separator would put a download wherever the host liked:
+    /// from the default Downloads folder, `Library/LaunchAgents/x.plist` is a launch agent,
+    /// and `../.zshrc` is code that runs in the next tab. None of these may become a row.
+    @Test func aNameFromAServerIsOnlyEverAName() {
+        for bad in [
+            "", ".", "..", "/", "a/b", "Library/LaunchAgents/x.plist", "../../.ssh/authorized_keys",
+            "/etc/passwd", ".zshrc\u{0}.txt", "bell\u{7}", "line\nbreak", "esc\u{1B}[2J",
+            String(repeating: "x", count: 256),
+        ] {
+            #expect(!Listing.isUsableName(bad), "\(bad.debugDescription) must not be usable as a name")
+        }
+        for good in ["notes.md", "app-2.4.1.tar.gz", ".zshrc", "..hidden", "a…b", "日本語.txt", "with space"] {
+            #expect(Listing.isUsableName(good), "\(good.debugDescription) is an ordinary name")
+        }
+        #expect(Listing.isUsableName(String(repeating: "x", count: 255)))
+
+        // And the listing drops them, so no such row can ever be picked and downloaded.
+        let names = [
+            "ok.txt", "", ".", "..", "Library/LaunchAgents/evil.plist", "../../.ssh/config", "ok.txt",
+        ].map { SFTPName(filename: $0, longname: "", attributes: SFTPAttributes(size: 1)) }
+        // "ok.txt" twice: a duplicate id would be a SwiftUI programmer error.
+        #expect(Listing.remote(names).map(\.name) == ["ok.txt"])
+    }
+
     @Test func nameTakesTheLastComponent() {
         // What a dropped file is called, from the path the drop carried.
         #expect(Listing.name(of: "/var/www/app.tar.gz") == "app.tar.gz")

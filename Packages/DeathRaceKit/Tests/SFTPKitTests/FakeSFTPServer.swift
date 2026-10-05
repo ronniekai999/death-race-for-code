@@ -21,11 +21,25 @@ actor FakeSFTPServer: SFTPTransport {
     /// the request is still suspended there — what a real transport does, where the reader is
     /// a thread of its own.
     private let answersDuringSend: Bool
+    /// Answers `id: 1` before any request exists, then drops the real one — a server trying to
+    /// have a request report an outcome it chose.
+    private let answersAheadOfRequests: Bool
+    /// Never sends the `EOF` that ends a `READDIR` loop.
+    private let neverEndsReaddir: Bool
+    private var readdirBatches = 0
+    /// Answers each `READ` with far more than was asked for.
+    private let answersReadsTooLong: Bool
 
-    init(files: [String: [UInt8]] = [:], directories: [String] = [], answersDuringSend: Bool = false) {
+    init(
+        files: [String: [UInt8]] = [:], directories: [String] = [], answersDuringSend: Bool = false,
+        answersAheadOfRequests: Bool = false, neverEndsReaddir: Bool = false, answersReadsTooLong: Bool = false
+    ) {
         for (path, bytes) in files { self.files[path] = bytes }
         for directory in directories { self.directories.insert(directory) }
         self.answersDuringSend = answersDuringSend
+        self.answersAheadOfRequests = answersAheadOfRequests
+        self.neverEndsReaddir = neverEndsReaddir
+        self.answersReadsTooLong = answersReadsTooLong
     }
 
     // MARK: - Transport
@@ -33,6 +47,14 @@ actor FakeSFTPServer: SFTPTransport {
     func send(_ frame: [UInt8]) async throws {
         guard !closed else { throw SFTPError.transportClosed }
         let packet = try SFTPPacket.decode(frame: frame)
+        if case .initialize = packet, answersAheadOfRequests {
+            enqueue(SFTPPacket.version(version: SFTP.version).encode())
+            // The first request the client makes will be id 1, and here is its answer, before
+            // it has been asked for. The real request below is then dropped.
+            enqueue(SFTPPacket.status(id: 1, code: SFTP.Status.ok, message: "").encode())
+            return
+        }
+        if answersAheadOfRequests { return }
         for reply in replies(to: packet) { enqueue(reply.encode()) }
         if answersDuringSend {
             for _ in 0..<4 { await Task.yield() }
@@ -83,6 +105,17 @@ actor FakeSFTPServer: SFTPTransport {
             guard let key = handle.first, case .directory(let path, let emitted) = handles[key] else {
                 return [status(id, SFTP.Status.failure, "bad handle")]
             }
+            if neverEndsReaddir {
+                // A batch every time, and never the EOF that would end the client's loop.
+                readdirBatches += 1
+                return [
+                    .name(
+                        id: id,
+                        entries: (0..<1_000).map {
+                            SFTPName(filename: "f\(readdirBatches)-\($0)", longname: "", attributes: .none)
+                        })
+                ]
+            }
             if emitted { return [status(id, SFTP.Status.eof, "")] }
             handles[key] = .directory(path: path, emitted: true)
             return [.name(id: id, entries: entries(in: path))]
@@ -98,6 +131,9 @@ actor FakeSFTPServer: SFTPTransport {
         case .read(let id, let handle, let offset, let length):
             guard let key = handle.first, case .file(let path, _) = handles[key], let data = files[path] else {
                 return [status(id, SFTP.Status.failure, "bad handle")]
+            }
+            if answersReadsTooLong {
+                return [.data(id: id, data: [UInt8](repeating: 1, count: Int(length) * 4))]
             }
             let start = Int(offset)
             if start >= data.count { return [status(id, SFTP.Status.eof, "")] }

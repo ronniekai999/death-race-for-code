@@ -95,6 +95,48 @@ private let samplePackets: [SFTPPacket] = [
         #expect(throws: SFTPError.truncated) { try SFTPPacket.decode(body: w.bytes) }
     }
 
+    /// The bytes-remaining check is not enough on its own: a frame within the 16 MiB cap can
+    /// legally declare over a million minimal entries, which decode to a hundred megabytes of
+    /// `SFTPName`. An absolute cap is what stops that, as `DeltaCodec`'s row limits do.
+    @Test func aDenseNameFrameIsCappedByCountNotJustByLength() {
+        // type NAME, id, a count just past the cap, then enough minimal entries to back it.
+        var w = SFTPWriter()
+        w.u8(SFTP.Kind.name)
+        w.u32(1)
+        w.u32(UInt32(SFTP.maxNameEntries + 1))
+        for _ in 0...SFTP.maxNameEntries {
+            w.u32(0)  // filename ""
+            w.u32(0)  // longname ""
+            w.u32(0)  // no attribute flags
+        }
+        #expect(throws: SFTPError.invalid("too many entries in one NAME")) { try SFTPPacket.decode(body: w.bytes) }
+    }
+
+    /// Swift keeps a NUL in a String; `open` and `rename` stop there. So `".zshrc\0.txt"`
+    /// shows one name and writes another, and the overwrite check never fires.
+    @Test func aStringWithANulIsRefused() {
+        var w = SFTPWriter()
+        w.u8(SFTP.Kind.realpath)
+        w.u32(1)
+        w.string(".zshrc\u{0}.txt")
+        #expect(throws: SFTPError.invalid("a string with a NUL in it")) { try SFTPPacket.decode(body: w.bytes) }
+    }
+
+    /// A status message reaches a sentence on screen and a transfer row kept until you clear
+    /// it, so only a line of it is carried.
+    @Test func aHugeStatusMessageIsCutToALine() throws {
+        var w = SFTPWriter()
+        w.u8(SFTP.Kind.status)
+        w.u32(1)
+        w.u32(SFTP.Status.failure)
+        w.string(String(repeating: "A", count: 100_000))
+        guard case .status(_, _, let message) = try SFTPPacket.decode(body: w.bytes) else {
+            Issue.record("expected a STATUS")
+            return
+        }
+        #expect(message.count == SFTP.maxStatusMessage)
+    }
+
     @Test func aForgedStringLengthDoesNotAllocate() {
         // type REALPATH, id, then a string claiming UInt32.max bytes.
         var w = SFTPWriter()

@@ -121,7 +121,11 @@ private struct MazePane: View {
             }
         } else {
             view.dropDestination(for: URL.self) { urls, _ in
-                let files = urls.filter { !$0.isDirectoryOnDisk }.map { $0.path(percentEncoded: false) }
+                // `isFileURL` first: a dragged web link is a URL too, and its *path* reads as
+                // an absolute local path ("https://x/Users/me/.ssh/id_ed25519" → that file),
+                // so without this a page could offer a link that uploads a private key.
+                let files = urls.filter { $0.isFileURL && !$0.isDirectoryOnDisk }
+                    .map { $0.path(percentEncoded: false) }
                 Task {
                     await model.upload(dropped: files)
                     if files.count != urls.count { model.problem = "Maze moves files, not folders." }

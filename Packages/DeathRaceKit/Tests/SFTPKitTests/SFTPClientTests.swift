@@ -161,4 +161,40 @@ private actor Finished {
         #expect(finished, "a reply that arrived during send was dropped, so its request never came back")
         await client.shutDown()
     }
+
+    /// SFTP has no unsolicited server packets, and ids are 1, 2, 3 …, so a server can answer
+    /// ahead of us. Taking such a reply would let it report an upload's `WRITE` as written
+    /// when it threw the bytes away, and let it stream replies into an unbounded dictionary.
+    @Test func aReplyToARequestThatWasNeverSentFailsTheSession() async throws {
+        let server = FakeSFTPServer(answersAheadOfRequests: true)
+        let client = SFTPClient(transport: server)
+        try await client.start()
+        let finished = await Finished.within(10) {
+            // The server's forged STATUS(id: 1, ok) must not be mistaken for this reply.
+            await #expect(throws: (any Error).self) { try await client.mkdir("/anything") }
+        }
+        #expect(finished, "the request never came back")
+        await client.shutDown()
+    }
+
+    /// A server need never send the `EOF` that ends a READDIR loop.
+    @Test func aDirectoryThatNeverEndsIsCapped() async throws {
+        let server = FakeSFTPServer(directories: ["/home/user/endless"], neverEndsReaddir: true)
+        let client = try await started(server)
+        let finished = await Finished.within(30) {
+            await #expect(throws: (any Error).self) { _ = try await client.list("/home/user/endless") }
+        }
+        #expect(finished, "the listing never stopped")
+        await client.shutDown()
+    }
+
+    /// A server may answer a 32 KiB `READ` short, never long: a 16 MiB `DATA` for each chunk
+    /// is how a download loop becomes an unbounded one.
+    @Test func moreDataThanWasAskedForIsRefused() async throws {
+        let server = FakeSFTPServer(
+            files: ["/home/user/a.bin": [UInt8](repeating: 3, count: 1_024)], answersReadsTooLong: true)
+        let client = try await started(server)
+        await #expect(throws: (any Error).self) { _ = try await client.download("/home/user/a.bin") }
+        await client.shutDown()
+    }
 }

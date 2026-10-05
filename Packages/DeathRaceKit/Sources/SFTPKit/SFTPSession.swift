@@ -11,8 +11,11 @@ import SSHKit
 /// The real `SFTPTransport`: `ssh … -s sftp` on a host's existing master, its stdin/stdout
 /// carrying the binary SFTP stream. The pipe I/O is blocking, so it runs on two dedicated
 /// threads — one reading frames, one writing them — bridged to `send`/`receive` with
-/// continuations. The ChildProcess is touched by one thread per side (writer: input; reader:
-/// output), with its pid and its ending behind `childLock`, so no two threads share a field.
+/// continuations. The ChildProcess is touched by one thread per side — the writer owns the
+/// child's input, the reader owns its output, its stderr and the reap — with the pid and the
+/// signal behind `childLock`. Neither side ever closes the other's descriptors: the reader
+/// spends the session blocked on raw fd numbers, and a descriptor closed under it could be
+/// reused immediately by anything else in the process.
 ///
 /// `close()` ends the ssh outright — it signals the child's process group — rather than
 /// closing its input and trusting end of file to travel. `ssh -s` keeps its channel open
@@ -25,6 +28,7 @@ public final class SFTPSession: SFTPTransport, @unchecked Sendable {
 
     private let lock = NSLock()
     private var inboxFrames: [[UInt8]] = []
+    private var inboxBytes = 0
     private var inboxWaiter: CheckedContinuation<[UInt8], any Error>?
     private var closed = false
     private var failure: (any Error)?
@@ -49,6 +53,12 @@ public final class SFTPSession: SFTPTransport, @unchecked Sendable {
     private static let maxFrameBody = 16 << 20
     /// How much of ssh's stderr to keep. Its complaints are one line ("Connection refused").
     private static let maxErrorTail = 4 << 10
+    /// How much may wait unread for the client. A server only ever answers what we asked, so
+    /// a queue this deep means it is talking on its own — and reading a frame off a pipe is
+    /// far quicker than decoding one, so an unbounded queue is the fastest way to exhaust
+    /// memory from the far end.
+    private static let maxQueuedFrames = 256
+    private static let maxQueuedBytes = 64 << 20
 
     private init(child: ChildProcess) {
         self.child = child
@@ -68,11 +78,17 @@ public final class SFTPSession: SFTPTransport, @unchecked Sendable {
     /// The ssh's own pid, so the sshd-gated test can prove that closing really ends it.
     var childProcessID: pid_t { child.pid }
 
-    /// What ssh last said on stderr, for the sentence when a session won't start.
+    /// What ssh last said on stderr, for the sentence when a session won't start. A hostile
+    /// host's pre-auth banner reaches this, and it ends up in a log line, so every control
+    /// character goes — otherwise it could forge lines of its own there.
     public var sshErrorText: String {
         errorLock.lock()
-        defer { errorLock.unlock() }
-        return String(decoding: errorTail, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = String(decoding: errorTail, as: UTF8.self)
+        errorLock.unlock()
+        let clean = String(
+            String.UnicodeScalarView(
+                text.unicodeScalars.map { $0.properties.generalCategory == .control ? " " : $0 }))
+        return clean.trimmingCharacters(in: .whitespaces)
     }
 
     // MARK: - SFTPTransport
@@ -96,6 +112,7 @@ public final class SFTPSession: SFTPTransport, @unchecked Sendable {
             lock.lock()
             if !inboxFrames.isEmpty {
                 let frame = inboxFrames.removeFirst()
+                inboxBytes -= frame.count
                 lock.unlock()
                 continuation.resume(returning: frame)
             } else if let failure {
@@ -199,7 +216,10 @@ public final class SFTPSession: SFTPTransport, @unchecked Sendable {
                     }
                     let total = 4 + Int(length)
                     if accumulator.count - start < total { break }
-                    deliver(Array(accumulator[start..<(start + total)]))
+                    guard deliver(Array(accumulator[start..<(start + total)])) else {
+                        finishReading(with: SFTPError.invalid("the server sent more than was asked for"))
+                        return
+                    }
                     start += total
                 }
                 if start > 0 {
@@ -218,16 +238,29 @@ public final class SFTPSession: SFTPTransport, @unchecked Sendable {
         }
     }
 
-    private func deliver(_ frame: [UInt8]) {
+    /// Delivers a frame, or false when the client has fallen so far behind that the queue is
+    /// past its cap — which a well-behaved server can't cause, since it only ever replies to
+    /// what we asked for. The reader then fails the session instead of growing the queue.
+    private func deliver(_ frame: [UInt8]) -> Bool {
         lock.lock()
+        if closed {
+            lock.unlock()
+            return false
+        }
         if let waiter = inboxWaiter {
             inboxWaiter = nil
             lock.unlock()
             waiter.resume(returning: frame)
-        } else {
-            inboxFrames.append(frame)
-            lock.unlock()
+            return true
         }
+        guard inboxFrames.count < Self.maxQueuedFrames, inboxBytes + frame.count <= Self.maxQueuedBytes else {
+            lock.unlock()
+            return false
+        }
+        inboxFrames.append(frame)
+        inboxBytes += frame.count
+        lock.unlock()
+        return true
     }
 
     /// Keep the last of what ssh said, without ever blocking: the pipe is non-blocking for
@@ -250,15 +283,27 @@ public final class SFTPSession: SFTPTransport, @unchecked Sendable {
         }
     }
 
-    private func finishReading(with error: any Error) {
+    /// Records that the stream has ended and hands the error to whoever is waiting. Safe from
+    /// either thread: it touches no descriptor.
+    private func failInbox(with error: any Error) {
         lock.lock()
         if failure == nil { failure = error }
         let waiter = inboxWaiter
         inboxWaiter = nil
+        inboxFrames = []
+        inboxBytes = 0
         lock.unlock()
         waiter?.resume(throwing: error)
-        // Whatever ended the output, the ssh goes with it, and is collected here — the one
-        // thread that knows the child has stopped talking.
+    }
+
+    /// The reader thread's own ending, and **only** the reader thread's: it is blocked in
+    /// `poll`/`read` on the output and error descriptors for the life of the session, so
+    /// nobody else may close them. Closing a descriptor another thread is waiting on is
+    /// unspecified, and the number can be reused at once by any other `open` in the process —
+    /// a vault write, another session's pipe, the askpass socket. The writer, when its own
+    /// side fails, ends the child instead and lets this run.
+    private func finishReading(with error: any Error) {
+        failInbox(with: error)
         endChild()
         var buffer = [UInt8](repeating: 0, count: 4_096)
         drainErrors(child.errorFD, into: &buffer)
@@ -286,8 +331,11 @@ public final class SFTPSession: SFTPTransport, @unchecked Sendable {
                 item.done.resume()
             } else {
                 item.done.resume(throwing: SFTPError.transportClosed)
-                finishReading(with: SFTPError.transportClosed)
+                failInbox(with: SFTPError.transportClosed)
+                // Input is this thread's; output and the reap are the reader's. Ending the
+                // child is what makes its `read` return so it can do them.
                 child.closeInput()
+                endChild()
                 return
             }
         }

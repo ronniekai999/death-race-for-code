@@ -144,6 +144,12 @@ import SFTPKit
         guard let name = name ?? remoteSelected,
             let row = remoteRows.first(where: { $0.name == name }), !row.isDirectory
         else { return }
+        // `Listing.remote` already refuses a name that isn't a name, but this is the line that
+        // decides where bytes from a host land on this Mac, so it checks for itself.
+        guard Listing.isUsableName(name) else {
+            problem = "The host offered a file whose name can't be used here."
+            return
+        }
         if localRows.contains(where: { $0.name == name }), await !confirmOverwrite(name) { return }
         let remote = Listing.join(remotePath, name)
         let local = Listing.join(localPath, name)

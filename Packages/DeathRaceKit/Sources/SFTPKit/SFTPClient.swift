@@ -17,6 +17,11 @@ public actor SFTPClient {
     /// waiter; the reply waits here instead of being dropped. One slow 70 KB upload against a
     /// real sshd lost a WRITE's STATUS this way and hung the transfer for good.
     private var earlyReplies: [UInt32: SFTPPacket] = [:]
+    /// The ids of requests that have been issued and not yet answered. A reply is only kept
+    /// for an id in here, which both bounds `earlyReplies` by what is actually in flight and
+    /// refuses a reply to a request that was never made — a server could otherwise answer
+    /// ahead of us (ids are 1, 2, 3 …) and have an upload report success it threw away.
+    private var issued: Set<UInt32> = []
     private var readerTask: Task<Void, Never>?
     private var sessionError: (any Error)?
     /// The protocol version the server agreed to, once the handshake has run.
@@ -64,9 +69,15 @@ public actor SFTPClient {
             guard let id = packet.id else { continue }  // no id-bearing handshake packets mid-session
             if let waiter = waiters.removeValue(forKey: id) {
                 waiter.resume(returning: packet)
-            } else {
+            } else if issued.contains(id) {
                 // Its request is still in `send`; it will take this the moment it comes back.
                 earlyReplies[id] = packet
+            } else {
+                // SFTP has no unsolicited server packets, so a reply to a request we never
+                // made is a server making things up — and an unbounded one, since it can
+                // stream them. Fail the session rather than hold on to any of it.
+                failAll(with: SFTPError.invalid("a reply to a request that was never sent"))
+                return
             }
         }
     }
@@ -76,6 +87,7 @@ public actor SFTPClient {
         let pending = waiters
         waiters = [:]
         earlyReplies = [:]
+        issued = []
         for (_, waiter) in pending { waiter.resume(throwing: error) }
     }
 
@@ -89,6 +101,11 @@ public actor SFTPClient {
     private func request(_ packet: SFTPPacket) async throws -> SFTPPacket {
         if let sessionError { throw sessionError }
         guard let id = packet.id else { throw SFTPError.invalid("request without id") }
+        issued.insert(id)
+        defer {
+            issued.remove(id)
+            earlyReplies[id] = nil
+        }
         // Sending suspends this actor, so the read loop can deliver the reply before the
         // continuation below has registered its waiter. That reply is held in `earlyReplies`,
         // and taken here, rather than dropped.
@@ -139,6 +156,11 @@ public actor SFTPClient {
         }
     }
 
+    /// The most entries one directory may have. A server need never send the `EOF` that ends
+    /// a `READDIR` loop, so without this a listing is an unbounded sink: one measured run
+    /// swallowed 264,000 entries in a second and a half and was still going.
+    public static let maxDirectoryEntries = 200_000
+
     /// The entries of a directory, including `.` and `..` as the server sends them.
     public func list(_ path: String) async throws -> [SFTPName] {
         let handle = try await openDirectory(path)
@@ -147,7 +169,11 @@ public actor SFTPClient {
             loop: while true {
                 let reply = try await request(.readdir(id: nextRequestID(), handle: handle.bytes))
                 switch reply {
-                case .name(_, let batch): entries.append(contentsOf: batch)
+                case .name(_, let batch):
+                    guard entries.count + batch.count <= Self.maxDirectoryEntries else {
+                        throw SFTPError.invalid("more than \(Self.maxDirectoryEntries) entries in one directory")
+                    }
+                    entries.append(contentsOf: batch)
                 case .status(_, let code, let message):
                     if code == SFTP.Status.eof { break loop }
                     throw SFTPError.status(code: code, message: message)
@@ -218,7 +244,11 @@ public actor SFTPClient {
     public func read(_ handle: Handle, offset: UInt64, length: UInt32) async throws -> [UInt8]? {
         let reply = try await request(.read(id: nextRequestID(), handle: handle.bytes, offset: offset, length: length))
         switch reply {
-        case .data(_, let data): return data
+        case .data(_, let data):
+            // A server may answer short, never long: a 16 MiB `DATA` for a 32 KiB request is
+            // how a transfer loop becomes an unbounded one.
+            guard data.count <= Int(length) else { throw SFTPError.invalid("more DATA than was asked for") }
+            return data
         case .status(_, let code, let message):
             if code == SFTP.Status.eof { return nil }
             throw SFTPError.status(code: code, message: message)
@@ -237,6 +267,12 @@ public actor SFTPClient {
     /// default channel window, so larger requests just get split anyway.
     public static let chunkSize = 32_768
 
+    /// The largest file a download will take. It exists because a download is held whole in
+    /// memory before it is written, so a server that keeps answering `READ` is otherwise an
+    /// unbounded sink — it need not stop at the size it reported. A streaming download would
+    /// replace this with a real limit of the disk; see the note in docs/PERF.md.
+    public static let maxDownloadBytes = 2 << 30
+
     /// Download a file whole, reporting bytes done out of the total after each chunk. The
     /// total comes from the open file's own size; a server that returns short reads is handled
     /// by advancing only as far as it actually gave us. Cancelling the calling task stops it.
@@ -251,6 +287,9 @@ public actor SFTPClient {
             var offset: UInt64 = 0
             while let chunk = try await read(handle, offset: offset, length: UInt32(Self.chunkSize)), !chunk.isEmpty {
                 try Task.checkCancellation()
+                guard data.count + chunk.count <= Self.maxDownloadBytes else {
+                    throw SFTPError.invalid("the file is larger than Maze will take in one piece")
+                }
                 data.append(contentsOf: chunk)
                 offset += UInt64(chunk.count)
                 // A file that grew since the stat still reports a sane fraction.

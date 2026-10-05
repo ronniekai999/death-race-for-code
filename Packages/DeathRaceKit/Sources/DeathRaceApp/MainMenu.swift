@@ -105,6 +105,7 @@ enum MainMenu {
             menu.addItem(.separator())
             // The legendsd spike (docs/SPIKE.md).
             menu.addItem(item("Run Spike Probe in App", #selector(AppDelegate.runSpikeProbe(_:))))
+            menu.addItem(item("Run Spike Probe as a Spawned Daemon", #selector(AppDelegate.spawnSpikeDaemon(_:))))
             menu.addItem(item("Register Spike Agent", #selector(AppDelegate.registerSpikeAgent(_:))))
             menu.addItem(item("Unregister Spike Agent", #selector(AppDelegate.unregisterSpikeAgent(_:))))
             return menu

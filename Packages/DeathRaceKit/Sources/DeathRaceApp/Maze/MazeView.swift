@@ -162,14 +162,21 @@ private struct MazePane: View {
         .padding(.bottom, 16)
     }
 
+    /// Whether the picked row is a file. Maze moves files, so a folder leaves the button off
+    /// rather than offering something that can only fail.
+    private var canTransfer: Bool {
+        guard let selected else { return false }
+        return rows.first { $0.name == selected }?.isDirectory == false
+    }
+
     private var footer: some View {
         HStack {
             if isLocal {
                 Button("Upload →") { Task { await model.upload() } }
-                    .disabled(selected == nil)
+                    .disabled(!canTransfer)
             } else {
                 Button("← Download") { Task { await model.download() } }
-                    .disabled(selected == nil)
+                    .disabled(!canTransfer)
             }
             Spacer()
             Text("\(rows.count) items")

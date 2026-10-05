@@ -164,8 +164,11 @@ The Phase 2 budgets above are checked by hand on the M5, with a debug build
   flight costs nothing and draws no frames: both panes are lists that change only when you
   ask for a folder. During a transfer the chunk is 32 KiB — OpenSSH caps a single
   `READ`/`WRITE` payload there over the default channel window, so a larger request would
-  just be split — and progress reaches the main actor once per chunk, which the window turns
-  into one bar update. The window holds the host's master while it is open; closing it ends
+  just be split — and each chunk hops to the main actor to move the bar.
+  - **Still to do.** Nothing throttles that: a 2 GiB transfer is about 65,000 hops, one per
+    chunk, each its own task, so the ordering between two of them isn't guaranteed and the
+    bar can step backwards. A transfer is I/O-bound enough that this hasn't shown up as cost,
+    but it should be coalesced to one update a frame rather than one a chunk. The window holds the host's master while it is open; closing it ends
   the subsystem and lets the master idle out as a pane's would.
   - **Still to do.** Maze sends one chunk at a time and waits for its `STATUS` before the
     next, so throughput is bounded by the round trip: about a megabyte a second on a 30 ms

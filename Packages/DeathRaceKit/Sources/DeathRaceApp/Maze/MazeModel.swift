@@ -198,9 +198,14 @@ import SFTPKit
     /// Files dropped onto the host's pane, from Finder or from this Mac's pane: each goes
     /// into the folder the host's pane shows, one at a time so the window stays answerable.
     func upload(dropped paths: [String]) async {
+        var trouble: [String] = []
         for path in paths {
             await uploadFile(at: path, named: Listing.name(of: path))
+            // Each upload ends in a refresh, which clears `problem` — so a complaint about
+            // the first file would vanish behind the second. Keep them and say them all.
+            if let problem { trouble.append(problem) }
         }
+        if !trouble.isEmpty { problem = trouble.joined(separator: " ") }
     }
 
     /// Remote files dropped onto this Mac's pane. Only a path in the folder the host's pane

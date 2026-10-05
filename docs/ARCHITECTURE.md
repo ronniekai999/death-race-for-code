@@ -464,9 +464,11 @@ through, can't report progress, and its output is text meant for people.
   otherwise an unbounded sink on the far end of a pipe.
 - **The window is only a window.** `MazeModel` holds the two listings and the
   `TransferQueue` behind the `RemoteFiles` and `LocalFileSystem` seams, so
-  `DeathRaceAppTests` drives every path — list, step in, upload, download, replace, Stop, a
-  Finder drop — headless with stand-ins. Transfers run as cancellable tasks off the main
-  actor; progress is coalesced back to it.
+  `DeathRaceAppTests` drives it headless with stand-ins — list, step in, upload, download,
+  replace, Stop, a Finder drop. Transfers run as cancellable tasks off the main actor, and
+  each chunk hops back to it to move the bar (not yet coalesced; see docs/PERF.md). **Those
+  tests only run on macOS**, because the model is in the app target for one colour struct —
+  the one part of this phase outside the Linux gate, and worth moving.
 - **Dragging files out to Finder is not in this phase.** Upload and download buttons, drags
   between the two panes and Finder-into-Maze drops all work; `NSFilePromiseProvider` (a
   remote file dragged to the Desktop) would be new ground that CI can't check.

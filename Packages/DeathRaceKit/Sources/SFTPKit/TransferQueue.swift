@@ -49,8 +49,9 @@ public struct Transfer: Equatable, Sendable, Identifiable {
         }
     }
 
-    /// 0…1 of the way done, for the bar. Queued is 0; a finished transfer is 1; a zero-byte
-    /// file counts as complete once it starts.
+    /// 0…1 of the way done, for the bar. Queued is 0, and so is a zero-byte file until it
+    /// finishes — an empty bar for an instant reads better than a full one that hasn't
+    /// happened. Only `finished` is 1.
     public var fraction: Double {
         switch state {
         case .queued: return 0

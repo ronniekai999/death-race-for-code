@@ -80,6 +80,14 @@ public final class SFTPSession: SFTPTransport, @unchecked Sendable {
     /// The ssh's own pid, so the sshd-gated test can prove that closing really ends it.
     var childProcessID: pid_t { child.pid }
 
+    /// Whether `close` has been called, so the reader can tell an ordinary close from a
+    /// server that won't stop talking.
+    private var isClosed: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return closed
+    }
+
     /// What ssh last said on stderr, for the sentence when a session won't start. A hostile
     /// host's pre-auth banner reaches this, and it ends up in a log line, so every control
     /// character goes — otherwise it could forge lines of its own there.
@@ -233,7 +241,12 @@ public final class SFTPSession: SFTPTransport, @unchecked Sendable {
                     let total = 4 + Int(length)
                     if accumulator.count - start < total { break }
                     guard deliver(Array(accumulator[start..<(start + total)])) else {
-                        finishReading(with: SFTPError.invalid("the server sent more than was asked for"))
+                        // A frame arriving after an ordinary close isn't the server's fault,
+                        // so don't record it as one; a full queue is.
+                        finishReading(
+                            with: isClosed
+                                ? SFTPError.transportClosed
+                                : SFTPError.invalid("the server sent more than was asked for"))
                         return
                     }
                     start += total

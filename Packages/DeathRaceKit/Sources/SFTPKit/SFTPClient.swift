@@ -88,8 +88,11 @@ public actor SFTPClient {
                 return
             }
             guard let packet = try? SFTPPacket.decode(frame: frame) else {
-                // A frame we can't parse means the stream desynced — fail the session.
+                // A frame we can't parse means the stream desynced — fail the session, and
+                // end the transport with it: nobody is reading it after this, and left open
+                // it would keep its ssh and both its threads.
                 failAll(with: SFTPError.invalid("undecodable reply"))
+                await transport.close()
                 return
             }
             guard let id = packet.id else { continue }  // no id-bearing handshake packets mid-session
@@ -103,6 +106,7 @@ public actor SFTPClient {
                 // made is a server making things up — and an unbounded one, since it can
                 // stream them. Fail the session rather than hold on to any of it.
                 failAll(with: SFTPError.invalid("a reply to a request that was never sent"))
+                await transport.close()
                 return
             }
         }

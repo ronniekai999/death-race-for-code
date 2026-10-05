@@ -31,6 +31,9 @@ final class SessionLoop {
     /// The app asked for something (a snapshot, a scroll, a resize): publish even in the
     /// middle of a synchronized frame.
     private var mustPublish = true
+    /// Whether anyone is watching. Off for a session the daemon holds with no client: the
+    /// shell keeps running and the engine keeps reading, but no delta is built for nobody.
+    private var publishing = true
     private var passwordStateChanged = false
     private var publishedVersion: UInt64 = .max
     private var readingPassword = false
@@ -143,6 +146,10 @@ final class SessionLoop {
                 terminal.setBasePalette(palette)
             case .clear(let kind):
                 if terminal.clear(kind) { mustPublish = true }
+            case .publishing(let on):
+                publishing = on
+                // Coming back, whoever is watching now has nothing: the next delta is a full one.
+                if on { mustPublish = true }
             case .query(let query):
                 answer(query)
             case .close:
@@ -253,6 +260,9 @@ final class SessionLoop {
     }
 
     private func publishIfNeeded() {
+        // Nobody is watching. What the program printed is still read and still fed to the
+        // engine, so its scrollback is all there when someone takes the session up again.
+        guard publishing else { return }
         let changed =
             terminal.currentVersion != publishedVersion || !terminal.events.isEmpty || !carriedEvents.isEmpty
             || passwordStateChanged

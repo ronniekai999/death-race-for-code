@@ -24,6 +24,10 @@ public final class Session: Sendable {
         case exited(ExitStatus?)
     }
 
+    /// Which session this is. An in-process session mints its own: nothing outside the
+    /// process can refer to it anyway.
+    public let id = SessionID.next()
+
     let channel: SessionChannel
 
     /// Starts `launch` on a new terminal. `onUpdate` runs on the session thread when a
@@ -100,6 +104,27 @@ public final class Session: Sendable {
         channel.send(.close)
     }
 
+    /// Stops watching and leaves the shell running — except that in this process there is
+    /// nowhere to leave it, so this ends the session exactly as `close` does.
+    ///
+    /// It is here so that every place in the app which lets go of a session has to say which
+    /// it means, whether or not a daemon is holding it. A pane being closed means `close`; the
+    /// app quitting means `detach`, and only then does the difference show.
+    public func detach() {
+        close()
+    }
+
+    /// Stops building deltas, or starts again.
+    ///
+    /// Nothing takes the deltas of a session nobody is watching, so `DeltaBuilder` never
+    /// advances and every publish would rebuild the whole viewport — and in debug builds send
+    /// it through the codec as well. A detached session running `yes` would spend its time
+    /// drawing screens that will never be read. The shell keeps running throughout; turning
+    /// publishing back on makes the next delta a full one.
+    public func setPublishing(_ on: Bool) {
+        channel.send(.publishing(on))
+    }
+
     /// Installs a new base palette, the app's theme: colors programs set stay, the rest
     /// change, and the next delta carries the result.
     public func setBasePalette(_ palette: Palette) {
@@ -147,6 +172,8 @@ public final class Session: Sendable {
     }
 }
 
+extension Session: ShellSession {}
+
 /// What the app and the session thread share: a mailbox under a lock, and the pipe that
 /// wakes the thread.
 final class SessionChannel: Sendable {
@@ -160,6 +187,7 @@ final class SessionChannel: Sendable {
         case focus(Bool)
         case setBasePalette(Palette)
         case clear(Terminal.ClearKind)
+        case publishing(Bool)
         case query(Query)
         case close
     }

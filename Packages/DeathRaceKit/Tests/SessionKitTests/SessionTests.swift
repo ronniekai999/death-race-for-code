@@ -80,6 +80,16 @@ private final class Harness {
         }
     }
 
+    /// Whether a delta arrives within `milliseconds`, for checking that none does.
+    func deltaArrives(within milliseconds: Int) -> Bool {
+        let deadline = PseudoTerminal.monotonicMilliseconds() + milliseconds
+        while PseudoTerminal.monotonicMilliseconds() < deadline {
+            if session.takeDelta() != nil { return true }
+            _ = updates.wait(timeout: .now() + .milliseconds(25))
+        }
+        return false
+    }
+
     /// Takes deltas and throws them away until none has come for `quiet` milliseconds.
     func dropDeltas(quietFor quiet: Int) {
         var last = PseudoTerminal.monotonicMilliseconds()
@@ -290,5 +300,158 @@ struct SessionTests {
         let h = try Harness()
         h.type("printf '\\033]2;Legends\\007\\007'\n")
         #expect(h.waitUntil { $0.mirror.title == "Legends" && $0.events.contains(.bell) })
+    }
+}
+
+@Suite("A session nobody is watching", .timeLimit(.minutes(1)))
+struct DetachedSessionTests {
+    /// The point of turning publishing off: the program runs on, and its output is still read
+    /// and fed to the engine, but no screen is built for a client that is not there.
+    @Test("publishing off stops the deltas and not the shell")
+    func publishingOff() throws {
+        let h = try Harness()
+        h.type("echo one\n")
+        #expect(h.waitUntil { $0.text.contains("one") })
+
+        h.session.setPublishing(false)
+        h.dropDeltas(quietFor: 200)
+        h.type("echo two\n")
+        #expect(!h.deltaArrives(within: 500), "a delta was built for nobody")
+
+        h.session.setPublishing(true)
+        #expect(h.waitUntil { $0.text.contains("two") }, "what it printed while away was kept")
+    }
+
+    /// What the daemon does when someone takes a session up: publishing back on, and a
+    /// whole screen asked for, because the client holding the last one is gone. The snapshot
+    /// has to carry what was printed while nobody was watching.
+    @Test("a client taking the session up gets a whole screen, with what it missed on it")
+    func takingItUp() throws {
+        let h = try Harness()
+        #expect(h.waitUntil { $0.mirror.generation != nil })
+        h.session.setPublishing(false)
+        h.dropDeltas(quietFor: 200)
+        h.type("echo three\n")
+
+        h.session.setPublishing(true)
+        h.session.requestSnapshot()
+        h.mirror = MirrorGrid()
+        #expect(h.waitUntil { $0.text.contains("three") })
+    }
+
+    /// Publishing back on for the *same* client needs no snapshot: it still holds what it
+    /// last took, so a delta built on that is right, and cheaper than a screen.
+    @Test("coming back to the same client builds on what it already has")
+    func sameClient() throws {
+        let h = try Harness()
+        h.type("echo five\n")
+        #expect(h.waitUntil { $0.text.contains("five") })
+        h.session.setPublishing(false)
+        h.dropDeltas(quietFor: 200)
+        h.type("echo six\n")
+        h.session.setPublishing(true)
+        // The mirror is kept, and must accept what comes without ever asking for a snapshot.
+        #expect(h.waitUntil { $0.text.contains("five") && $0.text.contains("six") })
+    }
+
+    /// However long nobody was watching, how the shell ended still has to reach whoever
+    /// takes the session up next — that is what lets a relaunched app say so.
+    @Test("the last screen and the exit arrive even with publishing off")
+    func theEndAlwaysArrives() throws {
+        let h = try Harness()
+        #expect(h.waitUntil { $0.mirror.generation != nil })
+        h.session.setPublishing(false)
+        h.dropDeltas(quietFor: 200)
+        h.type("exit 3\n")
+        #expect(h.waitUntil { $0.session.status != .running })
+        #expect(h.session.status == .exited(.exited(code: 3)))
+    }
+
+    @Test("turning it off twice, or on when it already is, changes nothing")
+    func idempotent() throws {
+        let h = try Harness()
+        #expect(h.waitUntil { $0.mirror.generation != nil })
+        h.session.setPublishing(true)
+        h.session.setPublishing(false)
+        h.session.setPublishing(false)
+        h.dropDeltas(quietFor: 200)
+        h.type("echo four\n")
+        #expect(!h.deltaArrives(within: 400))
+        h.session.setPublishing(true)
+        #expect(h.waitUntil { $0.text.contains("four") })
+    }
+}
+
+@Suite("Sessions in this process", .timeLimit(.minutes(1)))
+struct InProcessHostTests {
+    private func shell() -> ShellLaunch {
+        ShellLaunch(
+            executable: "/bin/sh", arguments: ["sh"],
+            environment: ShellLaunch.terminalEnvironment(
+                inheriting: ["PATH": "/usr/bin:/bin"], appVersion: "test"))
+    }
+
+    @Test("it says plainly that its sessions do not outlive the process")
+    func itDoesNotSurvive() {
+        #expect(!InProcessHost().sessionsSurviveQuit)
+    }
+
+    @Test("there is never anything from before, and nothing to take up")
+    func nothingToFind() throws {
+        let host = InProcessHost()
+        #expect(try host.existing().isEmpty)
+        #expect(throws: SessionHostError.unknownSession(SessionID(7))) {
+            _ = try host.adopt(SessionID(7), onUpdate: {})
+        }
+    }
+
+    @Test("it starts a shell, and each one has its own id")
+    func itStartsShells() throws {
+        let host = InProcessHost()
+        let first = try host.start(shell(), configuration: Terminal.Configuration(), metadata: [], onUpdate: {})
+        let second = try host.start(shell(), configuration: Terminal.Configuration(), metadata: [], onUpdate: {})
+        #expect(first.id != second.id)
+        first.close()
+        second.close()
+    }
+
+    /// There is nowhere in this process to leave a shell running, so `detach` ends it. The
+    /// method exists so the app has to choose, not because the choice matters here.
+    @Test("detaching ends a session that has nowhere to be left")
+    func detachEndsIt() throws {
+        let host = InProcessHost()
+        let session = try host.start(shell(), configuration: Terminal.Configuration(), metadata: [], onUpdate: {})
+        session.detach()
+        let deadline = PseudoTerminal.monotonicMilliseconds() + 5_000
+        while session.status == .running, PseudoTerminal.monotonicMilliseconds() < deadline {
+            _ = session.takeDelta()
+        }
+        #expect(session.status != .running)
+    }
+
+    /// A note of where a session belonged is only worth keeping if the session will outlive
+    /// the window; here neither does, so both calls are nothing, and must not fail.
+    @Test("remembering where a session belonged, and ending one, are no-ops")
+    func theNoOps() {
+        let host = InProcessHost()
+        host.setMetadata(Array("anything".utf8), for: SessionID(1))
+        host.end(SessionID(1))
+    }
+
+    /// A shell that is not there is not a failure to start: the fork succeeds and `execve`
+    /// fails in the child, which exits 127 the way a shell says "command not found". So this
+    /// arrives as a session that ends, not as a throw — which is how the app reports it, and
+    /// what a daemon will have to report too.
+    @Test("a shell that is not there becomes a session that exits 127")
+    func aShellThatIsNotThere() throws {
+        let host = InProcessHost()
+        let missing = ShellLaunch(executable: "/nonexistent/shell", arguments: ["shell"], environment: [:])
+        let session = try host.start(
+            missing, configuration: Terminal.Configuration(), metadata: [], onUpdate: {})
+        let deadline = PseudoTerminal.monotonicMilliseconds() + 5_000
+        while session.status == .running, PseudoTerminal.monotonicMilliseconds() < deadline {
+            _ = session.takeDelta()
+        }
+        #expect(session.status == .exited(.exited(code: 127)))
     }
 }

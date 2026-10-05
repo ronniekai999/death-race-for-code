@@ -99,16 +99,14 @@ private let samplePackets: [SFTPPacket] = [
     /// legally declare over a million minimal entries, which decode to a hundred megabytes of
     /// `SFTPName`. An absolute cap is what stops that, as `DeltaCodec`'s row limits do.
     @Test func aDenseNameFrameIsCappedByCountNotJustByLength() {
-        // type NAME, id, a count just past the cap, then enough minimal entries to back it.
+        // type NAME, id, a count just past the cap, then enough bytes behind it to get past
+        // the bytes-remaining check — a minimal entry is twelve zero bytes (two empty strings
+        // and no attribute flags), so one bulk append stands in for all of them.
         var w = SFTPWriter()
         w.u8(SFTP.Kind.name)
         w.u32(1)
         w.u32(UInt32(SFTP.maxNameEntries + 1))
-        for _ in 0...SFTP.maxNameEntries {
-            w.u32(0)  // filename ""
-            w.u32(0)  // longname ""
-            w.u32(0)  // no attribute flags
-        }
+        w.bytes.append(contentsOf: repeatElement(0, count: (SFTP.maxNameEntries + 1) * 12))
         #expect(throws: SFTPError.invalid("too many entries in one NAME")) { try SFTPPacket.decode(body: w.bytes) }
     }
 

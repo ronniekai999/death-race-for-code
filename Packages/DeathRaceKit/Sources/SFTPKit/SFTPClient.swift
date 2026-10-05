@@ -9,7 +9,32 @@ public actor SFTPClient {
         public let bytes: [UInt8]
     }
 
+    /// What a session will take from a server. A hostile one is otherwise an unbounded sink
+    /// on the far end of a pipe; these are the absolute caps on top of the codec's
+    /// bytes-remaining checks, the same discipline `ScreenProtocol/DeltaCodec` keeps. They are
+    /// injectable so a test can reach a cap without doing two hundred thousand entries' worth
+    /// of work, which under Thread Sanitizer is enough to starve its neighbours.
+    public struct Limits: Sendable, Equatable {
+        /// The most entries one directory may have. A server need never send the `EOF` that
+        /// ends a `READDIR` loop: one measured run swallowed 264,000 entries in a second and
+        /// a half and was still going.
+        public var directoryEntries: Int
+        /// The largest file a download will take. It exists because a download is held whole
+        /// in memory before it is written, so a server that keeps answering `READ` is
+        /// otherwise unbounded — it need not stop at the size it reported. A streaming
+        /// download would replace this with a real limit of the disk; see docs/PERF.md.
+        public var downloadBytes: Int
+
+        public init(directoryEntries: Int = 200_000, downloadBytes: Int = 2 << 30) {
+            self.directoryEntries = directoryEntries
+            self.downloadBytes = downloadBytes
+        }
+
+        public static let `default` = Limits()
+    }
+
     private let transport: any SFTPTransport
+    private let limits: Limits
     private var nextID: UInt32 = 0
     private var waiters: [UInt32: CheckedContinuation<SFTPPacket, any Error>] = [:]
     /// Replies that arrived while their request was still being sent. Sending suspends this
@@ -27,8 +52,9 @@ public actor SFTPClient {
     /// The protocol version the server agreed to, once the handshake has run.
     public private(set) var serverVersion: UInt32?
 
-    public init(transport: any SFTPTransport) {
+    public init(transport: any SFTPTransport, limits: Limits = .default) {
         self.transport = transport
+        self.limits = limits
     }
 
     // MARK: - Lifecycle
@@ -156,11 +182,6 @@ public actor SFTPClient {
         }
     }
 
-    /// The most entries one directory may have. A server need never send the `EOF` that ends
-    /// a `READDIR` loop, so without this a listing is an unbounded sink: one measured run
-    /// swallowed 264,000 entries in a second and a half and was still going.
-    public static let maxDirectoryEntries = 200_000
-
     /// The entries of a directory, including `.` and `..` as the server sends them.
     public func list(_ path: String) async throws -> [SFTPName] {
         let handle = try await openDirectory(path)
@@ -170,8 +191,8 @@ public actor SFTPClient {
                 let reply = try await request(.readdir(id: nextRequestID(), handle: handle.bytes))
                 switch reply {
                 case .name(_, let batch):
-                    guard entries.count + batch.count <= Self.maxDirectoryEntries else {
-                        throw SFTPError.invalid("more than \(Self.maxDirectoryEntries) entries in one directory")
+                    guard entries.count + batch.count <= limits.directoryEntries else {
+                        throw SFTPError.invalid("more than \(limits.directoryEntries) entries in one directory")
                     }
                     entries.append(contentsOf: batch)
                 case .status(_, let code, let message):
@@ -267,12 +288,6 @@ public actor SFTPClient {
     /// default channel window, so larger requests just get split anyway.
     public static let chunkSize = 32_768
 
-    /// The largest file a download will take. It exists because a download is held whole in
-    /// memory before it is written, so a server that keeps answering `READ` is otherwise an
-    /// unbounded sink — it need not stop at the size it reported. A streaming download would
-    /// replace this with a real limit of the disk; see the note in docs/PERF.md.
-    public static let maxDownloadBytes = 2 << 30
-
     /// Download a file whole, reporting bytes done out of the total after each chunk. The
     /// total comes from the open file's own size; a server that returns short reads is handled
     /// by advancing only as far as it actually gave us. Cancelling the calling task stops it.
@@ -287,7 +302,7 @@ public actor SFTPClient {
             var offset: UInt64 = 0
             while let chunk = try await read(handle, offset: offset, length: UInt32(Self.chunkSize)), !chunk.isEmpty {
                 try Task.checkCancellation()
-                guard data.count + chunk.count <= Self.maxDownloadBytes else {
+                guard data.count + chunk.count <= limits.downloadBytes else {
                     throw SFTPError.invalid("the file is larger than Maze will take in one piece")
                 }
                 data.append(contentsOf: chunk)

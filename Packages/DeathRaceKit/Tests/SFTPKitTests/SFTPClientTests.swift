@@ -147,16 +147,17 @@ private actor Finished {
     /// than be dropped. Against a real sshd a dropped `STATUS` hung a 70 KB upload for good,
     /// and with it `swift test`, until Linux CI's 25-minute timeout.
     @Test func aReplyThatArrivesDuringSendIsNotLost() async throws {
+        let size = SFTPClient.chunkSize * 3 + 1  // several chunks each way, and a short last one
         let server = FakeSFTPServer(
-            files: ["/home/user/a.txt": [UInt8](repeating: 9, count: 200_000)], answersDuringSend: true)
+            files: ["/home/user/a.txt": [UInt8](repeating: 9, count: size)], answersDuringSend: true)
         let client = try await started(server)
         let finished = await Finished.within(10) {
-            // Several round trips, and a transfer that is many chunks, so the race gets
+            // Several round trips, and a transfer of more than one chunk, so the race gets
             // plenty of chances.
             #expect(try await client.realPath(".") == "/home/user")
-            #expect(try await client.download("/home/user/a.txt").count == 200_000)
-            try await client.upload("/home/user/b.txt", bytes: [UInt8](repeating: 1, count: 200_000))
-            #expect(try await client.stat("/home/user/b.txt").size == 200_000)
+            #expect(try await client.download("/home/user/a.txt").count == size)
+            try await client.upload("/home/user/b.txt", bytes: [UInt8](repeating: 1, count: size))
+            #expect(try await client.stat("/home/user/b.txt").size == UInt64(size))
         }
         #expect(finished, "a reply that arrived during send was dropped, so its request never came back")
         await client.shutDown()
@@ -177,11 +178,14 @@ private actor Finished {
         await client.shutDown()
     }
 
-    /// A server need never send the `EOF` that ends a READDIR loop.
+    /// A server need never send the `EOF` that ends a READDIR loop. The cap is injected small
+    /// so this costs nothing: reaching the real 200,000 would make the test heavy enough to
+    /// starve its neighbours under Thread Sanitizer, which is what the limits are a seam for.
     @Test func aDirectoryThatNeverEndsIsCapped() async throws {
         let server = FakeSFTPServer(directories: ["/home/user/endless"], neverEndsReaddir: true)
-        let client = try await started(server)
-        let finished = await Finished.within(30) {
+        let client = SFTPClient(transport: server, limits: SFTPClient.Limits(directoryEntries: 2_000))
+        try await client.start()
+        let finished = await Finished.within(10) {
             await #expect(throws: (any Error).self) { _ = try await client.list("/home/user/endless") }
         }
         #expect(finished, "the listing never stopped")

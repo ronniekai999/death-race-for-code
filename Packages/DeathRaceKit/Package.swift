@@ -22,6 +22,7 @@ var products: [Product] = [
     .library(name: "IPCKit", targets: ["IPCKit"]),
     .library(name: "ScreenProtocol", targets: ["ScreenProtocol"]),
     .library(name: "SessionKit", targets: ["SessionKit"]),
+    .library(name: "SessionIPC", targets: ["SessionIPC"]),
     .library(name: "ConfigKit", targets: ["ConfigKit"]),
     .library(name: "SurfaceCore", targets: ["SurfaceCore"]),
     .library(name: "Vault", targets: ["Vault"]),
@@ -56,6 +57,9 @@ var targets: [Target] = [
     .target(name: "ScreenProtocol", dependencies: ["VTCore"]),
     // One thread per session owns its pseudo-terminal and engine, and publishes deltas.
     .target(name: "SessionKit", dependencies: ["PTYKit", "VTCore", "ScreenProtocol"]),
+    // The session daemon and the app's end of it: the wire, the registry, and a session
+    // that lives in another process.
+    .target(name: "SessionIPC", dependencies: ["SessionKit", "ScreenProtocol", "PTYKit", "VTCore", "IPCKit"]),
     // The settings file: its schema, parser, diagnostics and template.
     .target(name: "ConfigKit", dependencies: ["VTCore"]),
     // What a terminal view does, apart from AppKit and Metal: cell geometry, colors, the
@@ -89,6 +93,9 @@ var targets: [Target] = [
     .testTarget(name: "VTCoreTests", dependencies: ["VTCore"]),
     .testTarget(name: "ScreenProtocolTests", dependencies: ["ScreenProtocol", "VTCore"]),
     .testTarget(name: "SessionKitTests", dependencies: ["SessionKit", "ScreenProtocol", "PTYKit", "VTCore"]),
+    .testTarget(
+        name: "SessionIPCTests",
+        dependencies: ["SessionIPC", "SessionKit", "ScreenProtocol", "PTYKit", "VTCore", "IPCKit"]),
     .testTarget(name: "ConfigKitTests", dependencies: ["ConfigKit", "VTCore"]),
     .testTarget(
         name: "SurfaceCoreTests", dependencies: ["SurfaceCore", "VTCore", "ScreenProtocol", "SessionKit", "ConfigKit"]),

@@ -4,7 +4,7 @@
 /// deliberately not `Sendable`. Bytes go in through `feed`; what the program asked of the
 /// outside world comes back as `replies` (bytes for the PTY) and `events` (for the app).
 public final class Terminal {
-    public struct Configuration: Sendable {
+    public struct Configuration: Sendable, Equatable {
         public var columns: Int
         public var rows: Int
         /// Scrollback budget, in bytes of cell storage. 50 MB, as in Ghostty.
@@ -160,7 +160,7 @@ public final class Terminal {
 
     // MARK: - Clearing
 
-    public enum ClearKind: Sendable {
+    public enum ClearKind: Sendable, Equatable {
         /// Terminal's Clear to Start (⌘K): the cursor's line, the prompt, moves to the top;
         /// the lines above it and the history go.
         case toStart

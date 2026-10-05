@@ -201,6 +201,7 @@ public final class DaemonHost: SessionHost {
     private let paths: Paths
     private let launcher: any DaemonLauncher
     private let deadline: Int
+    private let trusting: PeerPolicy
     private let control: ControlClient
 
     public var sessionsSurviveQuit: Bool { true }
@@ -212,13 +213,16 @@ public final class DaemonHost: SessionHost {
     /// talk to, or none this build can talk to — in both cases the app should fall back to
     /// running sessions in process, and say so.
     public init(
-        paths: Paths, launcher: any DaemonLauncher, deadlineMilliseconds: Int = 2_000
+        paths: Paths, launcher: any DaemonLauncher, trusting: PeerPolicy = .sameUser,
+        deadlineMilliseconds: Int = 2_000
     ) throws(SessionHostError) {
         self.paths = paths
         self.launcher = launcher
+        self.trusting = trusting
         deadline = deadlineMilliseconds
         var greeting = try Self.greet(
-            paths: paths, launcher: launcher, role: .control, deadline: deadlineMilliseconds)
+            paths: paths, launcher: launcher, role: .control, trusting: trusting,
+            deadline: deadlineMilliseconds)
         control = ControlClient(
             socket: greeting.socket, daemon: greeting.daemon, reader: greeting.reader)
     }
@@ -227,17 +231,17 @@ public final class DaemonHost: SessionHost {
 
     /// A connected socket that has already shaken hands, starting a daemon if there is none.
     private static func greet(
-        paths: Paths, launcher: (any DaemonLauncher)?, role: Role, deadline: Int
+        paths: Paths, launcher: (any DaemonLauncher)?, role: Role, trusting: PeerPolicy, deadline: Int
     ) throws(SessionHostError) -> (socket: Int32, daemon: DaemonFacts, reader: FrameReader) {
         let until = UnixSocket.monotonicMilliseconds() + deadline
         var asked = false
         while true {
             if let socket = UnixSocket.connect(to: paths.socket) {
-                // Before a word is sent: a socket another account planted under our path gets
-                // nothing. The daemon checks us in the same way from its side.
-                guard peerIsThisUser(socket) else {
+                // Before a word is sent: a socket planted under our path by something that is
+                // not the daemon gets nothing. It checks us in the same way from its side.
+                guard trusting.accepts(socket) else {
                     closeDescriptor(socket)
-                    throw .refused("something that is not yours is listening at \(paths.socket)")
+                    throw .refused("something we do not trust is listening at \(paths.socket)")
                 }
                 var reader = FrameReader(limit: SessionWire.largestSessionFrame)
                 do {
@@ -348,7 +352,8 @@ public final class DaemonHost: SessionHost {
         case .ready(_, let id, let token):
             // No launcher: a daemon that answered a moment ago and is gone now is a failure,
             // not a reason to start a second one underneath the first.
-            var greeting = try Self.greet(paths: paths, launcher: nil, role: .session, deadline: deadline)
+            var greeting = try Self.greet(
+                paths: paths, launcher: nil, role: .session, trusting: trusting, deadline: deadline)
             guard
                 UnixSocket.writeAll(
                     greeting.socket,

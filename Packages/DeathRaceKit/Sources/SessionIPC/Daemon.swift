@@ -50,6 +50,9 @@ public final class Daemon: Sendable {
         public var idleExitMilliseconds = 10_000
         /// Checked at the same moments as everything else, for tests that must not wait.
         public var stopWhenIdle = true
+        /// Who may speak to it. The default is the weakest check, which is all a machine
+        /// without code signing can make; `legendsd` asks for the strongest it can get.
+        public var peerPolicy = PeerPolicy.sameUser
 
         public init(socketPath: String, lockPath: String) {
             self.socketPath = socketPath
@@ -190,10 +193,8 @@ public final class Daemon: Sendable {
         let client = acceptConnection(listener)
         guard client >= 0 else { return }
         _ = fcntl(client, F_SETFD, FD_CLOEXEC)
-        // Nothing else on this machine may speak to the daemon. On a Mac the app's signature
-        // is checked on top of this; here, where there is no code signing, this is all there
-        // is, and the docs say so rather than implying more.
-        guard peerIsThisUser(client) else {
+        // Nothing else on this machine may speak to the daemon.
+        guard options.peerPolicy.accepts(client) else {
             close(client)
             return
         }

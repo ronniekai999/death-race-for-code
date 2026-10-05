@@ -20,6 +20,10 @@ import SessionIPC
     import Glibc
 #endif
 
+/// Who the daemon will talk to: the app, and nothing else. Its own signing identifier is
+/// what `scripts/bundle.sh` gives it.
+let trustedClientIdentifier = "local.deathraceforcode.DeathRace"
+
 let arguments = CommandLine.arguments
 
 func value(after flag: String) -> String? {
@@ -58,6 +62,15 @@ if null >= 0 {
 }
 
 var options = Daemon.Options(socketPath: socketPath, lockPath: lockPath)
+// Only the app may speak to it, pinned by signature where there is one to pin. Said out loud
+// when there is not, because a check that is not being made must not be assumed.
+options.peerPolicy = PeerPolicy.strongest(for: trustedClientIdentifier)
+if options.peerPolicy.isOnlySameUser {
+    let note =
+        "legendsd: no signature to pin, so any process of this user may connect"
+        + " (an ad-hoc or unsigned build)\n"
+    FileHandle.standardError.write(Data(note.utf8))
+}
 if let sessions = value(after: "--sessions").flatMap(Int.init), sessions > 0 {
     options.limits.sessions = sessions
 }

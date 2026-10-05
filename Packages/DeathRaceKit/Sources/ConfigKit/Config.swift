@@ -65,6 +65,8 @@ public struct Config: Sendable, Equatable {
     // WRLD
     /// Check how quickly Legends answer while the sidebar or the WRLD window shows them.
     public var checkHosts = true
+    /// Whether local shells are kept running by `legendsd` when the app goes.
+    public var legendsNeverDie = true
     /// Read what each host runs from its /etc/os-release, at most weekly.
     public var readHostOS = true
 

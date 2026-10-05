@@ -199,6 +199,27 @@ ssize_t cpty_write_no_sigpipe(int fd, const void *buffer, size_t count) {
 #endif
 }
 
+int cpty_peer_audit_token(int socket_fd, uint32_t token[8]) {
+#if defined(__APPLE__)
+    // Eight words rather than audit_token_t, so this needs no extra header: the type is
+    // exactly `struct { unsigned int val[8]; }`. The length is checked in case that changes.
+    uint32_t audit[8];
+    socklen_t length = sizeof audit;
+    if (getsockopt(socket_fd, SOL_LOCAL, LOCAL_PEERTOKEN, audit, &length) != 0) return -1;
+    if (length != sizeof audit) {
+        errno = EINVAL;
+        return -1;
+    }
+    memcpy(token, audit, sizeof audit);
+    return 0;
+#else
+    (void)socket_fd;
+    (void)token;
+    errno = ENOTSUP;  // nothing to check a token against where there is no code signing
+    return -1;
+#endif
+}
+
 int cpty_peer_credentials(int socket_fd, pid_t *pid, uid_t *uid) {
 #if defined(__APPLE__)
     pid_t peer = 0;

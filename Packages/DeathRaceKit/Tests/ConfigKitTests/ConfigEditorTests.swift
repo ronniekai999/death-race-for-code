@@ -15,6 +15,7 @@ import VTCore
         "palette": "1=#FF0000", "bold-is-bright": "true", "confirm-close": "false", "paste-protection": "false",
         "clipboard-write": "ask", "secure-keyboard-entry": "always", "follow-low-power-mode": "false",
         "output-frame-rate-cap": "false", "wrld-check-hosts": "false", "wrld-host-os": "false",
+        "legends-never-die": "false",
         "copy-on-select": "true", "bell": "visual", "command": "/bin/zsh -l",
         "working-directory": "~/code", "scrollback-limit": "10MB", "lucid-dreams-hotkey": "⌃⌘T",
     ]

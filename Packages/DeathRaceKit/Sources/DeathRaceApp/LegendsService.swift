@@ -74,7 +74,12 @@ final class LegendsService {
     /// recorded this is the arrangement the design review favoured, and the launcher is a
     /// seam precisely so the answer can change it.
     private static func chooseDaemon(paths: WRLDPaths, wanted: Bool) -> Legends.Choice {
-        guard wanted else { return .inProcess(because: nil) }
+        let places = DaemonHost.Paths(socket: paths.daemonSocket, lock: paths.daemonLock)
+        let trusting = PeerPolicy.strongest(for: "local.deathraceforcode.legendsd")
+        // Nothing is to be started, but one already listening is still worth talking to.
+        guard wanted else {
+            return Legends.choose(wanted: false, paths: places, launcher: NoLauncher(), trusting: trusting)
+        }
         // The daemon checks this folder and will not create it: it has to exist, 0700 and
         // ours, before anything is spawned.
         do {
@@ -86,9 +91,8 @@ final class LegendsService {
                 because: "Sessions will not outlive this app: \(paths.runFolder) could not be used (\(error)).")
         }
         return Legends.choose(
-            wanted: true, paths: DaemonHost.Paths(socket: paths.daemonSocket, lock: paths.daemonLock),
-            launcher: SpawnLauncher(executable: bundledDaemon, logPath: paths.daemonLog),
-            trusting: PeerPolicy.strongest(for: "local.deathraceforcode.legendsd"))
+            wanted: true, paths: places,
+            launcher: SpawnLauncher(executable: bundledDaemon, logPath: paths.daemonLog), trusting: trusting)
     }
 
     /// Chooses the host and asks it what is already running. Called once, before the first
@@ -96,9 +100,13 @@ final class LegendsService {
     func start(wanted: Bool) {
         self.wanted = wanted
         choose()
-        guard let daemon else { return }
+        // Through `host`, not `daemon`: with the setting off there is nothing to start and
+        // nothing new to keep, but a daemon that is already there is holding shells from a run
+        // when the setting was on. Those are still the user's, and leaving them unlisted would
+        // leave them running where nothing can reach them and nobody can see them.
+        guard let host else { return }
         do {
-            kept = Legends.group(try daemon.existing())
+            kept = Legends.group(try host.existing())
             waiting = kept.flatMap { $0.flatMap { $0.map(\.id) } }
             for (window, tabs) in kept.enumerated() {
                 for (tab, panes) in tabs.enumerated() {
@@ -213,7 +221,9 @@ final class LegendsService {
     /// `layout` is the windows in the order they were opened, each a list of tabs, each a
     /// list of its panes' sessions and titles in reading order.
     func noteLayout(_ layout: [[[(id: SessionID, title: String)]]]) {
-        guard !reattaching, let daemon else { return }
+        // `host`, for the reason it is kept when the setting goes off: the sessions it is
+        // already holding will come back, so where they sit still has to be written down.
+        guard !reattaching, let host else { return }
         var seen: Set<SessionID> = []
         for (window, tabs) in layout.enumerated() {
             for (tab, panes) in tabs.enumerated() {
@@ -222,7 +232,7 @@ final class LegendsService {
                     let at = [window, tab, slot]
                     guard placements[pane.id] != at else { continue }
                     placements[pane.id] = at
-                    daemon.setMetadata(
+                    host.setMetadata(
                         SessionPlacement(window: window, tab: tab, slot: slot, title: pane.title).encode(),
                         for: pane.id)
                 }

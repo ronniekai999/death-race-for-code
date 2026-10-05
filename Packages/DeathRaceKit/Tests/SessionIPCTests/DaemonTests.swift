@@ -231,6 +231,22 @@ struct DaemonTests {
         #expect(speaks == SessionWire.versions)
         #expect(rig.daemonIsRunning, "it took itself down over a client")
         #expect(ids(in: try rig.probe(["--list"])).sorted() == sessions.sorted(), "it ended a session")
+
+        // And it stands down: the only thing that gets as far as being greeted is a build of
+        // this app, so a version it cannot speak means the app has moved past it. It finishes
+        // what it holds and starts nothing more — the handshake is what failed, so there is no
+        // connection left to be asked over, and it has to decide this itself.
+        let host = try rig.host()
+        var refused = false
+        do {
+            _ = try host.start(
+                testShell(), configuration: Terminal.Configuration(columns: 80, rows: 24), metadata: [],
+                onUpdate: {})
+        } catch {
+            refused = true
+        }
+        #expect(refused, "it started a session after promising to hand over")
+        #expect(ids(in: try rig.probe(["--list"])).sorted() == sessions.sorted(), "it ended a session")
     }
 
     @Test("a connection that says nothing a daemon understands is dropped")
@@ -244,6 +260,70 @@ struct DaemonTests {
         #expect(UnixSocket.readFrame(socket, limit: 4_096, timeoutMilliseconds: 1_000) == nil)
         #expect(rig.daemonIsRunning)
         #expect(try rig.host().existing().isEmpty)
+    }
+
+    /// Found by a review and reproduced before it was fixed: the bridge held bytes the
+    /// session would not take, and a session whose shell has ended never takes any. It would
+    /// then stop reading its socket for good — so the client's own `close` never arrived, the
+    /// session stayed in the registry with a watcher that could not finish, and the thread
+    /// spun on a socket nobody would drain.
+    @Test("typing into a shell that has ended does not wedge its bridge")
+    func typingAtADeadShell() throws {
+        let rig = try DaemonRig(idleExitMilliseconds: patience(1_000))
+        defer { rig.finish() }
+        let host = try rig.host()
+
+        var launch = testShell()
+        launch.arguments = ["sh", "-c", "exit 7"]
+        let session = try host.start(
+            launch, configuration: Terminal.Configuration(columns: 80, rows: 24), metadata: [], onUpdate: {})
+
+        // Wait for the shell to go, which is what makes the session refuse everything.
+        let until = UnixSocket.monotonicMilliseconds() + patience(5_000)
+        while session.status == .running, UnixSocket.monotonicMilliseconds() < until { usleep(20_000) }
+        #expect(session.status != .running, "the shell should have exited")
+
+        // Type at it, let that reach the daemon, and only then close it. The wait matters:
+        // `close` goes in the control lane and input in the bulk one, so asking for both at
+        // once would have the close overtake the input and the wedge would never happen.
+        for _ in 0..<4 { _ = session.send(Array("echo hello\r".utf8)) }
+        usleep(UInt32(patience(200) * 1_000))
+        session.close()
+
+        let gone = UnixSocket.monotonicMilliseconds() + patience(5_000)
+        var left = 1
+        while UnixSocket.monotonicMilliseconds() < gone {
+            left = (try? host.existing().count) ?? left
+            if left == 0 { break }
+            usleep(50_000)
+        }
+        #expect(left == 0, "the session was still held after close")
+    }
+
+    /// Also from the review, also reproduced: the remote session counted input on the way in
+    /// and never counted it off again, so a pane stopped taking keystrokes for good once
+    /// sixteen megabytes had passed through it over its whole life.
+    @Test("input is bounded by what is waiting, not by everything ever sent")
+    func inputIsNotCumulative() throws {
+        let rig = try DaemonRig()
+        defer { rig.finish() }
+        let host = try rig.host()
+
+        var launch = testShell()
+        launch.arguments = ["sh", "-c", "cat > /dev/null"]
+        let session = try host.start(
+            launch, configuration: Terminal.Configuration(columns: 80, rows: 24), metadata: [], onUpdate: {})
+        defer { session.close() }
+
+        // Twice the limit, a megabyte at a time, with time to drain between.
+        let megabyte = [UInt8](repeating: 0x61, count: 1 << 20)
+        var refused = 0
+        for _ in 0..<32 {
+            if !session.send(megabyte) { refused += 1 }
+            usleep(2_000)
+        }
+        #expect(refused == 0, "\(refused) of 32 megabytes were refused")
+        #expect(session.send(Array("x".utf8)), "a single byte was refused after the run")
     }
 
     @Test("it holds no more sessions than it was told to")

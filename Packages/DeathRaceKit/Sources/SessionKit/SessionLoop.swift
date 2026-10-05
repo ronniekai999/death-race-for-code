@@ -294,6 +294,7 @@ final class SessionLoop {
             #endif
             let stored = channel.mailbox.withLock { box in
                 guard box.taken == nil else { return false }
+                box.published = true
                 if let unsent = box.pending {
                     box.pending = delta.merging(unsent: unsent)
                 } else {

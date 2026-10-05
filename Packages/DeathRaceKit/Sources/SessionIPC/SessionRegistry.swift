@@ -32,6 +32,9 @@ final class SessionRegistry: Sendable {
     private struct State {
         var entries: [SessionID: Entry] = [:]
         var nextID: UInt64 = 1
+        /// Ids whose shells are being started: they hold a slot against the limit although
+        /// there is no entry for them yet.
+        var starting: Set<SessionID> = []
         /// Set by `handOver`: finish what is running and start nothing more.
         var handingOver = false
     }
@@ -53,11 +56,17 @@ final class SessionRegistry: Sendable {
         _ launch: ShellLaunch, configuration: Terminal.Configuration, metadata: [UInt8]
     ) -> Result<(id: SessionID, token: [UInt8]), Refusal> {
         guard metadata.count <= SessionWire.largestMetadata else { return .failure(.malformed) }
+        // The slot is taken under the same lock as the count, not just the id. Shells are
+        // started outside the lock — a fork is not something to hold a lock across — so with
+        // only the id reserved, two control connections at the ceiling would both read a count
+        // with room in it and both insert, and one could land after `handOver` had promised
+        // that nothing more would start.
         let reserved = state.withLock { state -> SessionID? in
             if state.handingOver { return nil }
-            guard state.entries.count < limits.sessions else { return nil }
+            guard state.entries.count + state.starting.count < limits.sessions else { return nil }
             let id = SessionID(state.nextID)
             state.nextID += 1
+            state.starting.insert(id)
             return id
         }
         guard let id = reserved else {
@@ -70,11 +79,13 @@ final class SessionRegistry: Sendable {
                 self?.sessionDidUpdate(id)
             }
         } catch {
+            state.withLock { _ = $0.starting.remove(id) }
             return .failure(.shellWouldNotStart)
         }
 
         let token = randomBytes(SessionWire.tokenSize)
         state.withLock { state in
+            state.starting.remove(id)
             state.entries[id] = Entry(
                 id: id, session: session, shellExecutable: launch.executable,
                 startedAtMilliseconds: UInt64(UnixSocket.monotonicMilliseconds()),
@@ -160,18 +171,6 @@ final class SessionRegistry: Sendable {
         for session in sessions { session.close() }
     }
 
-    /// Leaves every shell running and stops watching them all: what SIGTERM means.
-    func releaseEverything() {
-        let sessions = state.withLock { state -> [Session] in
-            for (id, var entry) in state.entries {
-                entry.watcher = nil
-                state.entries[id] = entry
-            }
-            return state.entries.values.map(\.session)
-        }
-        for session in sessions { session.setPublishing(false) }
-    }
-
     func setMetadata(_ metadata: [UInt8], for id: SessionID) {
         guard metadata.count <= SessionWire.largestMetadata else { return }
         state.withLock { state in
@@ -205,7 +204,9 @@ final class SessionRegistry: Sendable {
     }
 
     var count: Int { state.withLock { $0.entries.count } }
-    var isEmpty: Bool { count == 0 }
+    /// Whether the daemon is holding nothing at all — a shell still being started counts, so
+    /// it cannot idle out from under one.
+    var isEmpty: Bool { state.withLock { $0.entries.isEmpty && $0.starting.isEmpty } }
 
     func handOver() {
         state.withLock { $0.handingOver = true }

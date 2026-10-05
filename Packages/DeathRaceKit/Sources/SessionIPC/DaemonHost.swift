@@ -22,6 +22,14 @@ public protocol DaemonLauncher: Sendable {
     func start(socketPath: String, lockPath: String)
 }
 
+/// Starts nothing: for an app that will talk to a daemon that is already there but must not
+/// bring one into being — the setting is off, so no new session is to be kept, but shells a
+/// previous run left running are still the user's and still have to be found.
+public struct NoLauncher: DaemonLauncher {
+    public init() {}
+    public func start(socketPath: String, lockPath: String) {}
+}
+
 /// Starts `legendsd` as a child of this process, in a session of its own so it outlives it.
 ///
 /// Not a double fork, which this project does not do: one `posix_spawn` with `setsid`, so the
@@ -79,6 +87,9 @@ final class ControlClient: @unchecked Sendable {
     private var reader: FrameReader
     private var assembled: [[UInt8]] = []
     private var announcements: [ControlReply] = []
+    /// Sessions a reply named that nobody was waiting for: started for an exchange that had
+    /// already given up, so there is nothing watching them and nothing that knows their ids.
+    private var orphaned: [SessionID] = []
     private var nextRequest: UInt32 = 1
     private var buffer = [UInt8](repeating: 0, count: 16 * 1024)
 
@@ -124,6 +135,18 @@ final class ControlClient: @unchecked Sendable {
         _ = UnixSocket.writeAll(socket, Frames.framed(request.encode()))
     }
 
+    /// Ends whatever a late reply named. Called after every exchange, so a session nobody can
+    /// reach does not sit in the daemon holding a slot and keeping it from ever exiting.
+    func endOrphans() {
+        gate.lock()
+        let ending = orphaned
+        orphaned = []
+        for id in ending {
+            _ = UnixSocket.writeAll(socket, Frames.framed(ControlRequest.end(id: id).encode()))
+        }
+        gate.unlock()
+    }
+
     /// Sessions whose shells ended while the app was not asking. Taking them clears them.
     func takeAnnouncements() -> [ControlReply] {
         gate.lock()
@@ -138,8 +161,13 @@ final class ControlClient: @unchecked Sendable {
         }
     }
 
-    /// Reads until the reply to `number` arrives — or, for a listing, the first reply that is
-    /// not an announcement. Anything unasked for is kept rather than thrown away.
+    /// Reads until the reply to `number` arrives — or, for a listing, the first listing.
+    /// Anything unasked for is kept rather than thrown away.
+    ///
+    /// A numbered reply is matched on its number and nothing else. An earlier exchange that
+    /// ran out of time can still have its answer arrive, and taking that for this one would
+    /// report a healthy daemon as broken — and, worse, drop the id of a session it had just
+    /// started. So a stray `ready` is noted for the caller to tidy up rather than used.
     private func waitForReply(matching number: UInt32?, deadline: Int) throws(SessionHostError) -> ControlReply {
         let until = UnixSocket.monotonicMilliseconds() + deadline
         while true {
@@ -152,8 +180,13 @@ final class ControlClient: @unchecked Sendable {
             switch reply {
             case .sessionEnded:
                 announcements.append(reply)
-            case .ready(let answered, _, _), .failed(let answered, _, _):
-                if number == nil || answered == number { return reply }
+            case .ready(let answered, let id, _):
+                if answered == number { return reply }
+                // Nobody is waiting for this one, and it names a session with no watcher: end
+                // it rather than leave a shell running that nothing can ever reach.
+                orphaned.append(id)
+            case .failed(let answered, _, _):
+                if answered == number { return reply }
             case .sessions:
                 if number == nil { return reply }
             }
@@ -220,7 +253,7 @@ public final class DaemonHost: SessionHost {
         self.launcher = launcher
         self.trusting = trusting
         deadline = deadlineMilliseconds
-        var greeting = try Self.greet(
+        let greeting = try Self.greet(
             paths: paths, launcher: launcher, role: .control, trusting: trusting,
             deadline: deadlineMilliseconds)
         control = ControlClient(
@@ -249,7 +282,13 @@ public final class DaemonHost: SessionHost {
                     return (socket, daemon, reader)
                 } catch {
                     closeDescriptor(socket)
-                    throw error
+                    // A daemon in the last moments of exiting still accepts and then goes, so
+                    // a handshake that got nowhere is not proof there can be no daemon: with a
+                    // launcher not yet asked, start one and come round again. A version we
+                    // cannot talk to is different — a second daemon would not help, and that
+                    // one is holding sessions.
+                    if case .incompatible = error { throw error }
+                    guard launcher != nil, !asked else { throw error }
                 }
             }
             guard let launcher, !asked else {
@@ -282,8 +321,15 @@ public final class DaemonHost: SessionHost {
         switch preamble {
         case .welcome(_, _, let daemon):
             // One version pins one screen format; a mismatch here means the two were built
-            // from different trees and the version numbers were not kept honest.
+            // from different trees and the version numbers were not kept honest. The preamble
+            // did work, so this connection can carry the one message worth sending: finish
+            // what you hold and start nothing more. Its sessions are never killed — they are
+            // what the whole feature exists to keep, and the next app that speaks its version
+            // takes them up.
             guard daemon.deltaFormat == DeltaCodec.formatVersion else {
+                if role == .control {
+                    _ = UnixSocket.writeAll(socket, Frames.framed(ControlRequest.handOver.encode()))
+                }
                 throw .incompatible(
                     ours: SessionWire.versions, theirs: SessionWire.versions, build: daemon.build)
             }
@@ -298,13 +344,15 @@ public final class DaemonHost: SessionHost {
     // MARK: - What a host does
 
     public func existing() throws(SessionHostError) -> [SessionDescription] {
-        try control.list(deadline: deadline)
+        defer { control.endOrphans() }
+        return try control.list(deadline: deadline)
     }
 
     public func start(
         _ launch: ShellLaunch, configuration: Terminal.Configuration, metadata: [UInt8],
         onUpdate: @escaping @Sendable () -> Void
     ) throws(SessionHostError) -> any ShellSession {
+        defer { control.endOrphans() }
         let reply = try control.exchange(
             numbered: { .spawn(request: $0, launch: launch, configuration: configuration, metadata: metadata) },
             deadline: deadline)
@@ -315,6 +363,7 @@ public final class DaemonHost: SessionHost {
     public func adopt(
         _ id: SessionID, onUpdate: @escaping @Sendable () -> Void
     ) throws(SessionHostError) -> any ShellSession {
+        defer { control.endOrphans() }
         let reply = try control.exchange(numbered: { .adopt(request: $0, id: id) }, deadline: deadline)
         // Taking one up, the screen is whatever happened while nobody was watching.
         return try watch(reply, wantsSnapshot: true, onUpdate: onUpdate)
@@ -326,12 +375,6 @@ public final class DaemonHost: SessionHost {
 
     public func end(_ id: SessionID) {
         control.tell(.end(id: id))
-    }
-
-    /// Tells a daemon this build cannot talk to to finish what it is holding and start
-    /// nothing more. It is never killed: its sessions are what the feature exists to keep.
-    public func askToHandOver() {
-        control.tell(.handOver)
     }
 
     /// Sessions whose shells ended while nothing was watching them.
@@ -350,6 +393,14 @@ public final class DaemonHost: SessionHost {
         case .failed(_, let reason, let detail):
             throw Self.failure(reason, detail)
         case .ready(_, let id, let token):
+            // Everything from here on knows the session exists. Anything that goes wrong now
+            // would otherwise leave a shell the daemon holds with nothing watching it and
+            // nobody left who knows its id — a slot taken for good, and a daemon that can
+            // never exit. The app is falling back to a session in this process either way, so
+            // the one it was given is ended. A session it was asked to take up, which was
+            // running before this app started, is left alone: it is not ours to end.
+            var started = wantsSnapshot ? false : true
+            defer { if started { control.tell(.end(id: id)) } }
             // No launcher: a daemon that answered a moment ago and is gone now is a failure,
             // not a reason to start a second one underneath the first.
             var greeting = try Self.greet(
@@ -380,6 +431,7 @@ public final class DaemonHost: SessionHost {
                 closeDescriptor(greeting.socket)
                 throw .unreachable("this process is out of descriptors")
             }
+            started = false
             return RemoteSession(
                 id: id, socket: greeting.socket, wake: wake, reader: greeting.reader, onUpdate: onUpdate)
         case .sessions, .sessionEnded:

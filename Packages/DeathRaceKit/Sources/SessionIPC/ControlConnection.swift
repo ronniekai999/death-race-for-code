@@ -49,12 +49,16 @@ final class ControlConnection {
     }
 
     func run() {
-        guard let pipe = try? WakePipe() else { return }
-        wake.withLock { $0 = pipe }
+        // Finished before anything else, so every way out of this function is one the daemon
+        // can see. Without it a connection that could not make its pipe — this process out of
+        // descriptors — would never be pruned: its socket would stay open and the daemon would
+        // count it as busy for ever, so it could never exit on its own.
         defer {
             finished.withLock { $0 = true }
             wake.withLock { $0 = nil }
         }
+        guard let pipe = try? WakePipe() else { return }
+        wake.withLock { $0 = pipe }
         UnixSocket.setNonBlocking(socket)
         // Anything announced between being added to the daemon's list and the pipe above
         // existing is sitting in `pending` with nothing to wake us for it. One signal, and

@@ -47,6 +47,14 @@ final class SessionBridge {
     /// socket is not read, so the kernel's buffer fills and the client's own writer blocks:
     /// backpressure with no queue of ours to grow.
     private var heldInput: (bytes: [UInt8], typed: Bool)?
+    /// How long to wait before trying the held bytes again. Nothing tells this thread that a
+    /// program has read its pseudo-terminal — a read that prints nothing publishes no screen —
+    /// so while something is held the loop has to come back and look. It backs off to a
+    /// second so a program that has stopped reading for good costs one wakeup a second rather
+    /// than forty, and it only ticks while something is actually held.
+    private var retryIn = SessionBridge.firstRetry
+    private static let firstRetry = 25
+    private static let longestRetry = 1_000
     /// Answers from the tasks that run the two questions, which finish on another thread.
     private let answers = Locked<[StreamReply]>([])
     private let outstanding = Locked<Set<UInt32>>([])
@@ -69,10 +77,15 @@ final class SessionBridge {
     func run() {
         guard attach() else { return }
         while running {
-            let timeout = pollTimeout()
+            let holding = heldInput != nil
             let ready = UnixSocket.wait(
-                socket, forWriting: !writer.isEmpty, wake: wake.readFD, timeoutMilliseconds: timeout)
+                socket, forReading: !holding, forWriting: !writer.isEmpty, wake: wake.readFD,
+                timeoutMilliseconds: pollTimeout())
             wake.drain()
+            // Readable without having asked to be told about it can only be a hang-up, which
+            // `poll` reports whatever it was asked: the client has gone, and holding bytes for
+            // it is pointless.
+            if holding, ready.readable { break }
             collectAnswers()
             retryHeldInput()
             drainReader()
@@ -109,7 +122,14 @@ final class SessionBridge {
             // Someone is watching again. A client taking a session up holds nothing, so the
             // screen it gets has to be a whole one.
             claimed.setPublishing(true)
-            if wantsSnapshot { claimed.requestSnapshot() }
+            // A client taking a session up holds nothing of its screen, so what it gets has to
+            // be a whole one — and whether that is so is the daemon's to know, not the
+            // client's to declare. A session that has published before has a builder whose
+            // base is some earlier client's last screen, and a delta chained off that would be
+            // refused by this client's mirror on arrival and on every frame after it. Only a
+            // session that has never published can be picked up mid-chain, because there is no
+            // chain yet.
+            if wantsSnapshot || claimed.hasPublished { claimed.requestSnapshot() }
             let sizes = registry.descriptions().first { $0.id == wanted }
             _ = writer.queue(
                 StreamReply.attached(columns: sizes?.columns ?? 0, rows: sizes?.rows ?? 0).encode(), .control)
@@ -130,14 +150,18 @@ final class SessionBridge {
     // MARK: - The loop's parts
 
     private func pollTimeout() -> Int32 {
-        guard !writer.isEmpty else { return -1 }
-        let left = writeStall - (UnixSocket.monotonicMilliseconds() - lastProgress)
-        return Int32(max(left, 0))
+        var soonest: Int?
+        if !writer.isEmpty {
+            soonest = max(writeStall - (UnixSocket.monotonicMilliseconds() - lastProgress), 0)
+        }
+        if heldInput != nil { soonest = min(soonest ?? retryIn, retryIn) }
+        guard let soonest else { return -1 }
+        return Int32(clamping: soonest)
     }
 
     /// Anything the handshake read ahead, which no later byte would bring out of the reader.
     private func drainReader() {
-        while running, let payload = reader.next() {
+        while running, heldInput == nil, let payload = reader.next() {
             guard let request = try? StreamRequest.decode(payload) else {
                 running = false
                 return
@@ -159,14 +183,23 @@ final class SessionBridge {
             running = false
             return
         }
-        for payload in reader.append(Array(buffer[0..<count])) {
+        // One `recv` can carry several frames, and the first of them can be input the session
+        // will not take. Handling the rest would overwrite what is being held — the bytes
+        // would be lost, or reach the shell out of order if the retry happened to land in
+        // between — so what is left goes back to the reader to be handled once the hold
+        // clears, in the order it arrived.
+        var payloads = reader.append(Array(buffer[0..<count]))
+        while !payloads.isEmpty {
+            let payload = payloads.removeFirst()
             guard let request = try? StreamRequest.decode(payload) else {
                 running = false
                 return
             }
             handle(request)
             if !running { return }
+            if heldInput != nil { break }
         }
+        reader.keep(payloads)
         if reader.isBroken { running = false }
     }
 
@@ -217,15 +250,32 @@ final class SessionBridge {
 
     private func take(_ bytes: [UInt8], typed: Bool, on session: Session) {
         let accepted = typed ? session.send(bytes) : session.sendReport(bytes)
-        if !accepted { heldInput = (bytes, typed) }
+        guard !accepted else { return }
+        // A session whose shell has ended refuses everything, for ever. Holding those bytes
+        // would stop this bridge reading its socket at all, so the client's own close or
+        // detach would never arrive: the session would sit in the registry watched by a
+        // thread that can never finish, counting against the daemon's limit and keeping it
+        // from ever exiting. There is nowhere for the bytes to go, so they go nowhere.
+        guard session.status == .running else { return }
+        heldInput = (bytes, typed)
+        retryIn = Self.firstRetry
     }
 
     /// The program has not been reading; try again, and while it has not, leave the socket
     /// unread so the client is held up rather than this.
     private func retryHeldInput() {
         guard let held = heldInput, let session else { return }
+        guard session.status == .running else {
+            heldInput = nil
+            return
+        }
         let accepted = held.typed ? session.send(held.bytes) : session.sendReport(held.bytes)
-        if accepted { heldInput = nil }
+        if accepted {
+            heldInput = nil
+            retryIn = Self.firstRetry
+        } else {
+            retryIn = min(retryIn * 2, Self.longestRetry)
+        }
     }
 
     /// Runs a question off this thread and queues its answer. The session answers every

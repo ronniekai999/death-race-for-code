@@ -218,7 +218,20 @@ extension UnixSocket {
     public static func wait(
         _ fd: Int32, forWriting: Bool, wake: Int32, timeoutMilliseconds: Int32
     ) -> (readable: Bool, writable: Bool, woken: Bool) {
-        var events = Int16(POLLIN)
+        wait(fd, forReading: true, forWriting: forWriting, wake: wake, timeoutMilliseconds: timeoutMilliseconds)
+    }
+
+    /// The same, for a loop that must stop watching for readability.
+    ///
+    /// A loop that is holding something it could not pass on, and so will not read its socket
+    /// this pass, has to stop asking about readability too: the bytes are still there, `poll`
+    /// would return at once every time, and the loop would spin a core instead of waiting.
+    /// Leaving them unread is what makes the kernel hold the other end up.
+    public static func wait(
+        _ fd: Int32, forReading: Bool, forWriting: Bool, wake: Int32, timeoutMilliseconds: Int32
+    ) -> (readable: Bool, writable: Bool, woken: Bool) {
+        var events = Int16(0)
+        if forReading { events |= Int16(POLLIN) }
         if forWriting { events |= Int16(POLLOUT) }
         var watched = [pollfd(fd: fd, events: events, revents: 0)]
         if wake >= 0 { watched.append(pollfd(fd: wake, events: Int16(POLLIN), revents: 0)) }

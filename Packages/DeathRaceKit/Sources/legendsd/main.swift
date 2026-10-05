@@ -7,8 +7,9 @@
 //
 // The app starts it and never speaks to it except over the socket. It exits on its own once
 // it holds no sessions and nobody is connected, so an app that is uninstalled leaves nothing
-// behind. SIGTERM leaves every shell running; SIGINT, which means a developer in a terminal,
-// ends them.
+// behind. A signal ends the sessions it holds, and ends them properly: it owns every one of
+// their pseudo-terminals, so it cannot hand them on to anything — which is also why it only
+// exits on its own once it holds nothing at all.
 
 import Foundation
 import PTYKit

@@ -72,6 +72,9 @@ public final class Daemon: Sendable {
     private let wake: WakePipe
     private let registry: SessionRegistry
     private let connections = Locked<[ControlConnection]>([])
+    /// Connections whose greeting is still in flight: accepted, but not yet a control
+    /// connection or a session bridge the counts above would see.
+    private let greeting = Locked(0)
     private let facts: DaemonFacts
 
     public init(_ options: Options) throws(PTYError) {
@@ -134,13 +137,13 @@ public final class Daemon: Sendable {
             if watched[2].revents & Int16(POLLIN) != 0 {
                 var byte: UInt8 = 0
                 _ = read(shutdown.readFD, &byte, 1)
-                // SIGTERM leaves the shells running, re-parented to launchd; SIGINT, which is
-                // a developer in a terminal, ends them.
-                if byte == 2 {
-                    registry.endEverything()
-                } else {
-                    registry.releaseEverything()
-                }
+                // A daemon cannot outlive itself: it holds every session's pseudo-terminal, so
+                // whatever it does on the way out, the masters close and the shells are hung
+                // up. So both signals end the sessions, and they end them properly — hung up
+                // and then killed if they linger — rather than letting descriptors close under
+                // programs that were given no notice. This is why the daemon only ever exits
+                // on its own when it holds nothing.
+                registry.endEverything()
                 return
             }
 
@@ -150,7 +153,8 @@ public final class Daemon: Sendable {
             registry.dropAbandoned()
             prune()
 
-            let busy = !registry.isEmpty || !connections.withLock({ $0 }).isEmpty
+            let busy =
+                !registry.isEmpty || !connections.withLock({ $0 }).isEmpty || greeting.withLock({ $0 }) > 0
             if busy {
                 idleSince = nil
             } else if idleSince == nil {
@@ -198,6 +202,10 @@ public final class Daemon: Sendable {
             close(client)
             return
         }
+        // Counted before the thread starts and only put down once the greeting is over, so a
+        // client that connects on the very pass the idle deadline falls is not left holding a
+        // socket whose path has been unlinked underneath it.
+        greeting.withLock { $0 += 1 }
         let thread = Thread { [self] in greet(client) }
         thread.name = "legendsd connection"
         thread.stackSize = 1 << 20
@@ -207,6 +215,13 @@ public final class Daemon: Sendable {
     /// Reads the preamble, settles on a version, and hands the connection to whichever kind
     /// of thing it said it was for.
     private func greet(_ client: Int32) {
+        // Whatever this turns into, and whether it works, the daemon stops counting the
+        // greeting itself — and is woken, so a daemon that was only waiting for this can get
+        // on with idling out.
+        defer {
+            greeting.withLock { $0 -= 1 }
+            wake.signal()
+        }
         // One reader for the connection's whole life, handed to whatever takes it over. A
         // reader made and dropped per call would throw away anything that arrived with the
         // frame it was waiting for — and a screen can arrive with the reply that precedes it.
@@ -227,6 +242,12 @@ public final class Daemon: Sendable {
                 client,
                 Frames.framed(Preamble.incompatible(speaks: SessionWire.versions, build: facts.build).encode()))
             close(client)
+            // And then stand down. Only a build of this app gets as far as being greeted, so
+            // a hello in a version this daemon does not speak means the app has been updated
+            // past it: start nothing more and finish when the last session does. It has to be
+            // decided here, because there is no connection left to be asked over — the
+            // handshake is the thing that failed.
+            registry.handOver()
             return
         }
         guard

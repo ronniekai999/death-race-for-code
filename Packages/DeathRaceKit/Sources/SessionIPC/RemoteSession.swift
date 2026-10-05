@@ -54,6 +54,8 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
         var nextRequest: UInt32 = 1
         /// The connection has gone. Everything after that is refused rather than queued.
         var closed = false
+        /// Nobody holds this session any more: the link's thread is to finish.
+        var stopping = false
     }
 
     public let id: SessionID
@@ -66,24 +68,33 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
     /// How many screens may wait before the daemon is considered to have broken the window.
     private static let mostWaiting = 8
 
-    private let startingReader: FrameReader
-
     /// Takes over `socket`, which must already have attached. `reader` comes from that
     /// handshake and may already hold the first screen, which arrived with its reply.
     init(
         id: SessionID, socket: Int32, wake: WakePipe, reader: FrameReader,
         onUpdate: @escaping @Sendable () -> Void
     ) {
-        startingReader = reader
         self.id = id
         self.socket = socket
         self.wake = wake
         self.onUpdate = onUpdate
         UnixSocket.setNonBlocking(socket)
-        let thread = Thread { [self] in carry() }
-        thread.name = "Death Race session link"
-        thread.stackSize = 1 << 20
-        thread.start()
+        // The thread is given the socket, the pipe and the shared state rather than this
+        // object, so holding the link open does not hold the session alive. If it captured
+        // `self` the loop would be the last owner for ever: it only leaves on end of file, so
+        // a session nobody closed — a pane released on an error path before anything chose
+        // between closing and detaching — would keep a thread, a socket and two pipe
+        // descriptors for the life of the process.
+        let state = self.state
+        Self.start(socket: socket, wake: wake, state: state, reader: reader, onUpdate: onUpdate)
+    }
+
+    /// Letting go of the last reference is what ends the link, the way `Session.deinit` ends a
+    /// shell in this process. The shell itself is left running: a client that simply vanished
+    /// is the daemon's safe reading of silence, not a reason to hang anything up.
+    deinit {
+        state.withLock { $0.stopping = true }
+        wake.signal()
     }
 
     // MARK: - What a session is told
@@ -198,7 +209,24 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
 
     // MARK: - The thread that carries it
 
-    private func carry() {
+    /// Starts the link's thread. Static, and given only what it needs, so nothing it holds
+    /// keeps the session alive.
+    private static func start(
+        socket: Int32, wake: WakePipe, state: Locked<State>, reader: FrameReader,
+        onUpdate: @escaping @Sendable () -> Void
+    ) {
+        let thread = Thread {
+            carry(socket: socket, wake: wake, state: state, reader: reader, onUpdate: onUpdate)
+        }
+        thread.name = "Death Race session link"
+        thread.stackSize = 1 << 20
+        thread.start()
+    }
+
+    private static func carry(
+        socket: Int32, wake: WakePipe, state: Locked<State>, reader startingReader: FrameReader,
+        onUpdate: @Sendable () -> Void
+    ) {
         var reader = startingReader
         var writer = FrameWriter(largestQueue: 4 * SessionWire.largestSessionFrame)
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)
@@ -212,19 +240,30 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
                 socket, forWriting: !writer.isEmpty, wake: wake.readFD, timeoutMilliseconds: -1)
             wake.drain()
 
-            let queued = state.withLock { state -> [StreamRequest] in
-                defer { state.outgoing = [] }
-                return state.outgoing
-            }
-            for request in queued where !writer.queue(request.encode(), request.lane) {
-                running = false
+            if state.withLock({ $0.stopping }) { break }
+
+            // Hand over as much as the writer has room for, and no more: what does not fit
+            // waits for the next pass. The count comes off as each piece is taken, so the
+            // limit is what is waiting now rather than everything ever sent — without this a
+            // pane stops accepting keystrokes for good after sixteen megabytes over its whole
+            // life. A full writer is not a broken connection, so it is not fatal here.
+            while true {
+                guard let next = state.withLock({ $0.outgoing.first }) else { break }
+                guard writer.queue(next.encode(), next.lane) else { break }
+                state.withLock { state in
+                    guard !state.outgoing.isEmpty else { return }
+                    let taken = state.outgoing.removeFirst()
+                    if case .input(let bytes, _) = taken { state.queuedInput -= bytes.count }
+                }
             }
 
             // Whatever the handshake read ahead is already assembled in the reader, and no
             // more bytes may ever come: the daemon is waiting for this screen to be
             // acknowledged before it sends another. Drain it before looking at the socket.
             while running, let payload = reader.next() {
-                guard let reply = try? StreamReply.decode(payload), receive(reply) else {
+                guard let reply = try? StreamReply.decode(payload),
+                    receive(reply, state: state, onUpdate: onUpdate)
+                else {
                     running = false
                     break
                 }
@@ -234,7 +273,9 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
                 let count = buffer.withUnsafeMutableBytes { recv(socket, $0.baseAddress, $0.count, 0) }
                 if count > 0 {
                     for payload in reader.append(Array(buffer[0..<count])) {
-                        guard let reply = try? StreamReply.decode(payload), receive(reply) else {
+                        guard let reply = try? StreamReply.decode(payload),
+                            receive(reply, state: state, onUpdate: onUpdate)
+                        else {
                             running = false
                             break
                         }
@@ -259,11 +300,13 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
                 }
             }
         }
-        unlink()
+        unlink(socket: socket, state: state, onUpdate: onUpdate)
     }
 
     /// False when what arrived means the connection is no longer worth keeping.
-    private func receive(_ reply: StreamReply) -> Bool {
+    private static func receive(
+        _ reply: StreamReply, state: Locked<State>, onUpdate: @Sendable () -> Void
+    ) -> Bool {
         switch reply {
         case .delta(let bytes):
             guard let delta = try? DeltaCodec.decode(bytes) else { return false }
@@ -292,7 +335,7 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
     /// The link has gone. Every question is answered with nothing in one pass, so nothing is
     /// left waiting on a reply that cannot come. The status is left alone: a shell whose link
     /// died has not necessarily ended, and saying it had would be a lie.
-    private func unlink() {
+    private static func unlink(socket: Int32, state: Locked<State>, onUpdate: @Sendable () -> Void) {
         let waiters = state.withLock { state -> [Waiter] in
             state.closed = true
             state.outgoing = []

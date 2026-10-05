@@ -575,9 +575,13 @@ every session with it.
 
 **Lifetime.** Sessions live until they are closed. The daemon exits once it holds no sessions
 and nobody is connected. A shell that exited with nobody attached keeps its last screen and its
-exit status for five minutes, so a relaunching app can show how it ended. SIGTERM leaves every
-shell running; SIGINT, which means a developer in a terminal, ends them. Caps: 64 sessions, 64
-outstanding questions, a single-use attach token good for ten seconds, 4 KiB of placement.
+exit status for five minutes, so a relaunching app can show how it ended. **A daemon cannot
+outlive itself:** it holds every session's pseudo-terminal master, so whatever it does on the
+way out, those close and the shells are hung up. Both SIGTERM and SIGINT therefore end the
+sessions, and end them properly — hung up, then killed if they linger — rather than letting
+descriptors close under programs that were given no notice. That is also why it only ever
+exits on its own when it is holding nothing. Caps: 64 sessions, 64 outstanding questions, a
+single-use attach token good for ten seconds, 4 KiB of placement.
 
 ### Signing
 

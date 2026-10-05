@@ -66,11 +66,22 @@ public enum Legends {
     /// A terminal that will not open because a daemon would not start is a worse terminal
     /// than one whose sessions do not outlive it, so every way this can go wrong ends in a
     /// session in this process and a sentence saying so.
+    /// With `wanted` false the daemon is not started, but one already listening is still
+    /// talked to: the sessions it is holding were kept by an earlier run with the setting on,
+    /// they are still the user's, and an app that refused to look at them would leave shells
+    /// running that nothing can reach and nobody can see.
     public static func choose(
         wanted: Bool, paths: DaemonHost.Paths, launcher: any DaemonLauncher, trusting: PeerPolicy = .sameUser,
         deadlineMilliseconds: Int = 2_000
     ) -> Choice {
-        guard wanted else { return .inProcess(because: nil) }
+        guard wanted else {
+            guard
+                let host = try? DaemonHost(
+                    paths: paths, launcher: NoLauncher(), trusting: trusting,
+                    deadlineMilliseconds: deadlineMilliseconds)
+            else { return .inProcess(because: nil) }
+            return .daemon(host)
+        }
         do {
             return .daemon(
                 try DaemonHost(

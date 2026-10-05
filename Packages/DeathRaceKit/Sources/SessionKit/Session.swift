@@ -124,6 +124,12 @@ public final class Session: Sendable {
         channel.send(.publishing(on))
     }
 
+    /// Whether this session has ever published a screen, so a client taking it up can be
+    /// given a whole one rather than a delta built on a base it has never seen.
+    public var hasPublished: Bool {
+        channel.mailbox.withLock { $0.published }
+    }
+
     /// Installs a new base palette, the app's theme: colors programs set stay, the rest
     /// change, and the next delta carries the result.
     public func setBasePalette(_ palette: Palette) {
@@ -214,6 +220,10 @@ final class SessionChannel: Sendable {
         /// Taken by the app; the session thread records it as delivered.
         var taken: ScreenDelta?
         var status = Session.Status.running
+        /// Whether any screen has ever been published. A session that has published has a
+        /// builder whose base is some client's last screen, so whoever takes it up next needs
+        /// a whole screen rather than a delta chained off a base it does not hold.
+        var published = false
     }
 
     /// Input bytes allowed to wait for the shell to read them.

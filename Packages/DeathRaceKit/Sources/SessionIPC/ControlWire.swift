@@ -5,7 +5,7 @@ import SessionKit
 import VTCore
 
 /// Why the daemon would not do something.
-public enum Refusal: UInt8, Sendable, Equatable {
+public enum Refusal: UInt8, Error, Sendable, Equatable {
     case atCapacity = 1
     case unknownSession = 2
     /// Another client is watching it. Taking a session from under someone is never implicit.

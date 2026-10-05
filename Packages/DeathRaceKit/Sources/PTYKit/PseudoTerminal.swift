@@ -22,6 +22,7 @@ public struct TerminalSize: Sendable, Hashable {
 }
 
 public enum PTYError: Error, Equatable, Sendable {
+    case pipeFailed(errno: Int32)
     case spawnFailed(errno: Int32)
     case resizeFailed(errno: Int32)
 }

@@ -1,0 +1,79 @@
+// legendsd: the session daemon behind Legends Never Die. It holds the pseudo-terminals and
+// the terminal engines, so a session outlives the app that started it — quit, crash, or
+// update — and can be taken up again when one comes back.
+//
+//   legendsd --socket PATH --lock PATH [--log PATH] [--sessions N] [--idle-exit MS]
+//            [--write-stall MS] [--stay]
+//
+// The app starts it and never speaks to it except over the socket. It exits on its own once
+// it holds no sessions and nobody is connected, so an app that is uninstalled leaves nothing
+// behind. SIGTERM leaves every shell running; SIGINT, which means a developer in a terminal,
+// ends them.
+
+import Foundation
+import PTYKit
+import SessionIPC
+
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#endif
+
+let arguments = CommandLine.arguments
+
+func value(after flag: String) -> String? {
+    guard let index = arguments.firstIndex(of: flag), index + 1 < arguments.count else { return nil }
+    return arguments[index + 1]
+}
+
+guard let socketPath = value(after: "--socket"), let lockPath = value(after: "--lock") else {
+    let usage = "usage: legendsd --socket PATH --lock PATH [--log PATH] [--sessions N] [--idle-exit MS]\n"
+    FileHandle.standardError.write(Data(usage.utf8))
+    exit(64)
+}
+
+// Standard output and error go to a file of their own before anything else can write to them.
+//
+// The app starts the daemon, so without this they are pipes the app holds — and when the app
+// goes, a write to one would fail, or worse, fill and block the thread that made it. A daemon
+// that freezes on a log line takes every session it holds with it.
+if let logPath = value(after: "--log") {
+    let log = open(logPath, O_WRONLY | O_CREAT | O_APPEND, 0o600)
+    if log >= 0 {
+        // A log nobody prunes is a disk nobody has. A megabyte is plenty to see why something
+        // went wrong, and the daemon starts often enough that losing the old one costs little.
+        var info = stat()
+        if fstat(log, &info) == 0, info.st_size > 1 << 20 { ftruncate(log, 0) }
+        dup2(log, 1)
+        dup2(log, 2)
+        close(log)
+    }
+}
+// Whatever happened above, nothing is read from standard input ever again.
+let null = open("/dev/null", O_RDONLY)
+if null >= 0 {
+    dup2(null, 0)
+    close(null)
+}
+
+var options = Daemon.Options(socketPath: socketPath, lockPath: lockPath)
+if let sessions = value(after: "--sessions").flatMap(Int.init), sessions > 0 {
+    options.limits.sessions = sessions
+}
+if let idle = value(after: "--idle-exit").flatMap(Int.init), idle >= 0 {
+    options.idleExitMilliseconds = idle
+}
+if let stall = value(after: "--write-stall").flatMap(Int.init), stall > 0 {
+    options.limits.writeStallMilliseconds = stall
+}
+// For a test that wants a daemon to sit still rather than tidy itself away mid-assertion.
+if arguments.contains("--stay") { options.stopWhenIdle = false }
+
+do {
+    let daemon = try Daemon(options)
+    exit(daemon.run())
+} catch {
+    FileHandle.standardError.write(Data("legendsd could not start: \(error)\n".utf8))
+    exit(71)
+}

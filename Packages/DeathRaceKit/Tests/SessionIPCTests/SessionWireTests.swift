@@ -352,11 +352,11 @@ struct PreambleTests {
     /// changing it has to be deliberate.
     @Test("a hello is a fixed size and never changes shape")
     func theShape() throws {
-        let hello = Preamble.hello(speaks: 1...1).encode()
+        let hello = Preamble.hello(speaks: 1...1, role: .control).encode()
         #expect(hello.count == Preamble.helloSize)
         #expect(Preamble.helloSize == 11)
         #expect(Array(hello[0..<4]) == Array("DRLD".utf8))
-        #expect(try Preamble.decode(hello) == .hello(speaks: 1...1))
+        #expect(try Preamble.decode(hello) == .hello(speaks: 1...1, role: .control))
     }
 
     @Test("every preamble comes back as it went")
@@ -364,8 +364,8 @@ struct PreambleTests {
         let facts = DaemonFacts(
             startedAtMilliseconds: 99, pid: 4_242, deltaFormat: DeltaCodec.formatVersion, build: "test")
         let messages: [Preamble] = [
-            .hello(speaks: 1...1),
-            .hello(speaks: 2...7),
+            .hello(speaks: 1...1, role: .control),
+            .hello(speaks: 2...7, role: .session),
             .welcome(chosen: 3, speaks: 1...4, daemon: facts),
             .incompatible(speaks: 9...9, build: "older"),
         ]
@@ -399,6 +399,17 @@ struct PreambleTests {
         #expect(throws: SessionWire.Fault.self) { _ = try Preamble.decode(w.bytes) }
     }
 
+    @Test("a connection for nothing the daemon knows about is refused")
+    func anUnknownRole() {
+        var w = ByteWriter()
+        w.bytes.append(contentsOf: Array("DRLD".utf8))
+        w.u8(1)
+        w.u16(1)
+        w.u16(1)
+        w.u16(99)
+        #expect(throws: SessionWire.Fault.self) { _ = try Preamble.decode(w.bytes) }
+    }
+
     @Test("a version range that runs backwards is refused")
     func backwards() {
         var w = ByteWriter()
@@ -414,7 +425,7 @@ struct PreambleTests {
     func notOurs() {
         #expect(throws: SessionWire.Fault.badMagic) { _ = try Preamble.decode(Array("HTTP/1.1".utf8)) }
         #expect(throws: SessionWire.Fault.self) { _ = try Preamble.decode([]) }
-        let hello = Preamble.hello(speaks: 1...1).encode()
+        let hello = Preamble.hello(speaks: 1...1, role: .control).encode()
         for length in 0..<hello.count {
             #expect(throws: SessionWire.Fault.self) { _ = try Preamble.decode(Array(hello[0..<length])) }
         }

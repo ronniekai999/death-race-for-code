@@ -29,6 +29,7 @@ var products: [Product] = [
     .library(name: "SSHKit", targets: ["SSHKit"]),
     .library(name: "SFTPKit", targets: ["SFTPKit"]),
     .library(name: "AppCore", targets: ["AppCore"]),
+    .executable(name: "legendsd", targets: ["legendsd"]),
     .executable(name: "vthost", targets: ["vthost"]),
     .executable(name: "deathrace-askpass", targets: ["deathrace-askpass"]),
 ]
@@ -80,6 +81,9 @@ var targets: [Target] = [
     // (`ssh … -s sftp`). The packet codec, the client, the transfer queue and the local-file
     // seam are portable and Linux-tested against a real sftp-server.
     .target(name: "SFTPKit", dependencies: ["Vault", "PTYKit", "CPTY", "SSHKit"]),
+    // The session daemon: it holds the pseudo-terminals and engines so sessions outlive the
+    // app. Portable, so the whole of it is tested on Linux as a real second process.
+    .executableTarget(name: "legendsd", dependencies: ["SessionIPC"]),
     // ssh's SSH_ASKPASS: hands each question to the app's broker and prints its answer.
     // The app bundles it in Contents/MacOS.
     .executableTarget(name: "deathrace-askpass", dependencies: ["SSHKit"]),
@@ -88,14 +92,22 @@ var targets: [Target] = [
         dependencies: ["VTCore", "PTYKit", "SurfaceCore"],
         path: "Tools/vthost"
     ),
+    // Stands in for the app in the daemon's tests, which have to kill their client: the
+    // exit criterion is what happens when the app is killed, and a test cannot kill itself.
+    .executableTarget(name: "legendsd-probe", dependencies: ["SessionIPC"], path: "Tools/legendsd-probe"),
     .testTarget(name: "PTYKitTests", dependencies: ["PTYKit", "CPTY"]),
     .testTarget(name: "IPCKitTests", dependencies: ["IPCKit", "CPTY", "PTYKit"]),
     .testTarget(name: "VTCoreTests", dependencies: ["VTCore"]),
     .testTarget(name: "ScreenProtocolTests", dependencies: ["ScreenProtocol", "VTCore"]),
     .testTarget(name: "SessionKitTests", dependencies: ["SessionKit", "ScreenProtocol", "PTYKit", "VTCore"]),
+    // Depends on both executables so `swift test` builds them: the tests run the daemon and
+    // its stand-in client as real processes, the way SSHKitTests runs the askpass helper.
     .testTarget(
         name: "SessionIPCTests",
-        dependencies: ["SessionIPC", "SessionKit", "ScreenProtocol", "PTYKit", "VTCore", "IPCKit"]),
+        dependencies: [
+            "SessionIPC", "SessionKit", "ScreenProtocol", "PTYKit", "VTCore", "IPCKit", "legendsd",
+            "legendsd-probe",
+        ]),
     .testTarget(name: "ConfigKitTests", dependencies: ["ConfigKit", "VTCore"]),
     .testTarget(
         name: "SurfaceCoreTests", dependencies: ["SurfaceCore", "VTCore", "ScreenProtocol", "SessionKit", "ConfigKit"]),

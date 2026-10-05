@@ -3,10 +3,6 @@ import PTYKit
 import ScreenProtocol
 import VTCore
 
-public enum SessionError: Error, Equatable {
-    case wakePipe(errno: Int32)
-}
-
 /// A shell on a pseudo-terminal, run by its own thread.
 ///
 /// The thread owns the terminal and the engine; nothing is shared with the app except a

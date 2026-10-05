@@ -27,6 +27,9 @@ public enum Frames {
 /// fails, so a caller that checks `isBroken` after every `append` has checked everything.
 public struct FrameReader: Sendable {
     private var buffer: [UInt8] = []
+    /// Payloads assembled but not handed over, so a reader passed from a handshake to the
+    /// loop that follows it brings whatever came early with it.
+    private var ready: [[UInt8]] = []
     /// The largest payload this reader will assemble, header not counted.
     public let limit: Int
     public private(set) var isBroken = false
@@ -38,6 +41,17 @@ public struct FrameReader: Sendable {
     /// How many bytes are held while a frame is still incomplete, for a caller that wants to
     /// see a peer dribbling bytes.
     public var bufferedBytes: Int { buffer.count }
+
+    /// Keeps `payloads` to be handed out by `next`, for a caller that read ahead and is
+    /// passing the reader on rather than consuming what it found.
+    public mutating func keep(_ payloads: [[UInt8]]) {
+        ready += payloads
+    }
+
+    /// The next payload already assembled, or nil.
+    public mutating func next() -> [UInt8]? {
+        ready.isEmpty ? nil : ready.removeFirst()
+    }
 
     /// The payloads `bytes` completes, in order.
     public mutating func append(_ bytes: [UInt8]) -> [[UInt8]] {

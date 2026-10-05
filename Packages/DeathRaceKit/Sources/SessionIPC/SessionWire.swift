@@ -72,13 +72,22 @@ public struct DaemonFacts: Sendable, Equatable {
 /// nine — magic, kind, and the range it speaks. So every version of either end can read every
 /// other version's preamble, which is what stops version negotiation from being the thing
 /// that cannot negotiate.
+/// What a connection is for. Both kinds shake hands the same way, so the daemon has to be
+/// told which it has before the first message after that means anything.
+public enum Role: UInt16, Sendable, Equatable {
+    /// The one connection an app keeps: what sessions there are, and starting or ending them.
+    case control = 0
+    /// One session's own, which carries its screens.
+    case session = 1
+}
+
 public enum Preamble: Sendable, Equatable {
-    case hello(speaks: ClosedRange<UInt16>)
+    case hello(speaks: ClosedRange<UInt16>, role: Role)
     case welcome(chosen: UInt16, speaks: ClosedRange<UInt16>, daemon: DaemonFacts)
     case incompatible(speaks: ClosedRange<UInt16>, build: String)
 
     static let magic: [UInt8] = Array("DRLD".utf8)
-    /// Four of magic, one of kind, two each of lowest, highest and a reserved word.
+    /// Four of magic, one of kind, two each of lowest, highest, and what it is for.
     public static let helloSize = 11
 
     private enum Kind: UInt8 {
@@ -91,11 +100,11 @@ public enum Preamble: Sendable, Equatable {
         var w = ByteWriter()
         w.bytes.append(contentsOf: Self.magic)
         switch self {
-        case .hello(let speaks):
+        case .hello(let speaks, let role):
             w.u8(Kind.hello.rawValue)
             w.u16(speaks.lowerBound)
             w.u16(speaks.upperBound)
-            w.u16(0)  // reserved, so a hello is always twelve bytes
+            w.u16(role.rawValue)
         case .welcome(let chosen, let speaks, let daemon):
             w.u8(Kind.welcome.rawValue)
             w.u16(chosen)
@@ -121,8 +130,8 @@ public enum Preamble: Sendable, Equatable {
         switch kind {
         case .hello:
             let speaks = try r.versions()
-            _ = try r.u16()
-            return .hello(speaks: speaks)
+            guard let role = Role(rawValue: try r.u16()) else { throw .invalid("what the connection is for") }
+            return .hello(speaks: speaks, role: role)
         case .welcome:
             let chosen = try r.u16()
             let speaks = try r.versions()

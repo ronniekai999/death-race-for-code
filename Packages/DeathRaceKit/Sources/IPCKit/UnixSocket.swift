@@ -122,13 +122,30 @@ public enum UnixSocket {
     /// `timeoutMilliseconds` in all (nil: no limit). Nil on timeout, end of file, or a frame
     /// too large.
     ///
+    /// **It throws away anything else that arrived with it.** One `recv` can bring several
+    /// frames, and the reader that buffered them goes when this returns — so use it only
+    /// where nothing can follow the frame being waited for. Where something can, keep a
+    /// `FrameReader` and pass it to the overload below, which is the same call without the
+    /// hole: a handshake reply and the first screen can land in the same read, and losing the
+    /// screen means a session that never draws.
+    ///
     /// This waits, so it belongs to a handshake and not to a data path; a connection that
     /// carries frames both ways at once wants `FrameReader` and `FrameWriter` around its own
     /// `poll` instead.
     public static func readFrame(_ fd: Int32, limit: Int, timeoutMilliseconds: Int?) -> [UInt8]? {
-        var reader = FrameReader(limit: limit)
+        var throwaway = FrameReader(limit: limit)
+        return readFrame(fd, timeoutMilliseconds: timeoutMilliseconds, into: &throwaway)
+    }
+
+    /// The same, keeping what came with the frame in `reader`, for a caller that goes on
+    /// reading the same socket — or hands `reader` to whatever does.
+    public static func readFrame(
+        _ fd: Int32, timeoutMilliseconds: Int?, into reader: inout FrameReader
+    ) -> [UInt8]? {
         var buffer = [UInt8](repeating: 0, count: 4_096)
         let deadline = timeoutMilliseconds.map { monotonicMilliseconds() + $0 }
+        // Something may already be assembled from an earlier call that read ahead.
+        if let waiting = reader.next() { return waiting }
         while true {
             var descriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
             let wait = deadline.map { Int32(max($0 - monotonicMilliseconds(), 0)) } ?? -1
@@ -142,9 +159,14 @@ public enum UnixSocket {
             let count = buffer.withUnsafeMutableBytes { recv(fd, $0.baseAddress, $0.count, 0) }
             if count < 0, errno == EINTR { continue }
             guard count > 0 else { return nil }
-            let frames = reader.append(Array(buffer[0..<count]))
+            var frames = reader.append(Array(buffer[0..<count]))
             if reader.isBroken { return nil }
-            if let first = frames.first { return first }
+            if !frames.isEmpty {
+                let first = frames.removeFirst()
+                // Whatever else came in the same read belongs to whoever reads next.
+                reader.keep(frames)
+                return first
+            }
         }
     }
 
@@ -161,4 +183,54 @@ private func systemConnect(_ fd: Int32, _ address: UnsafePointer<sockaddr>, _ le
 
 private func systemListen(_ fd: Int32, _ backlog: Int32) -> Int32 {
     listen(fd, backlog)
+}
+
+/// `close` under a name of its own, for a type with a `close()` method of its own — where
+/// the bare call would mean the method.
+public func closeDescriptor(_ fd: Int32) {
+    close(fd)
+}
+
+extension UnixSocket {
+    /// Makes `fd` non-blocking. A connection that carries frames both ways needs this: a
+    /// blocking write into a full socket would stop whatever thread owns it, which for a
+    /// session is the one thing that must not happen because of a slow client.
+    public static func setNonBlocking(_ fd: Int32) {
+        let flags = fcntl(fd, F_GETFL)
+        if flags >= 0 { _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK) }
+    }
+
+    /// Whether `fd` is readable, writable, or both, waiting at most `timeoutMilliseconds`
+    /// (negative: for ever). Hung up counts as readable, so the caller finds the end of file.
+    public static func wait(
+        _ fd: Int32, forWriting: Bool, timeoutMilliseconds: Int32
+    ) -> (readable: Bool, writable: Bool) {
+        let ready = wait(fd, forWriting: forWriting, wake: -1, timeoutMilliseconds: timeoutMilliseconds)
+        return (ready.readable, ready.writable)
+    }
+
+    /// The same, waiting on a wake pipe as well.
+    ///
+    /// A loop that owns a socket almost always has something else to be told about — a screen
+    /// to hand over, an answer that finished on another thread, a message queued for it — and
+    /// waiting on the socket alone means none of that moves until the far end happens to say
+    /// something. Pass `wake` as -1 for a loop that genuinely has only the socket.
+    public static func wait(
+        _ fd: Int32, forWriting: Bool, wake: Int32, timeoutMilliseconds: Int32
+    ) -> (readable: Bool, writable: Bool, woken: Bool) {
+        var events = Int16(POLLIN)
+        if forWriting { events |= Int16(POLLOUT) }
+        var watched = [pollfd(fd: fd, events: events, revents: 0)]
+        if wake >= 0 { watched.append(pollfd(fd: wake, events: Int16(POLLIN), revents: 0)) }
+        guard poll(&watched, nfds_t(watched.count), timeoutMilliseconds) > 0 else {
+            return (false, false, false)
+        }
+        let trouble = Int16(POLLHUP | POLLERR | POLLNVAL)
+        let hangUp = watched[0].revents & trouble != 0
+        return (
+            watched[0].revents & Int16(POLLIN) != 0 || hangUp,
+            watched[0].revents & Int16(POLLOUT) != 0,
+            watched.count > 1 && watched[1].revents & Int16(POLLIN) != 0
+        )
+    }
 }

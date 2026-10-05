@@ -35,6 +35,8 @@ import SFTPKit
     @ObservationIgnored private let files: any RemoteFiles
     @ObservationIgnored private let fileSystem: LocalFileSystem
     @ObservationIgnored private var running: [TransferID: Task<Void, any Error>] = [:]
+    /// Numbers the host's listings, so one that comes back late is dropped.
+    @ObservationIgnored private var navigation = 0
 
     init(
         hostName: String, files: any RemoteFiles, fileSystem: LocalFileSystem = .local,
@@ -62,16 +64,32 @@ import SFTPKit
     }
 
     func refreshRemote() async {
+        // Each listing is numbered, so one that comes back after a later navigation has
+        // started is dropped instead of putting one folder's rows under another's path —
+        // and so the spinner belongs to the newest one, not the first to finish.
+        navigation += 1
+        let mine = navigation
+        let path = remotePath
         isLoading = true
-        defer { isLoading = false }
         do {
-            remoteRows = Listing.remote(try await files.list(remotePath))
+            let rows = Listing.remote(try await files.list(path))
+            guard mine == navigation else { return }
+            isLoading = false
+            remoteRows = rows
             problem = nil
             if let remoteSelected, !remoteRows.contains(where: { $0.name == remoteSelected }) {
                 self.remoteSelected = nil
             }
         } catch {
-            problem = "Could not read \(remotePath): \(Self.sentence(error))"
+            guard mine == navigation else { return }
+            isLoading = false
+            // Empty the pane as well as saying so. Leaving the last folder's rows under the
+            // new path isn't only wrong on screen: `uploadFile` asks "is it already there?"
+            // against these rows and writes into `remotePath`, so stale rows mean a transfer
+            // could replace a file without asking.
+            remoteRows = []
+            remoteSelected = nil
+            problem = "Could not read \(path): \(Self.sentence(error))"
         }
     }
 
@@ -93,6 +111,10 @@ import SFTPKit
                 remoteSelected = entry.name
                 return
             }
+            // One step at a time: a second step taken from the folder still on screen would
+            // join its name onto the path the first step already moved to, and ask the host
+            // for something that was never there.
+            guard !isLoading else { return }
             remotePath = Listing.join(remotePath, entry.name)
             remoteSelected = nil
             await refreshRemote()
@@ -107,6 +129,7 @@ import SFTPKit
             localSelected = nil
             refreshLocal()
         case .remote:
+            guard !isLoading else { return }
             remotePath = Listing.parent(of: remotePath)
             remoteSelected = nil
             await refreshRemote()
@@ -123,12 +146,20 @@ import SFTPKit
 
     /// Send a file from anywhere on this Mac — what a Finder drop onto the host pane does.
     func uploadFile(at localFile: String, named name: String) async {
+        // Settle the folder before asking: the question is about this one, and the sheet is a
+        // suspension during which a navigation could land. Answering about `/www` and writing
+        // into `/www/releases` would replace a file nobody was asked about.
+        let folder = remotePath
         if remoteRows.contains(where: { $0.name == name }), await !confirmOverwrite(name) { return }
+        guard folder == remotePath else {
+            problem = "The host's folder changed while that question was open; nothing was sent."
+            return
+        }
         guard let bytes = fileSystem.readFile(localFile) else {
             problem = "Could not read \(name) from this Mac."
             return
         }
-        let remote = Listing.join(remotePath, name)
+        let remote = Listing.join(folder, name)
         let id = transfers.enqueue(.upload, name: name, localPath: localFile, remotePath: remote)
         transfers.begin(id, total: UInt64(bytes.count))
         await run(id) { [files] in
@@ -230,7 +261,12 @@ import SFTPKit
         case .status(let code, _): return "the server refused it (code \(code))"
         case .transportClosed: return "the connection closed"
         case .timedOut: return "it took too long"
-        case .truncated, .invalid, .unknownPacket, .unexpectedReply:
+        // `invalid` carries the reason, and some of them are about us, not the server: a file
+        // past what a transfer will take in one piece, or a directory past what Maze will
+        // list. Telling someone the *server* misbehaved when they picked a 3 GB disk image
+        // would be a lie.
+        case .invalid(let why): return why
+        case .truncated, .unknownPacket, .unexpectedReply:
             return "the server sent something unexpected"
         }
     }

@@ -60,7 +60,9 @@ public final class SFTPSession: SFTPTransport, @unchecked Sendable {
     private static let maxQueuedFrames = 256
     private static let maxQueuedBytes = 64 << 20
 
-    private init(child: ChildProcess) {
+    /// Takes over a child whose stdin and stdout carry the SFTP stream. `connect` is how the
+    /// app makes one; the tests use this directly with a child they can make misbehave.
+    init(child: ChildProcess) {
         self.child = child
         Thread.detachNewThread { [self] in readerLoop() }
         Thread.detachNewThread { [self] in writerLoop() }
@@ -143,12 +145,26 @@ public final class SFTPSession: SFTPTransport, @unchecked Sendable {
         lock.unlock()
         waiter?.resume(throwing: SFTPError.transportClosed)
         guard !already else { return }
-        writeCondition.lock()
-        stopWriter = true
-        writeCondition.broadcast()
-        writeCondition.unlock()
+        stopWriting()
         // The signal, not the end of file, is what ends this: see the note on the class.
         endChild()
+    }
+
+    /// Shuts the write queue and fails everything in it, from any thread. **It must not need
+    /// the writer thread**, which may already have gone — a failed write ends it. A queue left
+    /// open with nobody serving it is the worst kind of broken: `send` would see `stopWriter`
+    /// still false, park a continuation on a condition no thread waits on, and never be
+    /// resumed. An unresumable continuation can't be cancelled either, so a structured scope
+    /// around a transfer would hang for good — the same thing that once took a CI run to its
+    /// 25-minute limit, reached by another road.
+    private func stopWriting() {
+        writeCondition.lock()
+        stopWriter = true
+        let pending = writeQueue
+        writeQueue = []
+        writeCondition.broadcast()
+        writeCondition.unlock()
+        for item in pending { item.done.resume(throwing: SFTPError.transportClosed) }
     }
 
     // MARK: - The child's ending
@@ -331,6 +347,9 @@ public final class SFTPSession: SFTPTransport, @unchecked Sendable {
                 item.done.resume()
             } else {
                 item.done.resume(throwing: SFTPError.transportClosed)
+                // Shut the queue before leaving: after this there is no writer thread, so
+                // anything still in it — or sent later — would wait for ever.
+                stopWriting()
                 failInbox(with: SFTPError.transportClosed)
                 // Input is this thread's; output and the reap are the reader's. Ending the
                 // child is what makes its `read` return so it can do them.

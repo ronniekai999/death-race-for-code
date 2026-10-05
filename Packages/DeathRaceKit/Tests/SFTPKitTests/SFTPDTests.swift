@@ -100,9 +100,18 @@ struct SFTPDTests {
             environment: ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/local/bin"])
         let pid = session.childProcessID
         let client = SFTPClient(transport: session)
-        try await client.start()
-        _ = try await client.realPath(".")
-        #expect(kill(pid, 0) == 0, "the ssh should be running before the close")
+        // Always shut down, even on the way out through a throw: a session nobody closes
+        // keeps its ssh and its two threads, and `swift test` can't exit with a thread
+        // blocked on a live child — which is the very thing this test exists to prove.
+        do {
+            try await client.start()
+            _ = try await client.realPath(".")
+            #expect(kill(pid, 0) == 0, "the ssh should be running before the close")
+        } catch {
+            await client.shutDown()
+            try? FileManager.default.removeItem(atPath: config)
+            throw error
+        }
         await client.shutDown()
         try? FileManager.default.removeItem(atPath: config)
 

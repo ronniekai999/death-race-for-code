@@ -8,30 +8,6 @@ private func started(_ server: FakeSFTPServer) async throws -> SFTPClient {
     return client
 }
 
-/// Whether `work` finishes at all. A dropped reply leaves its request waiting for good, and a
-/// test that waits for good takes the whole run with it — swift-testing's time limit cannot
-/// interrupt a continuation that nobody will resume. So this watches from outside and gives
-/// up, leaving the stuck task suspended.
-private actor Finished {
-    private var value = false
-    func mark() { value = true }
-    var isSet: Bool { value }
-
-    static func within(_ seconds: Double, _ work: @escaping @Sendable () async throws -> Void) async -> Bool {
-        let flag = Finished()
-        let task = Task {
-            try await work()
-            await flag.mark()
-        }
-        for _ in 0..<Int(seconds * 20) {
-            if await flag.isSet { return true }
-            try? await Task.sleep(for: .milliseconds(50))
-        }
-        task.cancel()
-        return await flag.isSet
-    }
-}
-
 @Suite struct SFTPClientTests {
     @Test func theHandshakeNegotiatesVersion3() async throws {
         let client = try await started(FakeSFTPServer())

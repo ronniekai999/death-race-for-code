@@ -301,8 +301,11 @@ struct MazeModelTests {
         await model.start()
         await host.holdTransfers()
         let upload = Task { await model.upload("big.bin") }
-        while model.transfers.transfers.isEmpty { await Task.yield() }
-        let id = try #require(model.transfers.transfers.first?.id)
+        // Bounded: `Task.yield()` doesn't throw on cancellation, so an unbounded wait here
+        // would spin on the main actor for ever if the transfer never registered, and a time
+        // limit cannot interrupt that.
+        for _ in 0..<10_000 where model.transfers.transfers.isEmpty { await Task.yield() }
+        let id = try #require(model.transfers.transfers.first?.id, "the transfer never started")
         model.cancel(id)
         await upload.value
         #expect(model.transfers[id]?.state == .cancelled)

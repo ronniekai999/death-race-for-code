@@ -110,17 +110,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         let connected = !(wrld?.openConnections.isEmpty ?? true)
         // Any master, even one still connecting, means there's something to shut down; quit
         // through the Task below (which may skip the question) rather than leaving an orphan.
-        guard !running.isEmpty || connected || (wrld?.hasMasters ?? false) else { return .terminateNow }
+        // Maze windows are named here rather than relied on through `hasMasters`: they do hold
+        // a master, but a window's own teardown shouldn't depend on another subsystem.
+        guard !running.isEmpty || connected || !mazeWindows.isEmpty || (wrld?.hasMasters ?? false) else {
+            return .terminateNow
+        }
         let tunnels = configStore.config.confirmClose ? (wrld?.openTunnelCount ?? 0) : 0
+        let transfers =
+            configStore.config.confirmClose
+            ? mazeWindows.values.reduce(0) { $0 + $1.model.transfers.active.count } : 0
         Task {
             var programs: [String] = []
             for pane in running {
                 if let program = await pane.runningProgram() { programs.append(program) }
             }
-            if !programs.isEmpty || tunnels > 0 {
+            if !programs.isEmpty || tunnels > 0 || transfers > 0 {
                 let alert = NSAlert()
                 alert.messageText = "Goodbye & Good Riddance?"
-                alert.informativeText = Self.quitQuestion(programs: programs, tunnels: tunnels)
+                alert.informativeText = Self.quitQuestion(
+                    programs: programs, tunnels: tunnels, transfers: transfers)
                 alert.addButton(withTitle: "Quit")
                 alert.addButton(withTitle: "Cancel")
                 guard alert.runModal() == .alertFirstButtonReturn else {
@@ -136,8 +144,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         return .terminateLater
     }
 
-    /// "vim is still running, and 2 tunnels are open. Quit anyway?"
-    static func quitQuestion(programs: [String], tunnels: Int) -> String {
+    /// "vim is still running, 2 tunnels are open, and 1 file is still moving. Quit anyway?"
+    /// A transfer counts: quitting during one leaves a part-written file on the host, and the
+    /// app already asks before closing a pane that is running something.
+    static func quitQuestion(programs: [String], tunnels: Int, transfers: Int = 0) -> String {
         var parts: [String] = []
         if programs.count == 1 { parts.append("\(programs[0]) is still running") }
         if programs.count > 1 {
@@ -145,6 +155,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         }
         if tunnels == 1 { parts.append("1 tunnel is open") }
         if tunnels > 1 { parts.append("\(tunnels) tunnels are open") }
+        if transfers == 1 { parts.append("1 file is still moving in Maze") }
+        if transfers > 1 { parts.append("\(transfers) files are still moving in Maze") }
         return parts.joined(separator: ", and ") + ". Quit anyway?"
     }
 

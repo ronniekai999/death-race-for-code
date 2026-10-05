@@ -40,6 +40,14 @@ public enum SSHCommand {
         [ssh, "-F", config, "-T", "-o", "BatchMode=yes", alias, command]
     }
 
+    /// The SFTP subsystem on the host, through its master — Maze speaks SFTP v3 over this, so
+    /// there is no second login. The `-s -- <host> sftp` form matches how OpenSSH's own sftp
+    /// launches ssh: options, then the subsystem name as the command after `--`. `-F <config>`
+    /// routes onto the existing master via its `ControlPath`, exactly as `session` does.
+    public static func sftp(alias: String, config: String) -> [String] {
+        [ssh, "-F", config, "-o", "BatchMode=yes", "-s", "--", alias, "sftp"]
+    }
+
     public enum Control: Equatable, Sendable {
         case check
         case exit

@@ -5,8 +5,8 @@ public enum ActionID: String, CaseIterable, Sendable {
     // The app menu
     case about, settings, openSettingsFile, reloadConfiguration, secureKeyboardEntry, hide, hideOthers, showAll, quit
     // Shell
-    case newWindow, newTab, newHost, openWRLD, toggleLucidDreams, splitRight, splitDown, armedAndDangerous,
-        closePane, closeTab, closeWindow
+    case newWindow, newTab, newHost, openWRLD, openMaze, toggleLucidDreams, splitRight, splitDown,
+        armedAndDangerous, closePane, closeTab, closeWindow
     // Edit
     case copy, paste, selectAll, saveSelectionToWishingWell, clearToStart, clearScrollback
     // View
@@ -211,6 +211,9 @@ public enum ActionCatalog {
         Action(
             .openWRLD, "Open WRLD", "Open WRLD", .shell, KeyShortcut(.character("o")),
             keywords: ["hosts", "vault", "servers", "keys", "known hosts", "tunnels", "snippets"]),
+        Action(
+            .openMaze, "Open in Maze", "Open in Maze", .shell,
+            keywords: ["sftp", "files", "upload", "download", "transfer", "file browser", "copy to server"]),
         Action(
             .toggleLucidDreams, "Lucid Dreams", "Lucid Dreams", .shell,
             keywords: ["notch", "quick terminal", "drop down", "drop-down", "hotkey", "scratch"]),

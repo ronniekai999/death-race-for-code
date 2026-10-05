@@ -2,6 +2,7 @@ import AppCore
 import Foundation
 import Network
 import PTYKit
+import SFTPKit
 import SSHKit
 import Vault
 import os
@@ -203,6 +204,58 @@ final class WRLDService: HostConnecting {
             environment: environment, appVersion: DeathRaceApplication.version)
     }
 
+    func openSFTP(_ host: HostRef) async -> (any RemoteFiles)? {
+        guard let target = target(for: host) else { return nil }
+        guard let pool = await startPool() else { return nil }
+        let user = Self.mazeUser(target.key)
+        // A pane's master is what Maze rides, so a window on a connected host opens its files
+        // at once, with no second login. Holding a pool user keeps that master up while the
+        // window is open, even after the last pane on the host closes.
+        guard case .ready = await pool.connect(target, for: user, secrets: savedSecrets) else { return nil }
+        connected(host, alias: target.alias)
+        let session: SFTPSession
+        do {
+            session = try SFTPSession.connect(
+                alias: target.alias, config: paths.generatedConfig,
+                environment: LoginEnvironment.merging(login ?? [:], into: environment))
+        } catch {
+            log.error("Maze couldn't start ssh: \(String(describing: error), privacy: .public)")
+            pool.release(user)
+            return nil
+        }
+        let client = SFTPClient(transport: session)
+        // A host can accept the subsystem and then say nothing; the handshake waits on a
+        // continuation with no deadline, so without this the open never returns, the host's
+        // Maze can never be opened again, and its master is held for the life of the app.
+        // Closing the session ends the ssh, which is what makes the handshake throw.
+        let watchdog = Task {
+            try? await Task.sleep(for: .seconds(20))
+            guard !Task.isCancelled else { return }
+            await session.close()
+        }
+        defer { watchdog.cancel() }
+        do {
+            try await client.start()
+            return client
+        } catch {
+            // Shut the client down, not just the pool user: an SFTPSession nobody closes keeps
+            // its ssh and its two threads for the life of the app.
+            log.error(
+                """
+                Maze couldn't open the host's files: \
+                \(String(describing: error), privacy: .public) \(session.sshErrorText, privacy: .public)
+                """)
+            await client.shutDown()
+            pool.release(user)
+            return nil
+        }
+    }
+
+    func closeSFTP(_ host: HostRef) {
+        guard let key = target(for: host)?.key else { return }
+        pool?.release(Self.mazeUser(key))
+    }
+
     func release(_ pane: PaneID) {
         pool?.release(Self.user(pane))
     }
@@ -225,6 +278,8 @@ final class WRLDService: HostConnecting {
     }
 
     private static func user(_ pane: PaneID) -> String { "pane:\(pane.rawValue)" }
+    /// Maze's hold on a host's master. One window per host, so the host's key names it.
+    private static func mazeUser(_ key: String) -> String { "maze:\(key)" }
 
     // MARK: - Come & Go
 

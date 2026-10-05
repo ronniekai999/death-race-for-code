@@ -5,6 +5,7 @@
     import ImageIO
     import PTYKit
     import RenderKit
+    import SFTPKit
     import SSHKit
     import ScreenProtocol
     import SessionKit
@@ -308,6 +309,8 @@
             func address(of host: HostRef) -> String? { nil }
             func connect(_ host: HostRef, for pane: PaneID) async -> ConnectResult { .failed(.cancelled) }
             func plainLaunch(_ host: HostRef) async -> ShellLaunch? { nil }
+            func openSFTP(_ host: HostRef) async -> (any RemoteFiles)? { nil }
+            func closeSFTP(_ host: HostRef) {}
             func release(_ pane: PaneID) {}
             func cancel(_ host: HostRef) {}
             func paletteHosts() -> [PaletteItem] { [] }

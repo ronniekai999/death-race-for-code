@@ -170,3 +170,33 @@ pane, so the tab can't be mistaken for an ordinary one:
 The contrast tests cover it in every theme: the armed stops at 3:1 on the ground and the
 terminal's background, `ink` and `inkMuted` at 4.5:1 on both tints, and `warning` at 4.5:1
 on `groundDeep`.
+
+## Maze
+
+One window per host, 980 × 620 pt to start, on the theme's `LegendsPalette`. It is three
+bands on `ground`, divided by 1 px `line`:
+
+- **The title row**, 46 pt: `MAZE` as a spaced-out eyebrow in `inkMuted`, a `·`, then the
+  host's name in `ink`; a small spinner while a listing is on its way, and, on the right,
+  whatever went wrong last in `danger`, one line.
+- **The two panes**, side by side and equal, divided by a 1 px `line`. Each has a 24 pt
+  header — `THIS MAC` or the host's name as an eyebrow, with Up on the right in `accent`
+  (off at `/`) — the folder's path under it in `inkFaint`, truncated at the head so the end
+  you care about stays; then the rows on `groundDeep`; then a 34 pt footer with the
+  transfer button (`Upload →` on the left, `← Download` on the right, off until a row is
+  picked) and the row count.
+- **A row**, 24 pt: a folder, link or doc symbol in `accent` for a folder and `inkFaint`
+  otherwise, the name in `ink`, and for a file its size with its unit on the right in
+  `inkFaint`. The picked row is filled `surfaceHover`.
+- **The transfers**, along the bottom on `groundDeep`: a `TRANSFERS` eyebrow with Clear on
+  the right once a row has finished, then a row per transfer — the direction's arrow in
+  `accent`, the file's name, how far it has got ("4.2 MB of 48 MB", "done", "cancelled", or
+  why it failed, in `danger`), and Stop while it's going — each over a **`TransferBar`**:
+  `NeonSlider`'s fill without the knob or the drag, a 4 pt capsule of `surfaceHover` under
+  the brand gradient's share of the width. Before the first transfer the band reads "Pick a
+  file and press Upload or Download."; the band itself scrolls at 108 pt.
+
+**Drags.** A file row can be dragged to the other pane — this Mac's as its file URL, the
+host's as its path — and Finder files dropped on the host's pane upload. A folder dropped
+there is set aside with "Maze moves files, not folders.": Maze moves files this phase.
+Dragging a file *out* of Maze into Finder is not in this phase.

@@ -418,8 +418,60 @@ draw from tested models (`WRLDBoard`, `SidebarModel`) and change WRLD only throu
 again from that. Hand edits to `wrld.json` and changes to `~/.ssh/config` are picked up as
 they're saved, as the settings file's are.
 
-The SFTP browser (Phase 6) speaks SFTP v3 itself over `ssh -s <host> sftp`, on the same
-authenticated connection.
+### Maze: SFTP we speak ourselves
+
+Maze is a window per host, this Mac's folder beside the host's, with the transfers between
+them along the bottom. It speaks **SFTP version 3** itself (draft-ietf-secsh-filexfer-02)
+rather than driving `/usr/bin/sftp`: a batch-mode `sftp` can't be asked a question halfway
+through, can't report progress, and its output is text meant for people.
+
+- **It rides the master.** `SSHCommand.sftp` is `ssh -F <generated> -o BatchMode=yes -s --
+  <alias> sftp`, the form OpenSSH's own `sftp` uses. Through the generated config's
+  `ControlPath` it is a second channel on the master a pane already opened: no second login,
+  no second Touch ID. A Maze window holds a pool user of its own (`maze:<host key>`) so the
+  master stays up while the window is open, even with no pane left on the host, and lets it
+  go when the window closes.
+- **`SFTPKit` is portable, so the protocol is tested on Linux.** The codec
+  (`SFTPPacket`) is big-endian and as strict as `ScreenProtocol/DeltaCodec`: every length is
+  checked against the bytes remaining before anything is allocated, so a hostile or corrupt
+  server can't make the client over-allocate. `SFTPClient` is an actor that assigns a request
+  id to each packet and matches replies with a background read loop, so several requests can
+  be in flight. Sending suspends the actor, so a reply can arrive before its request has
+  registered a waiter; such a reply is parked and claimed when the request comes back, rather
+  than dropped — dropping one hung a transfer for good. Linux CI runs the client against the
+  real `internal-sftp` subsystem of `scripts/ci-sshd.sh`'s sshd: upload, list, download,
+  compare, rename, remove, rmdir.
+- **The transport is two threads, not async I/O.** `SFTPSession` spawns the subsystem with
+  `ChildProcess.spawn` and runs blocking reads on one thread and writes on another, bridged
+  to `send`/`receive` with continuations. The reader `poll`s the child's stdout and stderr
+  together, so ssh can never block filling a stderr nobody reads, and its last words are kept
+  for the sentence when a session won't start. A frame body over 16 MiB means the stream
+  desynced, and fails the session rather than accumulating. Closing **ends the ssh** — it
+  signals the child's process group — rather than closing its stdin and trusting end of file
+  to travel: `ssh -s` holds its channel until the server closes it, and a close that only shut
+  stdin left the ssh in `poll` and the reader in `read`, which hung one CI run for 21 minutes.
+- **A name from a server is only ever a name.** The host chooses every byte of a filename,
+  and Maze joins it with a folder on this Mac and writes there, so `Listing.remote` refuses
+  any name holding a separator, `.`, `..`, a control character, a NUL, or a lossy UTF-8
+  decode, and Download checks again before it writes. Without that, a listing could name
+  `Library/LaunchAgents/x.plist` and a download would write a launch agent — content and path
+  both chosen by a host you merely browsed, and the write goes through `AtomicFile`, which
+  creates the folders on the way. This is the stance OpenSSH's own sftp and scp took after
+  CVE-2019-6111: the local path comes from what we asked for, never from what the server
+  answered. **Every reply is bounded too** — entries per `NAME` and per directory, bytes
+  queued for the client, bytes in a download, `DATA` no longer than the `READ` that asked for
+  it, and a reply only for a request id actually issued — because a hostile server is
+  otherwise an unbounded sink on the far end of a pipe.
+- **The window is only a window.** `MazeModel` holds the two listings and the
+  `TransferQueue` behind the `RemoteFiles` and `LocalFileSystem` seams, so
+  `DeathRaceAppTests` drives it headless with stand-ins — list, step in, upload, download,
+  replace, Stop, a Finder drop. Transfers run as cancellable tasks off the main actor, and
+  each chunk hops back to it to move the bar (not yet coalesced; see docs/PERF.md). **Those
+  tests only run on macOS**, because the model is in the app target for one colour struct —
+  the one part of this phase outside the Linux gate, and worth moving.
+- **Dragging files out to Finder is not in this phase.** Upload and download buttons, drags
+  between the two panes and Finder-into-Maze drops all work; `NSFilePromiseProvider` (a
+  remote file dragged to the Desktop) would be new ground that CI can't check.
 
 ### Signing
 
@@ -471,7 +523,7 @@ shells in the app and keeps sessions alive another way.
 | 3 | Pit Lane shell: tab pills, splits, Hear Me Calling, the Settings window, 8 themes, fonts, links, frame-rate policy (the WRLD sidebar moved to Phase 4, with its content) |
 | 4 | Termius layer: WRLD (vault, window, sidebar), app-owned ssh masters and askpass with Touch ID, Secure Enclave keys, Come & Go tunnels, Wishing Well snippets, Armed and Dangerous |
 | 5 | Lucid Dreams: the notch quick terminal |
-| 6 | Maze: the SFTP browser |
+| 6 | Maze: the SFTP browser — SFTPKit (our own SFTP v3), a window per host, transfers with a queue and bars, core drag-and-drop (dragging out to Finder deferred) |
 | 7 | Legends Never Die: `legendsd` keeps sessions alive |
 | 8 | Conversations, Fast and Ring Ring: shell integration, blocks, timers, alerts |
 | 9 | Renderer polish: glow, XDR Neon, ligatures, inline images |

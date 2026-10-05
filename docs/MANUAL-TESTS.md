@@ -4,7 +4,47 @@ What CI cannot check, because it needs a real Mac, a real GPU, a keyboard, input
 your eyes. Run it with a debug build (`CONFIG=debug make run`) before closing a phase, and
 note the macOS build (`sw_vers`) with the results.
 
-Phase 5's checks come first; Phase 4's, Phase 3's and Phase 2's follow, and still apply.
+Phase 6's checks come first; Phase 5's, Phase 4's, Phase 3's and Phase 2's follow, and still
+apply.
+
+## Phase 6 exit criteria
+
+Phase 6 is done when all of these hold on the M5, against a real host:
+
+1. **Round trip.** Open in Maze on a connected host, upload a file, then download it back
+   under another name, and `shasum` the two: the bytes match. A few megabytes, so the bar has
+   something to show.
+2. **No second login.** Opening Maze on a host that already has a pane does not ask for Touch
+   ID or a password, and no new `ssh` login appears in the host's auth log — the subsystem
+   rides the master (`ps` shows one `ssh -M` for the host, plus the `-s sftp` child).
+3. **Both sides browse.** Double-click steps into folders on either side, Up walks back, `/`
+   disables Up, and folders sort before files.
+4. **Drags.** A file dragged from Finder onto the host's pane uploads; a file dragged between
+   the panes transfers that way; a folder dropped on the host's pane says "Maze moves files,
+   not folders." and moves nothing.
+5. **Replace asks.** Uploading or downloading onto a name that is already there asks first;
+   Cancel leaves both sides as they were and starts no transfer.
+6. **Stop works.** Stop on a transfer in flight ends it; the row reads cancelled and Clear
+   takes it away. A part-written file on the far side is the documented cost of stopping an
+   upload.
+7. **Zero when idle.** With a Maze window open and no transfer running, the app draws no
+   frames and costs ≈0 CPU (`powermetrics`); the reader thread sits in `read`.
+8. **Closing cleans up.** Closing the window ends the subsystem (no `sftp` process left) and,
+   once no pane is on the host either, the master idles out on its own.
+9. **It looks right.** The window matches the Maze board in all 8 themes, light Righteous
+   included, and the transfer bars run in the theme's gradient.
+
+## Maze
+
+- [ ] Opening Maze on a host that has no connection yet connects first (Touch ID once), then
+      lists both sides.
+- [ ] A host that refuses the subsystem (`Subsystem sftp` missing from its sshd) says so
+      rather than hanging.
+- [ ] Opening Maze on a second host gives a second window, cascaded, each on its own host.
+- [ ] Open in Maze appears in the Shell menu, Hear Me Calling, and the host's context menu in
+      the sidebar and the WRLD window — and is off in a local-shell pane.
+- [ ] Changing the theme re-colours an open Maze window at once.
+- [ ] Quitting with a Maze window open leaves no `ssh` or `sftp` process behind.
 
 ## Phase 5 exit criteria
 

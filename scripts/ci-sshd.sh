@@ -36,6 +36,14 @@ for pair in wrldjump:jump-pass wrldtarget:target-pass; do
     echo "$pair" | chpasswd
 done
 
+# A throwaway key authorizing wrldtarget, so Maze's SFTP round-trip test connects with a key
+# and needs no askpass. Loopback, root-only, torn down with the container.
+testkey=/run/wrld-test-key
+[ -f "$testkey" ] || ssh-keygen -t ed25519 -N "" -f "$testkey" -C wrld-sftp-test >&2
+install -d -m 700 -o wrldtarget -g wrldtarget /home/wrldtarget/.ssh
+install -m 600 -o wrldtarget -g wrldtarget "$testkey.pub" /home/wrldtarget/.ssh/authorized_keys
+chmod 600 "$testkey"
+
 config=/run/sshd-wrld.conf
 cat >"$config" <<'EOF'
 Port 2222
@@ -52,6 +60,8 @@ PidFile /run/sshd-wrld.pid
 # Parallel test runs open many connections at once.
 MaxStartups 100:30:200
 MaxSessions 50
+# Maze speaks SFTP over this; internal-sftp needs no external binary.
+Subsystem sftp internal-sftp
 LogLevel VERBOSE
 EOF
 
@@ -71,4 +81,5 @@ echo "export DEATHRACE_SSHD=127.0.0.1:2222"
 echo "export DEATHRACE_SSHD_TARGET=127.0.0.2:2222"
 echo "export DEATHRACE_SSHD_JUMP_USER=wrldjump DEATHRACE_SSHD_JUMP_PASSWORD=jump-pass"
 echo "export DEATHRACE_SSHD_TARGET_USER=wrldtarget DEATHRACE_SSHD_TARGET_PASSWORD=target-pass"
+echo "export DEATHRACE_SSHD_KEY=$testkey"
 echo "export DEATHRACE_SSHD_LOG=/tmp/sshd-wrld.log"

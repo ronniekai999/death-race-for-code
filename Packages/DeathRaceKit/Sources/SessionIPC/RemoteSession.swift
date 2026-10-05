@@ -57,6 +57,8 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
     }
 
     public let id: SessionID
+    /// The daemon holds the shell, so it outlives this process. That is the whole feature.
+    public var outlivesItsClient: Bool { true }
     private let socket: Int32
     private let wake: WakePipe
     private let onUpdate: @Sendable () -> Void

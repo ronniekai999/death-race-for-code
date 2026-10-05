@@ -140,8 +140,8 @@ var targets: [Target] = [
         .target(
             name: "DeathRaceApp",
             dependencies: [
-                "LegendsUI", "TerminalUI", "RenderKit", "SurfaceCore", "AppCore", "SessionKit", "ScreenProtocol",
-                "ConfigKit", "PTYKit", "VTCore", "Vault", "SSHKit", "SFTPKit",
+                "LegendsUI", "TerminalUI", "RenderKit", "SurfaceCore", "AppCore", "SessionKit", "SessionIPC",
+                "IPCKit", "ScreenProtocol", "ConfigKit", "PTYKit", "VTCore", "Vault", "SSHKit", "SFTPKit",
             ]),
         .executableTarget(name: "DeathRace", dependencies: ["DeathRaceApp", "RenderKit"]),
         // Temporary: the one-day privacy-permission spike for legendsd (docs/SPIKE.md).
@@ -152,8 +152,8 @@ var targets: [Target] = [
         .testTarget(
             name: "DeathRaceAppTests",
             dependencies: [
-                "DeathRaceApp", "AppCore", "TerminalUI", "SurfaceCore", "SessionKit", "ScreenProtocol", "ConfigKit",
-                "PTYKit", "VTCore", "SSHKit", "Vault", "SFTPKit",
+                "DeathRaceApp", "AppCore", "TerminalUI", "SurfaceCore", "SessionKit", "SessionIPC", "ScreenProtocol",
+                "ConfigKit", "PTYKit", "VTCore", "SSHKit", "Vault", "SFTPKit",
             ]),
     ]
 #endif

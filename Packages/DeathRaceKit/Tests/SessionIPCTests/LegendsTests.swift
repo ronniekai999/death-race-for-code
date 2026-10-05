@@ -59,6 +59,63 @@ private struct ByteWriterProbe {
     }
 }
 
+@Suite("Putting kept sessions back")
+struct LegendsGroupingTests {
+    private func session(_ id: UInt64, at place: SessionPlacement?) -> SessionDescription {
+        SessionDescription(
+            id: SessionID(id), status: .running, columns: 80, rows: 24, shellExecutable: "/bin/sh",
+            startedAtMilliseconds: 0, metadata: place?.encode() ?? [])
+    }
+
+    @Test("windows, tabs and panes come back as they were")
+    func grouped() {
+        // Deliberately out of order: what the daemon lists is whatever its table iterated.
+        let sessions = [
+            session(5, at: SessionPlacement(window: 1, tab: 0, slot: 0, title: "htop")),
+            session(2, at: SessionPlacement(window: 0, tab: 1, slot: 0, title: "vim")),
+            session(4, at: SessionPlacement(window: 0, tab: 0, slot: 1, title: "tail")),
+            session(1, at: SessionPlacement(window: 0, tab: 0, slot: 0, title: "zsh")),
+        ]
+        let windows = Legends.group(sessions)
+        #expect(windows.count == 2)
+        #expect(windows[0].map(\.count) == [2, 1])
+        #expect(windows[0][0].map { $0.id.value } == [1, 4])
+        #expect(windows[0][1].map { $0.id.value } == [2])
+        #expect(windows[1].map { $0.map { $0.id.value } } == [[5]])
+    }
+
+    /// A gap in the numbers is not a gap in the windows: what is restored is membership and
+    /// order, so window 7 on its own is simply the first window back.
+    @Test("gaps in the numbering close up")
+    func gaps() {
+        let windows = Legends.group([
+            session(1, at: SessionPlacement(window: 7, tab: 4, slot: 0, title: "a")),
+            session(2, at: SessionPlacement(window: 7, tab: 9, slot: 0, title: "b")),
+        ])
+        #expect(windows.count == 1)
+        #expect(windows[0].count == 2)
+    }
+
+    /// Two sessions a daemon from another build left: no note either of them, so each one
+    /// comes back rather than being dropped, in the order it was made.
+    @Test("sessions with no note come back last, each on its own")
+    func unplaced() {
+        let windows = Legends.group([
+            session(9, at: nil),
+            session(3, at: SessionPlacement(window: 0, tab: 0, slot: 0, title: "zsh")),
+            session(7, at: nil),
+        ])
+        #expect(windows.count == 2)
+        #expect(windows[0].map { $0.map { $0.id.value } } == [[3]])
+        #expect(windows[1].map { $0.map { $0.id.value } } == [[7], [9]])
+    }
+
+    @Test("nothing kept is no windows")
+    func nothing() {
+        #expect(Legends.group([]).isEmpty)
+    }
+}
+
 @Suite("Choosing where sessions run")
 struct LegendsChoiceTests {
     @Test("turned off is not a failure, and says nothing")
@@ -111,31 +168,6 @@ struct LegendsWordingTests {
         #expect(Legends.sentence(kept: 0).isEmpty)
         #expect(Legends.sentence(kept: 1) == "1 session kept running while the app was closed.")
         #expect(Legends.sentence(kept: 3) == "3 sessions kept running while the app was closed.")
-    }
-
-    /// With everything about to be kept there is nothing to ask about, which is the point:
-    /// quitting a window of local shells should be quiet.
-    @Test("quitting asks only about what will not be kept")
-    func askingToQuit() {
-        #expect(Legends.quitting(keeping: 3, ending: []) == nil)
-        #expect(Legends.quitting(keeping: 0, ending: []) == nil)
-        #expect(Legends.quitting(keeping: 0, ending: ["vim"]) == "vim is still running. Quit anyway?")
-        #expect(
-            Legends.quitting(keeping: 0, ending: ["vim", "make"]) == "vim and make are still running. Quit anyway?")
-        #expect(
-            Legends.quitting(keeping: 2, ending: ["vim"])
-                == "vim is still running, and 2 sessions will keep running. Quit anyway?")
-        #expect(
-            Legends.quitting(keeping: 1, ending: ["vim", "make", "htop"])
-                == "vim, make and htop are still running, and 1 session will keep running. Quit anyway?")
-    }
-
-    @Test("a list reads as a sentence, not as a comma-separated field")
-    func listing() {
-        #expect(Legends.list([]).isEmpty)
-        #expect(Legends.list(["one"]) == "one")
-        #expect(Legends.list(["one", "two"]) == "one and two")
-        #expect(Legends.list(["one", "two", "three"]) == "one, two and three")
     }
 }
 

@@ -21,6 +21,9 @@ SPIKE="${SPIKE:-0}"
 swift build --package-path "$PKG" -c "$CONFIG" --product DeathRace
 # ssh's SSH_ASKPASS: it hands ssh's questions to the app (SSHKit's AskpassBroker).
 swift build --package-path "$PKG" -c "$CONFIG" --product deathrace-askpass
+# Legends Never Die: the session daemon the app starts, which holds the shells so they
+# outlive it. The app finds it beside itself, as it does the askpass helper.
+swift build --package-path "$PKG" -c "$CONFIG" --product legendsd
 if [ "$SPIKE" = "1" ]; then
   swift build --package-path "$PKG" -c "$CONFIG" --product legendsd-spike
 fi
@@ -30,6 +33,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/DeathRace" "$APP/Contents/MacOS/DeathRace"
 cp "$BIN/deathrace-askpass" "$APP/Contents/MacOS/deathrace-askpass"
+cp "$BIN/legendsd" "$APP/Contents/MacOS/legendsd"
 cp "$ROOT/App/Info.plist" "$APP/Contents/Info.plist"
 
 # SwiftPM resource bundles: Bundle.module finds them in Contents/Resources.
@@ -70,6 +74,11 @@ fi
 codesign --force --options runtime --timestamp=none \
   --identifier local.deathraceforcode.deathrace-askpass \
   --sign "$IDENTITY" "$APP/Contents/MacOS/deathrace-askpass"
+# Its identifier is what the daemon's own peer check expects of us and what legendsd is
+# pinned by in turn, so it is set here rather than left to the binary's name.
+codesign --force --options runtime --timestamp=none \
+  --identifier local.deathraceforcode.legendsd \
+  --sign "$IDENTITY" "$APP/Contents/MacOS/legendsd"
 if [ -f "$APP/Contents/MacOS/legendsd-spike" ]; then
   codesign --force --options runtime --timestamp=none \
     --identifier local.deathraceforcode.legendsd-spike \

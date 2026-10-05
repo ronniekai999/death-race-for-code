@@ -67,12 +67,15 @@ public enum Legends {
     /// than one whose sessions do not outlive it, so every way this can go wrong ends in a
     /// session in this process and a sentence saying so.
     public static func choose(
-        wanted: Bool, paths: DaemonHost.Paths, launcher: any DaemonLauncher, deadlineMilliseconds: Int = 2_000
+        wanted: Bool, paths: DaemonHost.Paths, launcher: any DaemonLauncher, trusting: PeerPolicy = .sameUser,
+        deadlineMilliseconds: Int = 2_000
     ) -> Choice {
         guard wanted else { return .inProcess(because: nil) }
         do {
             return .daemon(
-                try DaemonHost(paths: paths, launcher: launcher, deadlineMilliseconds: deadlineMilliseconds))
+                try DaemonHost(
+                    paths: paths, launcher: launcher, trusting: trusting,
+                    deadlineMilliseconds: deadlineMilliseconds))
         } catch {
             return .inProcess(because: sentence(for: error))
         }
@@ -97,6 +100,50 @@ public enum Legends {
         }
     }
 
+    /// Sessions sorted and grouped by where they said they belonged: a window each, a tab
+    /// each within it, and the panes of a tab in the order they sat in.
+    ///
+    /// A session whose bytes this build cannot read (a daemon an older or newer app left
+    /// running) has no placement, so it comes back last, in a window of its own.
+    public static func group(_ sessions: [SessionDescription]) -> [[[SessionDescription]]] {
+        var placed: [(place: SessionPlacement, session: SessionDescription)] = []
+        var unplaced: [SessionDescription] = []
+        for session in sessions {
+            if let place = SessionPlacement.decode(session.metadata) {
+                placed.append((place, session))
+            } else {
+                unplaced.append(session)
+            }
+        }
+        placed.sort {
+            ($0.place.window, $0.place.tab, $0.place.slot, $0.session.id.value)
+                < ($1.place.window, $1.place.tab, $1.place.slot, $1.session.id.value)
+        }
+        var windows: [[[SessionDescription]]] = []
+        var lastWindow: Int?
+        var lastTab: Int?
+        for (place, session) in placed {
+            if place.window != lastWindow {
+                windows.append([[session]])
+                lastWindow = place.window
+                lastTab = place.tab
+                continue
+            }
+            if place.tab != lastTab {
+                windows[windows.count - 1].append([session])
+                lastTab = place.tab
+                continue
+            }
+            let tabs = windows[windows.count - 1].count
+            windows[windows.count - 1][tabs - 1].append(session)
+        }
+        if !unplaced.isEmpty {
+            unplaced.sort { $0.id.value < $1.id.value }
+            windows.append(unplaced.map { [$0] })
+        }
+        return windows
+    }
+
     /// What was found waiting, for the line a relaunched app shows. The wording is the one
     /// `docs/NAMING.md` settled on.
     public static func sentence(kept: Int) -> String {
@@ -107,24 +154,4 @@ public enum Legends {
         }
     }
 
-    /// What quitting is about to do, for the question it asks. Sessions that will be kept are
-    /// not worth asking about; anything else still is.
-    public static func quitting(keeping kept: Int, ending: [String]) -> String? {
-        guard !ending.isEmpty else { return nil }
-        let listed = list(ending)
-        let about = ending.count == 1 ? "\(listed) is still running" : "\(listed) are still running"
-        guard kept > 0 else { return "\(about). Quit anyway?" }
-        let held = kept == 1 ? "1 session will keep running" : "\(kept) sessions will keep running"
-        return "\(about), and \(held). Quit anyway?"
-    }
-
-    /// "vim", "vim and make", "vim, make and htop".
-    static func list(_ names: [String]) -> String {
-        switch names.count {
-        case 0: ""
-        case 1: names[0]
-        case 2: "\(names[0]) and \(names[1])"
-        default: names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
-        }
-    }
 }

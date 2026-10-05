@@ -29,7 +29,7 @@ extension WindowTests {
     /// An app whose settings file is `deathrace/config` in `configHome`.
     func makeApp(configHome: URL) -> AppDelegate {
         AppDelegate(
-            makeSession: { _, configuration, _ in FakeSession(configuration) },
+            makeSession: { _, configuration, _, _ in FakeSession(configuration) },
             configStore: ConfigStore(environment: ["XDG_CONFIG_HOME": configHome.path]))
     }
 

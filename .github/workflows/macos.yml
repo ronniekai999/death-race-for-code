@@ -135,6 +135,14 @@ jobs:
           helper="build/Death Race for Code.app/Contents/MacOS/deathrace-askpass"
           codesign -dv "$helper" 2>&1 | grep "Identifier=local.deathraceforcode.deathrace-askpass"
           if "$helper" "user@host's password: "; then echo "::error::It answered with no app to ask."; exit 1; fi
+      # The app starts it and is pinned to its identifier, so a bundle without it, or with a
+      # different one, means no session outlives the app. Its usage message also proves the
+      # binary runs on this machine.
+      - name: The session daemon is bundled and signed
+        run: |
+          daemon="build/Death Race for Code.app/Contents/MacOS/legendsd"
+          codesign -dv "$daemon" 2>&1 | grep -q "Identifier=local.deathraceforcode.legendsd$"
+          if "$daemon" >/dev/null 2>&1; then echo "::error::It ran with no socket to listen on."; exit 1; fi
       - name: Zip the app
         run: ditto -c -k --keepParent "build/Death Race for Code.app" build/DeathRace.zip
       - uses: actions/upload-artifact@v4

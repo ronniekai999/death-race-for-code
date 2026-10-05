@@ -5,6 +5,7 @@ import LegendsUI
 import PTYKit
 import RenderKit
 import SSHKit
+import SessionIPC
 import SessionKit
 import Vault
 
@@ -27,7 +28,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     /// The Settings window, while it is open.
     private(set) var settingsWindow: SettingsWindowController?
     let ids = IDSource()
-    let makeSession: SessionMaker
+    /// A maker a test gave us, which takes precedence over everything below: a window test
+    /// must never start a shell, let alone a daemon.
+    private let injectedMaker: SessionMaker?
+    /// Legends Never Die: where sessions live, and where each one belonged. Made at launch,
+    /// so tests that build an AppDelegate never spawn a daemon.
+    private(set) var legends: LegendsService?
+
+    /// Where a pane's session comes from. It asks afresh on every pane, so a daemon that
+    /// turns out to be unusable costs one pane rather than every pane after it.
+    var makeSession: SessionMaker {
+        if let injectedMaker { return injectedMaker }
+        return { [weak self] launch, configuration, mayOutliveTheApp, onUpdate in
+            guard let service = self?.legends else {
+                return try PaneController.realSession(launch, configuration, mayOutliveTheApp, onUpdate)
+            }
+            return try service.maker(launch, configuration, mayOutliveTheApp, onUpdate)
+        }
+    }
     /// Where Hear Me Calling's recent picks are kept.
     private let defaults: UserDefaults
     /// WRLD, made once the app has launched: tests that make an AppDelegate never touch your
@@ -38,10 +56,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
 
     /// Tests pass sessions that run no shell, and a settings file and defaults of their own.
     init(
-        makeSession: @escaping SessionMaker = PaneController.realSession, configStore: ConfigStore = ConfigStore(),
+        makeSession: SessionMaker? = nil, configStore: ConfigStore = ConfigStore(),
         defaults: UserDefaults = .standard
     ) {
-        self.makeSession = makeSession
+        self.injectedMaker = makeSession
         self.configStore = configStore
         self.defaults = defaults
         super.init()
@@ -70,7 +88,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         watchWRLDFiles(wrld)
         // Masters a crash left running hold their tunnels' ports: end them first.
         Task { await wrld.cleanUpLeftovers() }
-        if windows.isEmpty { newWindow(nil) }
+        startLegends()
+        if windows.isEmpty { reattachOrOpenAWindow() }
         NSApp.activate()
         configStore.reportProblems(in: windows.first?.window)
         watchSettingsFile()
@@ -106,7 +125,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     /// Quitting with programs running in any pane, sessions on hosts among them, asks once
     /// for all of them; then every ssh master ends before the app does.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let running = configStore.config.confirmClose ? allPanes.filter { $0.isRunning } : []
+        // A pane whose shell the daemon will keep is not something to be asked about: it is
+        // not ending, which is the whole of Legends Never Die.
+        let running =
+            configStore.config.confirmClose ? allPanes.filter { $0.isRunning && !$0.survivesQuit } : []
         let connected = !(wrld?.openConnections.isEmpty ?? true)
         // Any master, even one still connecting, means there's something to shut down; quit
         // through the Task below (which may skip the question) rather than leaving an orphan.
@@ -165,8 +187,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         for watcher in wrldWatchers { watcher.stop() }
         secureInput.update(appIsActive: false, focusedTabReadsPassword: false)
         hotKey?.stop()
+        // The quick terminal is this app's own: nothing reattaches it, so it ends with us.
         lucidDreams?.shutDown()
-        for pane in allPanes { pane.shutDown() }
+        // Where each session sits, last thing, so a session that outlives us knows where to
+        // come back to even if nothing moved since the last time anything did.
+        layoutChanged()
+        for pane in allPanes { pane.shutDown(leaving: true) }
     }
 
     // MARK: - WRLD
@@ -338,6 +364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
             self?.configStore.reportProblems(in: controller?.window)
         }
         controller.settingsProblems = configStore.diagnostics.count
+        controller.sessionsEndWithTheApp = legends?.sessionsEndWithTheApp ?? false
         windows.append(controller)
         if let other {
             window.setFrameTopLeftPoint(window.cascadeTopLeft(from: NSPoint(x: other.frame.minX, y: other.frame.maxY)))
@@ -389,12 +416,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         updateSecureInput()
     }
 
+    // MARK: - Legends Never Die
+
+    /// Chooses where sessions live and asks what is still running. Before the first window,
+    /// because a window built before this would have made its sessions in this process.
+    private func startLegends() {
+        let service = LegendsService(paths: .standard(home: NSHomeDirectory()))
+        service.start(wanted: configStore.config.legendsNeverDie)
+        legends = service
+    }
+
+    /// The windows the sessions a daemon kept came from, or one ordinary new window.
+    private func reattachOrOpenAWindow() {
+        guard let legends, !legends.hasNothingToReattach else { return newWindow(nil) }
+        for window in legends.kept {
+            let controller = PitLaneWindowController(
+                config: configStore.config, host: self, reattaching: window.map(\.count))
+            show(controller)
+        }
+        legends.doneReattaching()
+        // Belt and braces: the app never finishes launching with no terminal in it.
+        if windows.isEmpty { newWindow(nil) }
+        layoutChanged()
+    }
+
+    func layoutChanged() {
+        guard let legends else { return }
+        legends.noteLayout(windows.map { $0.sessionLayout })
+        for controller in windows { controller.sessionsEndWithTheApp = legends.sessionsEndWithTheApp }
+    }
+
     // MARK: - Lucid Dreams
 
     /// The quick-terminal panel, its ⌥Space hotkey, and a menu-bar item that also opens it.
     private func startLucidDreams() {
+        // Its session runs here, never in the daemon. It is one terminal with no tab and no
+        // window, so there would be nowhere to put it back: kept, it would come back next
+        // launch as an ordinary tab, which is not what anyone asked for. Hide and show keep
+        // it, as Phase 5 settled; quitting ends it.
+        let maker = makeSession
         let lucid = LucidDreamsController(
-            config: { [weak self] in self?.configStore.config ?? Config() }, makeSession: makeSession, ids: ids,
+            config: { [weak self] in self?.configStore.config ?? Config() },
+            makeSession: { launch, configuration, _, onUpdate in
+                try maker(launch, configuration, false, onUpdate)
+            }, ids: ids,
             directory: { [weak self] in self?.frontPitLaneWindow?.activePane?.directory })
         lucidDreams = lucid
         let hotKey = HotKeyController(onTrigger: { [weak self] in self?.lucidDreams?.toggle() })
@@ -527,9 +592,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     /// last read.
     private func applyConfiguration() {
         let config = configStore.config
+        legends?.setWanted(config.legendsNeverDie)
         for controller in windows {
             controller.apply(config)
             controller.settingsProblems = configStore.diagnostics.count
+            controller.sessionsEndWithTheApp = legends?.sessionsEndWithTheApp ?? false
         }
         secureInput.setMode(config.secureKeyboardEntry)
         updateSecureInput()

@@ -24,6 +24,9 @@ public final class Session: Sendable {
     /// process can refer to it anyway.
     public let id = SessionID.next()
 
+    /// A shell in this process goes when the process does.
+    public var outlivesItsClient: Bool { false }
+
     let channel: SessionChannel
 
     /// Starts `launch` on a new terminal. `onUpdate` runs on the session thread when a

@@ -13,12 +13,19 @@ import VTCore
 /// A shell that is only an engine: what the program prints is fed in by the test.
 final class FakeSession: PaneSession, @unchecked Sendable {
     let replay: ReplaySession
+    let id = SessionID.next()
     var foreground = ForegroundProcess(pid: 1, name: "zsh", workingDirectory: "/tmp", isShell: true)
     private(set) var closed = false
+    /// Set by a test that wants a session the daemon would keep, so it can tell the two ways
+    /// of letting go apart.
+    var survives = false
+    private(set) var detached = false
 
     init(_ configuration: Terminal.Configuration) {
         replay = ReplaySession(configuration)
     }
+
+    var outlivesItsClient: Bool { survives }
 
     func takeDelta() -> ScreenDelta? { replay.takeDelta() }
     var status: Session.Status { closed ? .exited(.exited(code: 0)) : .running }
@@ -38,12 +45,16 @@ final class FakeSession: PaneSession, @unchecked Sendable {
     }
     func foregroundProcess() async -> ForegroundProcess? { closed ? nil : foreground }
     func close() { closed = true }
+    func detach() {
+        detached = true
+        if !survives { closed = true }
+    }
 }
 
 @MainActor
 final class TestHost: WindowHost {
     let ids = IDSource()
-    let makeSession: SessionMaker = { _, configuration, _ in FakeSession(configuration) }
+    let makeSession: SessionMaker = { _, configuration, _, _ in FakeSession(configuration) }
     /// WRLD, when a test connects panes to hosts.
     var connections: (any HostConnecting)?
     private(set) var closed: [PitLaneWindowController] = []

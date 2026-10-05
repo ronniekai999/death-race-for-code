@@ -71,6 +71,8 @@ public struct StatusLine: Equatable, Sendable {
         case settingsProblems
         /// Opens the Come & Go page of the WRLD window.
         case comeAndGo
+        /// Opens Settings at the page the Sessions group is on.
+        case sessions
     }
 
     public struct Run: Equatable, Sendable {
@@ -110,6 +112,10 @@ public struct StatusLine: Equatable, Sendable {
         /// off, and how many of them have ended. It leads the bar, in the warning color.
         public var armedPanes = 0
         public var endedArmedPanes = 0
+        /// Legends Never Die was asked for and could not be had, so this app's sessions go
+        /// when it does. The bar says so in a few words and the full reason is in the log,
+        /// because a setting that reads on while nothing is keeping sessions is a lie.
+        public var sessionsEndWithTheApp = false
 
         public init(columns: Int, rows: Int) {
             self.columns = columns
@@ -140,6 +146,9 @@ public struct StatusLine: Equatable, Sendable {
                         tap: .comeAndGo))
             }
             if facts.secureInput { leading.append(Run("Secure input", .muted, symbol: "lock.fill")) }
+            if facts.sessionsEndWithTheApp {
+                leading.append(Run("Sessions end with the app", .warning, tap: .sessions))
+            }
             if facts.settingsProblems > 0 {
                 let count = facts.settingsProblems
                 leading.append(

@@ -56,6 +56,9 @@ public protocol TerminalSession: AnyObject, Sendable {
 /// and the two different ways of letting go.
 public protocol ShellSession: TerminalSession {
     var id: SessionID { get }
+    /// Whether this session's shell keeps running when this process goes. The app asks before
+    /// deciding whether a pane is worth a question at quit, and whether to detach or close.
+    var outlivesItsClient: Bool { get }
     func foregroundProcess() async -> ForegroundProcess?
     /// Ends the shell: it is hung up, and killed if it lingers.
     func close()

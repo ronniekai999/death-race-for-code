@@ -237,6 +237,37 @@ closes.
 - Actions are validated as their menu items would be, so the palette never offers what
   would do nothing.
 
+### Lucid Dreams: a panel from the notch
+
+A global hotkey (⌥Space by default) springs a single terminal out of the notch; the same key
+or Esc hides it. It is assembly over the Phase 3 pieces, not new session plumbing.
+
+- **The panel** is a borderless, non-activating `NSPanel` (`LucidDreamsPanel`), floating and on
+  all Spaces. Summoning it does not activate Death Race, so it drops in over whatever is in
+  front. It overrides `canBecomeKey` to true so the terminal still takes keys; the trade-off is
+  that Secure Keyboard Entry, which keys off `NSApp.isActive`, stays off there until you click
+  into the app (noted in DESIGN and MANUAL-TESTS).
+- **One persistent pane.** `LucidDreamsController` makes one `PaneController` (`launch: .shell`)
+  the first time it is summoned and keeps it across hide and show: hiding is `orderOut`, which
+  stops the surface drawing but never touches the session; only `shutDown` at quit ends it.
+  Cross-quit persistence is Phase 7's `legendsd`.
+- **The hotkey** is Carbon's `RegisterEventHotKey`, which needs no Accessibility permission (a
+  CGEvent tap would). It sits behind a `HotKeyRegistrar` seam — a protocol with the real Carbon
+  registrar and a fake — so `HotKeyController`'s read-the-setting / register / re-register logic
+  is tested headless; only the raw Carbon call is left to the Mac. The shortcut is the
+  `lucid-dreams-hotkey` setting, parsed by the portable `KeyShortcut(parsing:)`.
+- **Placement** reduces to the portable, Linux-tested `NotchPlacement`: centre under the notch
+  on the screen under the pointer, or top-centre on a notchless display, clamped to the visible
+  frame. Only the `safeAreaInsets` / `auxiliaryTopLeftArea` reads are macOS.
+- **The menu-bar fallback** is an `NSStatusItem` (a moon) whose item, the View-menu item and
+  Hear Me Calling all converge on `AppDelegate.toggleLucidDreams`, so a taken hotkey is never
+  the only way in.
+- **The MenuGlance handshake.** On show and hide the controller posts
+  `local.deathraceforcode.lucidDreams.opened` / `.closed` on `DistributedNotificationCenter`
+  (`LucidDreamsNotifications`); MenuGlance observes them to hide its island while the panel is
+  up. See [MENUGLANCE-HANDSHAKE.md](MENUGLANCE-HANDSHAKE.md). Best-effort: without the
+  MenuGlance side, the panel still works.
+
 ### Links
 
 1. **VTCore parses OSC 8.** A printed cell carries the hyperlink flag, and its spare 16 bits

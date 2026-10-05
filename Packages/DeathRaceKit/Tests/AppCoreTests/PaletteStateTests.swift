@@ -47,8 +47,9 @@ struct PaletteStateTests {
 
     @Test func aHighlightedThemeIsPreviewed() {
         var state = PaletteState(items: items)
-        state.setQuery("lucid")
-        #expect(state.previewTheme == "lucid-dreams")
+        // "righteous" names only the theme; "lucid" now also matches the Lucid Dreams action.
+        state.setQuery("righteous")
+        #expect(state.previewTheme == "righteous")
         state.setQuery("new tab")
         #expect(state.previewTheme == nil)
     }

@@ -129,6 +129,11 @@ The Phase 2 budgets above are checked by hand on the M5, with a debug build
   - The settings file is watched with kernel event sources.
   - The Energy page samples every two seconds only while it is on screen, and leaves its own
     wakeup out of what it shows.
+- **The quick terminal is free while hidden.** Lucid Dreams is one panel the app keeps across
+  hide and show. Hiding is `orderOut`: the surface stops drawing at once, and the shell behind
+  it only wakes the app when it has output, exactly like a background tab. Summoning is meant to
+  beat 100 ms — a signpost from the hotkey to the first frame measures it — and nothing animates
+  once the panel is at rest.
 - **WRLD waits; it never polls.**
   - Each master is an `ssh` the app waits on with one thread blocked in `poll`: on its
     pipes, and on an exit watch (a kqueue on macOS, a pidfd on Linux). It is ready when it

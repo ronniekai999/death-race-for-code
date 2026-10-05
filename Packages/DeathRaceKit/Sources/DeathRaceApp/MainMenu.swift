@@ -45,7 +45,7 @@ enum MainMenu {
 
     private static func shell() -> NSMenu {
         let menu = NSMenu(title: "Shell")
-        add([.newWindow, .newTab, .newHost, .openWRLD], to: menu)
+        add([.newWindow, .newTab, .newHost, .openWRLD, .toggleLucidDreams], to: menu)
         menu.addItem(.separator())
         add([.splitRight, .splitDown], to: menu)
         menu.addItem(.separator())
@@ -168,6 +168,7 @@ enum MainMenu {
         case .newTab: #selector(PitLaneWindowController.newTab(_:))
         case .newHost: #selector(AppDelegate.newHost(_:))
         case .openWRLD: #selector(AppDelegate.openWRLD(_:))
+        case .toggleLucidDreams: #selector(AppDelegate.toggleLucidDreams(_:))
         case .splitRight: #selector(PitLaneWindowController.splitRight(_:))
         case .splitDown: #selector(PitLaneWindowController.splitDown(_:))
         case .closePane: #selector(PitLaneWindowController.closePane(_:))

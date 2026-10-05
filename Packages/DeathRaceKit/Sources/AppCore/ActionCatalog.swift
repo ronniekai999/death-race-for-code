@@ -5,8 +5,8 @@ public enum ActionID: String, CaseIterable, Sendable {
     // The app menu
     case about, settings, openSettingsFile, reloadConfiguration, secureKeyboardEntry, hide, hideOthers, showAll, quit
     // Shell
-    case newWindow, newTab, newHost, openWRLD, splitRight, splitDown, armedAndDangerous, closePane, closeTab,
-        closeWindow
+    case newWindow, newTab, newHost, openWRLD, toggleLucidDreams, splitRight, splitDown, armedAndDangerous,
+        closePane, closeTab, closeWindow
     // Edit
     case copy, paste, selectAll, saveSelectionToWishingWell, clearToStart, clearScrollback
     // View
@@ -61,6 +61,89 @@ public struct KeyShortcut: Hashable, Sendable, CustomStringConvertible {
         case .returnKey: text += "↩"
         }
         return text
+    }
+}
+
+extension KeyShortcut {
+    /// Reads a shortcut written as macOS writes it ("⌥Space", "⌃⌘P") or in words
+    /// ("opt+space", "ctrl+cmd+p", joined by +, - or spaces); nil when it can't be understood.
+    /// The key is a letter, digit or punctuation, or one of Space, ←/→/↑/↓ (or left/right/up/
+    /// down) and Return (or enter). Letters fold to one case, so "cmd+p" and "⌘P" are the same.
+    public init?(parsing text: String) {
+        var modifiers = Modifiers()
+        var rest = Self.trimmed(Substring(text))
+        guard !rest.isEmpty else { return nil }
+        // Leading modifier symbols, in any order: ⌃⌥⇧⌘.
+        while let first = rest.first, let modifier = Self.symbolModifier(first) {
+            modifiers.insert(modifier)
+            rest = Self.trimmed(rest.dropFirst())
+        }
+        guard !rest.isEmpty else { return nil }
+        let keyToken: String
+        if rest.count > 1, rest.contains(where: Self.isSeparator) {
+            // "opt+space", "ctrl cmd p": words for the modifiers, then the key last.
+            let tokens = rest.split(whereSeparator: Self.isSeparator)
+            guard let last = tokens.last else { return nil }
+            for token in tokens.dropLast() {
+                guard let modifier = Self.wordModifier(token) else { return nil }
+                modifiers.insert(modifier)
+            }
+            keyToken = String(last)
+        } else {
+            keyToken = String(rest)
+        }
+        guard let key = Self.key(from: keyToken) else { return nil }
+        self.init(key, modifiers)
+    }
+
+    private static func isSeparator(_ character: Character) -> Bool {
+        character == "+" || character == "-" || character == " " || character == "\t"
+    }
+
+    private static func symbolModifier(_ character: Character) -> Modifiers? {
+        switch character {
+        case "⌃": .control
+        case "⌥": .option
+        case "⇧": .shift
+        case "⌘": .command
+        default: nil
+        }
+    }
+
+    private static func wordModifier(_ token: some StringProtocol) -> Modifiers? {
+        switch token.lowercased() {
+        case "ctrl", "control", "⌃": .control
+        case "opt", "option", "alt", "⌥": .option
+        case "shift", "⇧": .shift
+        case "cmd", "command", "super", "⌘": .command
+        default: nil
+        }
+    }
+
+    private static func key(from token: String) -> Key? {
+        switch token.lowercased() {
+        case "space", "␣": return .character(" ")
+        case "left", "←": return .left
+        case "right", "→": return .right
+        case "up", "↑": return .up
+        case "down", "↓": return .down
+        case "return", "enter", "↩", "⏎": return .returnKey
+        default:
+            // Letters fold to lower case, the form the catalog stores; `description` upper-cases
+            // for display, so "⌘N" and "cmd+n" both read back as `.character("n")`.
+            guard token.count == 1, let character = token.lowercased().first else { return nil }
+            return .character(character)
+        }
+    }
+
+    private static func trimmed(_ text: Substring) -> Substring {
+        var start = text.startIndex
+        var end = text.endIndex
+        while start < end, text[start] == " " || text[start] == "\t" { start = text.index(after: start) }
+        while start < end, text[text.index(before: end)] == " " || text[text.index(before: end)] == "\t" {
+            end = text.index(before: end)
+        }
+        return text[start..<end]
     }
 }
 
@@ -128,6 +211,9 @@ public enum ActionCatalog {
         Action(
             .openWRLD, "Open WRLD", "Open WRLD", .shell, KeyShortcut(.character("o")),
             keywords: ["hosts", "vault", "servers", "keys", "known hosts", "tunnels", "snippets"]),
+        Action(
+            .toggleLucidDreams, "Lucid Dreams", "Lucid Dreams", .shell,
+            keywords: ["notch", "quick terminal", "drop down", "drop-down", "hotkey", "scratch"]),
         Action(
             .splitRight, "Split Right", "Split pane right", .shell, KeyShortcut(.character("d")),
             keywords: ["vertical", "side by side"]),

@@ -16,7 +16,7 @@ import VTCore
         "clipboard-write": "ask", "secure-keyboard-entry": "always", "follow-low-power-mode": "false",
         "output-frame-rate-cap": "false", "wrld-check-hosts": "false", "wrld-host-os": "false",
         "copy-on-select": "true", "bell": "visual", "command": "/bin/zsh -l",
-        "working-directory": "~/code", "scrollback-limit": "10MB",
+        "working-directory": "~/code", "scrollback-limit": "10MB", "lucid-dreams-hotkey": "⌃⌘T",
     ]
 
     @Test func everySettingHasASample() {

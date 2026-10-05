@@ -34,6 +34,28 @@ import Testing
         #expect(KeyShortcut(.character("k"), [.command, .option, .shift, .control]).description == "⌃⌥⇧⌘K")
     }
 
+    @Test func shortcutsParseFromText() {
+        #expect(KeyShortcut(parsing: "⌥Space") == KeyShortcut(.character(" "), [.option]))
+        #expect(KeyShortcut(parsing: "opt+space") == KeyShortcut(.character(" "), [.option]))
+        #expect(KeyShortcut(parsing: "option space") == KeyShortcut(.character(" "), [.option]))
+        #expect(KeyShortcut(parsing: "⌃⌘P") == KeyShortcut(.character("p"), [.control, .command]))
+        #expect(KeyShortcut(parsing: "ctrl+cmd+p")?.description == "⌃⌘P")
+        #expect(KeyShortcut(parsing: "⇧⌘←") == KeyShortcut(.left, [.shift, .command]))
+        #expect(KeyShortcut(parsing: "cmd+return") == KeyShortcut(.returnKey, [.command]))
+        #expect(KeyShortcut(parsing: "⌘+") == KeyShortcut(.character("+"), [.command]))
+        // What `description` writes, `parsing` reads back (key and modifiers; positional isn't shown).
+        for shortcut in ActionCatalog.all.compactMap(\.shortcut) where !shortcut.positional {
+            let parsed = KeyShortcut(parsing: shortcut.description)
+            #expect(parsed?.key == shortcut.key && parsed?.modifiers == shortcut.modifiers, "\(shortcut.description)")
+        }
+        // Refused.
+        #expect(KeyShortcut(parsing: "") == nil)
+        #expect(KeyShortcut(parsing: "   ") == nil)
+        #expect(KeyShortcut(parsing: "⌘") == nil)  // modifiers only
+        #expect(KeyShortcut(parsing: "cmd+nope") == nil)  // key isn't a name or a single character
+        #expect(KeyShortcut(parsing: "wat+p") == nil)  // unknown modifier word
+    }
+
     @Test func commandKClearsAsInEveryMacTerminal() {
         #expect(ActionCatalog.action(.clearToStart).shortcut == KeyShortcut(.character("k")))
         #expect(ActionCatalog.action(.clearScrollback).shortcut == KeyShortcut(.character("k"), [.command, .option]))
@@ -45,7 +67,7 @@ import Testing
             let words = action.paletteTitle.split { $0 == " " || $0 == ":" }.dropFirst()
             let names: Set<Substring> = [
                 "Death", "Race", "for", "Code", "Secure", "Keyboard", "Entry", "Hear", "Me", "Calling", "Dangerous",
-                "Wishing", "Well", "WRLD",
+                "Wishing", "Well", "WRLD", "Lucid", "Dreams",
             ]
             for word in words where word.first?.isUppercase == true {
                 #expect(names.contains(word), "\(action.paletteTitle) is not in sentence case")

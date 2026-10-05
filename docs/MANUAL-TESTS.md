@@ -4,7 +4,50 @@ What CI cannot check, because it needs a real Mac, a real GPU, a keyboard, input
 your eyes. Run it with a debug build (`CONFIG=debug make run`) before closing a phase, and
 note the macOS build (`sw_vers`) with the results.
 
-Phase 4's checks come first; Phase 3's and Phase 2's follow, and still apply.
+Phase 5's checks come first; Phase 4's, Phase 3's and Phase 2's follow, and still apply.
+
+## Phase 5 exit criteria
+
+Phase 5 is done when all of these hold on the M5:
+
+1. **It drops in fast.** ⌥Space springs Lucid Dreams out of the notch in under 100 ms, and the
+   same key or Esc hides it. Summoning it does not switch away from the app in front.
+2. **The session persists.** Hiding and showing keeps the same shell, its scrollback and its
+   working directory; only quitting ends it.
+3. **Zero while hidden.** With the panel hidden, the app draws no frames and the quick terminal
+   costs ≈0 CPU (`powermetrics`); it wakes only when its shell has output.
+4. **It lands under the notch.** It opens on the screen under the pointer and centres under the
+   notch; on a display without a notch it sits top-centre, fully on screen, on every display.
+5. **The hotkey is yours.** `lucid-dreams-hotkey` in the settings file changes it and takes
+   effect on save; `none` turns it off. The menu-bar moon and the View menu still open it.
+6. **MenuGlance yields the notch.** With the snippet from
+   [MENUGLANCE-HANDSHAKE.md](MENUGLANCE-HANDSHAKE.md) applied, MenuGlance's island hides while
+   the panel is open and returns when it closes.
+7. **Secure input is as documented.** The lock does not show on the quick terminal until you
+   click into the app; once you do, it behaves as everywhere else.
+
+## Lucid Dreams
+
+- [ ] **⌥Space** opens and hides the panel; **Esc** hides it; a click on another app or window
+      hides it.
+- [ ] **The pane survives** hide and show (type something, hide, show — it is still there);
+      quitting is the only thing that ends it.
+- [ ] **On a notchless display** (or an external monitor) it sits top-centre and fully on
+      screen; moving the pointer to another display and summoning opens it there.
+- [ ] **The menu-bar moon** and **View › Lucid Dreams** both toggle it — the moon must *hide* an
+      open panel, not merely re-show it, and opening a menu while the panel is up must not
+      dismiss it on its own. The menu item shows a check while it is open.
+- [ ] **`lucid-dreams-hotkey`** set to another shortcut (say `⌃⌘T`) re-registers on save;
+      `none` turns the hotkey off while the menu and moon still work.
+- [ ] **A busy program** (say `top`) keeps running while the panel is hidden, and its output is
+      there when you show it again.
+
+## Phase 5 energy
+
+- [ ] Panel hidden, shell idle: 0 frames, and the app's share of wakeups at most 0.5 a second
+      (`powermetrics`).
+- [ ] Toggling it a few times leaves no timer running: once at rest, Log Frame Stats shows no
+      frames.
 
 ## Phase 4 exit criteria
 

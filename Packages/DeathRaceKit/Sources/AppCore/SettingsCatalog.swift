@@ -87,7 +87,7 @@ public enum SettingsCatalog {
     /// Settings left to the file.
     public static let fileOnly: Set<String> = [
         "background", "foreground", "cursor-color", "cursor-text", "selection-background", "selection-foreground",
-        "palette", "bold-is-bright",
+        "palette", "bold-is-bright", "lucid-dreams-hotkey",
     ]
 
     public static func groups(on page: Page) -> [Group] {

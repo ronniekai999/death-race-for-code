@@ -143,6 +143,15 @@ public enum ConfigSchema {
             ],
             read: { value, config throws(ConfigValueError) in config.mouseScrollAlternate = try Value.bool(value) },
             write: { String($0.mouseScrollAlternate) }),
+        ConfigKey(
+            "lucid-dreams-hotkey", .input,
+            help: [
+                "A global shortcut that shows and hides Lucid Dreams, the notch quick-terminal, even",
+                "when Death Race isn't the active app. Write it as ⌥Space or opt+space. Set it to none",
+                "to turn the hotkey off; the menu and the menu-bar icon still open Lucid Dreams.",
+            ],
+            read: { value, config throws(ConfigValueError) in config.lucidDreamsHotkey = String(value) },
+            write: { $0.lucidDreamsHotkey }),
     ]
 
     private static let window: [ConfigKey] = [

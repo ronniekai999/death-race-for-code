@@ -246,11 +246,12 @@ final class PaneController {
             cellPixelWidth: surface.cell.width, cellPixelHeight: surface.cell.height)
         let surface = self.surface
         do {
-            let session = try makeSession(launch, terminal) { [weak surface] in
-                // On the session's thread: hop to the main thread, where the view lives.
-                let target = surface
+            let session = try makeSession(launch, terminal) { [weak self] in
+                // On the session's thread: hop to the main thread, where the view lives. `self`
+                // (a @MainActor class) is Sendable and may cross into this @Sendable callback;
+                // the view, an NSView subclass, is not, so we reach it through `self` on main.
                 DispatchQueue.main.async {
-                    MainActor.assumeIsolated { target?.sessionDidUpdate() }
+                    MainActor.assumeIsolated { self?.surface.sessionDidUpdate() }
                 }
             }
             self.session = session

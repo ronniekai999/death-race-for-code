@@ -127,6 +127,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
                     return NSApp.reply(toApplicationShouldTerminate: false)
                 }
             }
+            // Maze's ssh subsystems end before their masters do, so none is left behind.
+            for controller in mazeWindows.values { await controller.shutDown() }
+            mazeWindows = [:]
             await wrld?.shutDown()
             NSApp.reply(toApplicationShouldTerminate: true)
         }
@@ -207,6 +210,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         if let any = windows.first { return any }
         newWindow(nil)
         return windows[windows.count - 1]
+    }
+
+    // MARK: - Maze
+
+    /// The Maze windows, one per host, while they're open.
+    private(set) var mazeWindows: [HostRef: MazeWindowController] = [:]
+    /// Hosts whose files are opening: a second Open in Maze waits rather than making a
+    /// second connection.
+    private var openingMaze: Set<HostRef> = []
+
+    /// Open in Maze: the files of the host the pane in front runs on.
+    @objc func openMaze(_ sender: Any?) {
+        guard let host = frontPitLaneWindow?.activePane?.launch.host else { return }
+        showMaze(host)
+    }
+
+    /// Maze on `host`: its window when one is open, else the host's files and a window on
+    /// them. The window owns the connection from then on.
+    func showMaze(_ host: HostRef) {
+        if let controller = mazeWindows[host] {
+            controller.show()
+            return
+        }
+        guard let wrld, !openingMaze.contains(host) else { return }
+        openingMaze.insert(host)
+        Task {
+            let files = await wrld.openSFTP(host)
+            openingMaze.remove(host)
+            guard let files else {
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "Maze couldn't open \(wrld.name(of: host))'s files."
+                alert.informativeText =
+                    "The host may be unreachable, or it may not offer the sftp subsystem. Connecting a pane to it says more."
+                alert.runModal()
+                return
+            }
+            let controller = MazeWindowController(
+                host: host, name: wrld.name(of: host), files: files, wrld: wrld,
+                chrome: Chrome(configStore.config.namedTheme))
+            controller.onClose = { [weak self, weak controller] in
+                // Released once AppKit has finished closing it.
+                Task { @MainActor in
+                    guard let self, self.mazeWindows[host] === controller else { return }
+                    self.mazeWindows[host] = nil
+                }
+            }
+            mazeWindows[host] = controller
+            controller.show()
+        }
     }
 
     /// Hand edits to wrld.json and changes to ~/.ssh/config apply at once, as the settings
@@ -470,6 +523,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         hotKey?.apply(config.lucidDreamsHotkey)
         settingsWindow?.update(config: config, chrome: Chrome(config.namedTheme))
         wrldWindow?.setChrome(Chrome(config.namedTheme))
+        for controller in mazeWindows.values { controller.setChrome(Chrome(config.namedTheme)) }
         wrld?.checksHosts = config.checkHosts
         wrld?.readsHostOS = config.readHostOS
     }
@@ -511,6 +565,10 @@ extension AppDelegate: NSMenuItemValidation {
             menuItem.state = (lucidDreams?.isOnScreen ?? false) ? .on : .off
             return true
         }
+        // Maze needs a host: off in a local shell.
+        if menuItem.action == #selector(openMaze(_:)) {
+            return frontPitLaneWindow?.activePane?.launch.host != nil
+        }
         guard menuItem.action == #selector(toggleSecureKeyboardEntry(_:)) else { return true }
         menuItem.state = secureInput.isChecked ? .on : .off
         return secureInput.canToggle
@@ -522,6 +580,10 @@ extension AppDelegate: WRLDWindowHost {
         let controller = frontWindow
         controller.window?.makeKeyAndOrderFront(nil)
         controller.open(host, beside: beside)
+    }
+
+    func openMaze(_ host: HostRef) {
+        showMaze(host)
     }
 
     func typeSnippet(_ command: String, run: Bool, from snippet: SnippetID) {

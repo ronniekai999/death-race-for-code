@@ -14,6 +14,8 @@ protocol WRLDWindowHost: AnyObject {
     /// `command`, a snippet filled in, typed into the window in front's active pane and
     /// every armed pane with it, with Return to `run` it; that window comes forward.
     func typeSnippet(_ command: String, run: Bool, from snippet: SnippetID)
+    /// Maze on `host`: its window comes forward, or its files are opened and one is made.
+    func openMaze(_ host: HostRef)
     /// The New Host sheet.
     func newHost(_ sender: Any?)
 }
@@ -116,6 +118,10 @@ final class WRLDBoardModel {
 
     func connect(_ host: WRLDHost, beside: Bool = false) {
         self.host?.connect(.vault(host.id), beside: beside)
+    }
+
+    func openMaze(_ host: WRLDHost) {
+        self.host?.openMaze(.vault(host.id))
     }
 
     func toggleTunnel(_ id: TunnelID) {

@@ -3,6 +3,7 @@ import AppKit
 import ConfigKit
 import Foundation
 import PTYKit
+import SFTPKit
 import SSHKit
 import Testing
 import Vault
@@ -50,6 +51,14 @@ final class FakeConnections: HostConnecting {
         ShellLaunch(
             executable: "/usr/bin/ssh", arguments: ["/usr/bin/ssh", "-o", "ControlPath=none"], environment: [:])
     }
+
+    /// What `openSFTP` hands back: nil unless a test sets it.
+    var sftp: (any RemoteFiles)?
+    private(set) var sftpClosed: [HostRef] = []
+
+    func openSFTP(_ host: HostRef) async -> (any RemoteFiles)? { sftp }
+
+    func closeSFTP(_ host: HostRef) { sftpClosed.append(host) }
 
     func release(_ pane: PaneID) { released.append(pane) }
 

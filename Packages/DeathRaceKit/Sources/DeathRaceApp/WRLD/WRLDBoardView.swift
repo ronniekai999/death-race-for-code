@@ -263,6 +263,7 @@ struct HostMenu: View {
     var body: some View {
         Button("Connect") { model.connect(host) }
         Button("Connect Beside") { model.connect(host, beside: true) }
+        Button("Open in Maze") { model.openMaze(host) }
         Divider()
         Button("Edit") {
             switch model.place {

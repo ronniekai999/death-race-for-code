@@ -9,10 +9,11 @@ L E G E N D S   N E V E R   D I E
 
 ## Status
 
-Phase 4, the Termius layer, is written. Its portable half (WRLD's data, the ssh config it
-generates, masters, tunnels and ssh's questions) is tested on Linux against a real `sshd`;
-its Mac half waits for its first build and the hands-on pass in
-[docs/MANUAL-TESTS.md](docs/MANUAL-TESTS.md).
+Phases 1 to 5 are merged and green on both CIs: the engine, the window, the Pit Lane, the
+Termius layer and Lucid Dreams, the quick terminal that drops out of the notch. Phase 6,
+**Maze**, is written: its SFTP half is tested on Linux against a real `sshd` — including the
+whole round trip over an `internal-sftp` subsystem — and its window waits for the hands-on
+pass in [docs/MANUAL-TESTS.md](docs/MANUAL-TESTS.md).
 
 - **WRLD, your hosts:** kept in `wrld.json` next to the settings file, which never holds a
   secret. Hosts in your `~/.ssh/config` join with one click and keep using that file, which
@@ -30,6 +31,13 @@ its Mac half waits for its first build and the hands-on pass in
   Me Calling or WRLD, and a snippet per host that is typed as each session starts.
 - **Armed and Dangerous (⇧⌘I):** typing goes to every pane in the tab, each encoding it for
   its own program, under an orange-to-pink border. Esc still belongs to the programs.
+- **Maze,** a window per host: this Mac's folder beside the host's, with the transfers
+  between them on gradient bars. It speaks SFTP version 3 itself, as a second channel on the
+  master a pane already opened — so it opens with no new login. Upload and download, drags
+  between the panes, and Finder files dropped on the host's side.
+- **Lucid Dreams (⌥Space):** one terminal that springs out of the notch and keeps its
+  session across hide and show. It doesn't switch apps, and it yields the notch to
+  MenuGlance.
 - **Hear Me Calling** finds hosts, snippets and tunnels as well.
 
 Phase 3 built the Pit Lane: tabs of split panes under gradient pills, Hear Me Calling

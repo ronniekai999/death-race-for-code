@@ -26,5 +26,10 @@ Secure Keyboard Entry has no themed name, and its copy stays literal. On the Luc
 panel it is off until you click into the app (the panel is non-activating), so nothing there
 claims the keyboard is secured.
 
+Maze's copy says what it did and what it didn't: "notes.md is already there. Replace it?"
+before a transfer overwrites, "Maze moves files, not folders." for a dropped folder, and a
+failed transfer carries the server's own reason on its row ("Permission denied") rather than
+a code. Sizes get their unit, as every number does: "4.2 MB of 48 MB".
+
 Never quote lyrics, use slang, or add emoji to interface copy. Use sentence case, and give
 every number a unit.

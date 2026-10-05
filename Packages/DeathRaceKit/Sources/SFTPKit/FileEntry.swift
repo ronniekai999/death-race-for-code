@@ -64,9 +64,34 @@ public enum Listing {
         return head.isEmpty ? "/" : head
     }
 
+    /// The last component of a path — a dropped file's name, for the row it becomes. `/` is
+    /// its own name, as it is its own parent.
+    public static func name(of path: String) -> String {
+        let trimmed = path.count > 1 && path.hasSuffix("/") ? String(path.dropLast()) : path
+        guard trimmed != "/", let slash = trimmed.lastIndex(of: "/") else { return trimmed }
+        return String(trimmed[trimmed.index(after: slash)...])
+    }
+
     /// Join a directory and a child name into an absolute POSIX path.
     public static func join(_ directory: String, _ name: String) -> String {
         if directory == "/" { return "/" + name }
         return directory.hasSuffix("/") ? directory + name : directory + "/" + name
+    }
+
+    /// A file's size with its unit, for a pane's trailing column. Every number gets a unit, as
+    /// NAMING asks; a directory shows nothing.
+    public static func sizeText(_ bytes: UInt64) -> String {
+        if bytes < 1_024 { return "\(bytes) B" }
+        let units = ["KB", "MB", "GB", "TB", "PB"]
+        var value = Double(bytes) / 1_024
+        var unit = 0
+        while value >= 1_024, unit + 1 < units.count {
+            value /= 1_024
+            unit += 1
+        }
+        // One decimal below 10 (4.2 MB), none above (42 MB).
+        let rounded = value < 10 ? (value * 10).rounded() / 10 : value.rounded()
+        let text = value < 10 ? String(format: "%.1f", rounded) : String(format: "%.0f", rounded)
+        return text + " " + units[unit]
     }
 }

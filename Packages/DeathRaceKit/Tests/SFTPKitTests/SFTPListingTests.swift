@@ -43,6 +43,17 @@ private final class Scratch {
         #expect(Listing.join("/var/www/", "app") == "/var/www/app")
     }
 
+    @Test func nameTakesTheLastComponent() {
+        // What a dropped file is called, from the path the drop carried.
+        #expect(Listing.name(of: "/var/www/app.tar.gz") == "app.tar.gz")
+        #expect(Listing.name(of: "/var/www/releases/") == "releases")
+        #expect(Listing.name(of: "/etc") == "etc")
+        #expect(Listing.name(of: "notes.md") == "notes.md")
+        #expect(Listing.name(of: "/") == "/")
+        // A path and its name agree with the join that would rebuild it.
+        #expect(Listing.join(Listing.parent(of: "/a/b/c"), Listing.name(of: "/a/b/c")) == "/a/b/c")
+    }
+
     @Test func localFileSystemListsWritesAndReads() throws {
         let scratch = Scratch()
         let fs = LocalFileSystem.local

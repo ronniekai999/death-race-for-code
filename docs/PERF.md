@@ -159,6 +159,19 @@ The Phase 2 budgets above are checked by hand on the M5, with a debug build
     its rows itself, and only when WRLD, its tunnels or the window change.
 - **Armed and Dangerous costs a few bytes per key.** Each armed pane encodes what was typed
   for its own program; the banner and the borders are layers drawn once.
+- **Maze is free when no file is moving.** The transport's reader thread blocks in `poll` on
+  the subsystem's pipes and the writer waits on a condition, so an open window with nothing in
+  flight costs nothing and draws no frames: both panes are lists that change only when you
+  ask for a folder. During a transfer the chunk is 32 KiB — OpenSSH caps a single
+  `READ`/`WRITE` payload there over the default channel window, so a larger request would
+  just be split — and progress reaches the main actor once per chunk, which the window turns
+  into one bar update. The window holds the host's master while it is open; closing it ends
+  the subsystem and lets the master idle out as a pane's would.
+  - **Still to do.** Maze sends one chunk at a time and waits for its `STATUS` before the
+    next, so throughput is bounded by the round trip: about a megabyte a second on a 30 ms
+    link, where OpenSSH's own `sftp` pipelines 64 requests and saturates the link. The client
+    already correlates replies by request id, so a window of outstanding chunks is the change;
+    it waits on a measurement from a real transfer on the M5 rather than a guess here.
 - **Phase 9's effects ride existing frames.** Text glow and XDR Neon will draw only on frames
   that output, typing or scrolling already caused, and Low Power Mode, battery and thermal
   pressure will turn them off.

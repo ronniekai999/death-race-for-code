@@ -67,7 +67,7 @@ import Testing
             let words = action.paletteTitle.split { $0 == " " || $0 == ":" }.dropFirst()
             let names: Set<Substring> = [
                 "Death", "Race", "for", "Code", "Secure", "Keyboard", "Entry", "Hear", "Me", "Calling", "Dangerous",
-                "Wishing", "Well", "WRLD", "Lucid", "Dreams",
+                "Wishing", "Well", "WRLD", "Lucid", "Dreams", "Maze",
             ]
             for word in words where word.first?.isUppercase == true {
                 #expect(names.contains(word), "\(action.paletteTitle) is not in sentence case")

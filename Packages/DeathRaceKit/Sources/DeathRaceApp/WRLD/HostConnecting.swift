@@ -1,6 +1,7 @@
 import AppCore
 import Foundation
 import PTYKit
+import SFTPKit
 import SSHKit
 import Vault
 
@@ -22,6 +23,12 @@ protocol HostConnecting: AnyObject, Sendable {
     func connect(_ host: HostRef, for pane: PaneID) async -> ConnectResult
     /// ssh to `host` on its own in the pane, logging in there, without the app's master.
     func plainLaunch(_ host: HostRef) async -> ShellLaunch?
+    /// Opens `host`'s files for Maze: the sftp subsystem on the master a pane would use, so
+    /// there's no second login. Nil when WRLD can't reach the host. Holds the master until
+    /// `closeSFTP`, so Maze keeps working with no pane open.
+    func openSFTP(_ host: HostRef) async -> (any RemoteFiles)?
+    /// Maze closed: the master can idle out once nothing else holds it.
+    func closeSFTP(_ host: HostRef)
     /// `pane` is done with its host; the last one out lets the master go after a while.
     func release(_ pane: PaneID)
     /// Stops connecting to `host`: a pending pane's Cancel.

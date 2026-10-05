@@ -17,9 +17,15 @@ actor FakeSFTPServer: SFTPTransport {
     private var pending: CheckedContinuation<[UInt8], any Error>?
     private var closed = false
 
-    init(files: [String: [UInt8]] = [:], directories: [String] = []) {
+    /// Gives the client's read loop a turn before `send` returns, so the reply lands while
+    /// the request is still suspended there — what a real transport does, where the reader is
+    /// a thread of its own.
+    private let answersDuringSend: Bool
+
+    init(files: [String: [UInt8]] = [:], directories: [String] = [], answersDuringSend: Bool = false) {
         for (path, bytes) in files { self.files[path] = bytes }
         for directory in directories { self.directories.insert(directory) }
+        self.answersDuringSend = answersDuringSend
     }
 
     // MARK: - Transport
@@ -28,6 +34,9 @@ actor FakeSFTPServer: SFTPTransport {
         guard !closed else { throw SFTPError.transportClosed }
         let packet = try SFTPPacket.decode(frame: frame)
         for reply in replies(to: packet) { enqueue(reply.encode()) }
+        if answersDuringSend {
+            for _ in 0..<4 { await Task.yield() }
+        }
     }
 
     func receive() async throws -> [UInt8] {

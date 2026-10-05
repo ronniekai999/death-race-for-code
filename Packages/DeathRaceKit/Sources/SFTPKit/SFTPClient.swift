@@ -12,6 +12,11 @@ public actor SFTPClient {
     private let transport: any SFTPTransport
     private var nextID: UInt32 = 0
     private var waiters: [UInt32: CheckedContinuation<SFTPPacket, any Error>] = [:]
+    /// Replies that arrived while their request was still being sent. Sending suspends this
+    /// actor, so the read loop can deliver a reply before the request has registered its
+    /// waiter; the reply waits here instead of being dropped. One slow 70 KB upload against a
+    /// real sshd lost a WRITE's STATUS this way and hung the transfer for good.
+    private var earlyReplies: [UInt32: SFTPPacket] = [:]
     private var readerTask: Task<Void, Never>?
     private var sessionError: (any Error)?
     /// The protocol version the server agreed to, once the handshake has run.
@@ -57,7 +62,12 @@ public actor SFTPClient {
                 return
             }
             guard let id = packet.id else { continue }  // no id-bearing handshake packets mid-session
-            if let waiter = waiters.removeValue(forKey: id) { waiter.resume(returning: packet) }
+            if let waiter = waiters.removeValue(forKey: id) {
+                waiter.resume(returning: packet)
+            } else {
+                // Its request is still in `send`; it will take this the moment it comes back.
+                earlyReplies[id] = packet
+            }
         }
     }
 
@@ -65,6 +75,7 @@ public actor SFTPClient {
         if sessionError == nil { sessionError = error }
         let pending = waiters
         waiters = [:]
+        earlyReplies = [:]
         for (_, waiter) in pending { waiter.resume(throwing: error) }
     }
 
@@ -78,12 +89,14 @@ public actor SFTPClient {
     private func request(_ packet: SFTPPacket) async throws -> SFTPPacket {
         if let sessionError { throw sessionError }
         guard let id = packet.id else { throw SFTPError.invalid("request without id") }
-        // Send first: the reply can't arrive before the server sees the request, and the
-        // continuation below registers the waiter synchronously once send returns, so the
-        // read loop (which runs only at suspension points) can't deliver before we're ready.
+        // Sending suspends this actor, so the read loop can deliver the reply before the
+        // continuation below has registered its waiter. That reply is held in `earlyReplies`,
+        // and taken here, rather than dropped.
         try await transport.send(packet.encode())
         return try await withCheckedThrowingContinuation { continuation in
-            if let sessionError {
+            if let early = earlyReplies.removeValue(forKey: id) {
+                continuation.resume(returning: early)
+            } else if let sessionError {
                 continuation.resume(throwing: sessionError)
             } else {
                 waiters[id] = continuation
@@ -224,16 +237,24 @@ public actor SFTPClient {
     /// default channel window, so larger requests just get split anyway.
     public static let chunkSize = 32_768
 
-    /// Download a file whole. Sequential and correct against short reads; the pipelined,
-    /// progress-reporting transfer path lives in the transfer layer.
-    public func download(_ path: String) async throws -> [UInt8] {
+    /// Download a file whole, reporting bytes done out of the total after each chunk. The
+    /// total comes from the open file's own size; a server that returns short reads is handled
+    /// by advancing only as far as it actually gave us. Cancelling the calling task stops it.
+    public func download(
+        _ path: String, progress: @Sendable @escaping (UInt64, UInt64) -> Void
+    ) async throws -> [UInt8] {
         let handle = try await open(path, pflags: SFTP.Open.read)
         var data: [UInt8] = []
         do {
+            let total = try await fstat(handle).size ?? 0
+            progress(0, total)
             var offset: UInt64 = 0
             while let chunk = try await read(handle, offset: offset, length: UInt32(Self.chunkSize)), !chunk.isEmpty {
+                try Task.checkCancellation()
                 data.append(contentsOf: chunk)
                 offset += UInt64(chunk.count)
+                // A file that grew since the stat still reports a sane fraction.
+                progress(offset, max(total, offset))
             }
         } catch {
             try? await close(handle)
@@ -243,16 +264,23 @@ public actor SFTPClient {
         return data
     }
 
-    /// Upload bytes to a new (or truncated) file, optionally stamping its attributes after.
-    public func upload(_ path: String, bytes: [UInt8], attributes: SFTPAttributes = .none) async throws {
-        let handle = try await open(
-            path, pflags: SFTP.Open.write | SFTP.Open.create | SFTP.Open.truncate)
+    /// Upload bytes to a new (or truncated) file, reporting progress and optionally stamping
+    /// its attributes after. Cancelling the calling task stops it part-written.
+    public func upload(
+        _ path: String, bytes: [UInt8], attributes: SFTPAttributes,
+        progress: @Sendable @escaping (UInt64, UInt64) -> Void
+    ) async throws {
+        let handle = try await open(path, pflags: SFTP.Open.write | SFTP.Open.create | SFTP.Open.truncate)
         do {
+            let total = UInt64(bytes.count)
+            progress(0, total)
             var offset = 0
             while offset < bytes.count {
+                try Task.checkCancellation()
                 let end = min(offset + Self.chunkSize, bytes.count)
                 try await write(handle, offset: UInt64(offset), data: Array(bytes[offset..<end]))
                 offset = end
+                progress(UInt64(offset), total)
             }
             if attributes != .none { try await fsetstat(handle, attributes) }
         } catch {
@@ -260,5 +288,15 @@ public actor SFTPClient {
             throw error
         }
         try await close(handle)
+    }
+
+    /// Download a file whole, without watching its progress.
+    public func download(_ path: String) async throws -> [UInt8] {
+        try await download(path, progress: { _, _ in })
+    }
+
+    /// Upload bytes, without watching their progress.
+    public func upload(_ path: String, bytes: [UInt8], attributes: SFTPAttributes = .none) async throws {
+        try await upload(path, bytes: bytes, attributes: attributes, progress: { _, _ in })
     }
 }

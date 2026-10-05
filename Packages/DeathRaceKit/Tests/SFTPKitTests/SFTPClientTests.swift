@@ -8,6 +8,30 @@ private func started(_ server: FakeSFTPServer) async throws -> SFTPClient {
     return client
 }
 
+/// Whether `work` finishes at all. A dropped reply leaves its request waiting for good, and a
+/// test that waits for good takes the whole run with it — swift-testing's time limit cannot
+/// interrupt a continuation that nobody will resume. So this watches from outside and gives
+/// up, leaving the stuck task suspended.
+private actor Finished {
+    private var value = false
+    func mark() { value = true }
+    var isSet: Bool { value }
+
+    static func within(_ seconds: Double, _ work: @escaping @Sendable () async throws -> Void) async -> Bool {
+        let flag = Finished()
+        let task = Task {
+            try await work()
+            await flag.mark()
+        }
+        for _ in 0..<Int(seconds * 20) {
+            if await flag.isSet { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        task.cancel()
+        return await flag.isSet
+    }
+}
+
 @Suite struct SFTPClientTests {
     @Test func theHandshakeNegotiatesVersion3() async throws {
         let client = try await started(FakeSFTPServer())
@@ -115,6 +139,26 @@ private func started(_ server: FakeSFTPServer) async throws -> SFTPClient {
             }
             #expect(seen == 32)
         }
+        await client.shutDown()
+    }
+
+    /// A reply that arrives while its request is still in `send`. Sending suspends the client
+    /// actor, so the read loop can deliver first; the reply has to wait for the request rather
+    /// than be dropped. Against a real sshd a dropped `STATUS` hung a 70 KB upload for good,
+    /// and with it `swift test`, until Linux CI's 25-minute timeout.
+    @Test func aReplyThatArrivesDuringSendIsNotLost() async throws {
+        let server = FakeSFTPServer(
+            files: ["/home/user/a.txt": [UInt8](repeating: 9, count: 200_000)], answersDuringSend: true)
+        let client = try await started(server)
+        let finished = await Finished.within(10) {
+            // Several round trips, and a transfer that is many chunks, so the race gets
+            // plenty of chances.
+            #expect(try await client.realPath(".") == "/home/user")
+            #expect(try await client.download("/home/user/a.txt").count == 200_000)
+            try await client.upload("/home/user/b.txt", bytes: [UInt8](repeating: 1, count: 200_000))
+            #expect(try await client.stat("/home/user/b.txt").size == 200_000)
+        }
+        #expect(finished, "a reply that arrived during send was dropped, so its request never came back")
         await client.shutDown()
     }
 }

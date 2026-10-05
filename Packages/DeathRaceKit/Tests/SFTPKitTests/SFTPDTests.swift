@@ -88,4 +88,34 @@ struct SFTPDTests {
         }
         await client.shutDown()
     }
+
+    /// Closing has to end the ssh, not just shut its stdin. `ssh -s` keeps its channel open
+    /// until the server closes it, so a close that trusted end of file to travel left the ssh
+    /// in `poll` and the reader thread in `read` for good — and `swift test`, which cannot
+    /// exit with a thread blocked on a live child, hung until Linux CI's 25-minute timeout.
+    @Test func closingEndsTheSshItStarted() async throws {
+        let config = try configFile()
+        let session = try SFTPSession.connect(
+            alias: "sftp-target", config: config,
+            environment: ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/local/bin"])
+        let pid = session.childProcessID
+        let client = SFTPClient(transport: session)
+        try await client.start()
+        _ = try await client.realPath(".")
+        #expect(kill(pid, 0) == 0, "the ssh should be running before the close")
+        await client.shutDown()
+        try? FileManager.default.removeItem(atPath: config)
+
+        // Gone and reaped: `kill(pid, 0)` still succeeds for a zombie, so ESRCH means the
+        // reader thread saw the end, collected the child, and finished.
+        var gone = false
+        for _ in 0..<100 where !gone {
+            if kill(pid, 0) != 0 && errno == ESRCH {
+                gone = true
+            } else {
+                try await Task.sleep(for: .milliseconds(50))
+            }
+        }
+        #expect(gone, "the ssh outlived the close: \(session.sshErrorText)")
+    }
 }

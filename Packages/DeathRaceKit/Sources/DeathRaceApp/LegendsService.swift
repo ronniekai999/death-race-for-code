@@ -190,12 +190,26 @@ final class LegendsService {
                         "Session \(id.value) could not be taken up: \(String(describing: error), privacy: .public)")
                 }
             }
-            do {
-                return try daemon.start(launch, configuration: configuration, metadata: [], onUpdate: onUpdate)
-            } catch {
-                self.fellBack(error)
-                return try PaneController.realSession(launch, configuration, mayOutliveTheApp, onUpdate)
-            }
+            if let session = self.startOnDaemon(daemon, launch, configuration, onUpdate) { return session }
+            return try PaneController.realSession(launch, configuration, mayOutliveTheApp, onUpdate)
+        }
+    }
+
+    /// A method rather than the body of the closure above, and it has to be: `SessionHost.start`
+    /// is `throws(SessionHostError)`, and `catch` infers that typed error inside a function but
+    /// not inside a multi-statement closure, where it widens to `any Error` — which is what
+    /// `fellBack` cannot take. Inlining this again brings back a macOS-only build failure.
+    ///
+    /// nil means the daemon would not start it and the pane should have a shell in this process.
+    private func startOnDaemon(
+        _ daemon: any SessionHost, _ launch: ShellLaunch, _ configuration: Terminal.Configuration,
+        _ onUpdate: @escaping @Sendable () -> Void
+    ) -> (any PaneSession)? {
+        do {
+            return try daemon.start(launch, configuration: configuration, metadata: [], onUpdate: onUpdate)
+        } catch {
+            fellBack(error)
+            return nil
         }
     }
 

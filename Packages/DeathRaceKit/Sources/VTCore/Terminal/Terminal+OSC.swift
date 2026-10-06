@@ -207,7 +207,11 @@ extension Terminal {
         let mark: PromptMark
         var duration: UInt32?
         switch parts.first {
-        case "A": mark = .promptStart
+        case "A":
+            mark = .promptStart
+            // A new prompt starts: whatever command text was being held belongs to a command
+            // whose `D` never came, and holding it would put it on the *next* command instead.
+            pendingCommandText = nil
         case "B": mark = .commandStart
         case "C": mark = .outputStart
         case "D":
@@ -250,12 +254,17 @@ extension Terminal {
     /// OSC 633 (Visual Studio Code's shell integration): only `E;<command line>`, which is the
     /// one thing OSC 133 has no room for — the text of the command itself.
     ///
-    /// Adopting VS Code's sequence rather than inventing one means our shell scripts light up
-    /// its terminal and its scripts light up ours. The text is held rather than written to a
-    /// row, because it arrives while the cursor is still on the prompt and belongs with the
+    /// Adopting VS Code's sequence rather than inventing one means a shell already set up for
+    /// its terminal reports its command lines to ours. The text is held rather than written to
+    /// a row, because it arrives while the cursor is still on the prompt and belongs with the
     /// `commandEnd` that comes after the output, which is usually a different row.
+    ///
+    /// Split on *every* `;` and the command is the second field, because VS Code's own form is
+    /// `E;<command>;<nonce>` — taking the rest of the line would have put its nonce, and the
+    /// separator before it, on the end of every command it reported. Nothing is lost by it:
+    /// both escapers turn a `;` inside the command into `\x3b` precisely so this can be true.
     private func vsCodeCommand(_ text: String) {
-        let parts = text.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
+        let parts = text.split(separator: ";", omittingEmptySubsequences: false)
         guard parts.first == "E" else { return }
         guard parts.count > 1 else {
             pendingCommandText = nil
@@ -276,7 +285,7 @@ extension Terminal {
             let after = rest.index(after: slash)
             guard after < rest.endIndex else {
                 out.append("\\")
-                return Self.cleanCommand(out)
+                return CommandRecord.cleaned(out)
             }
             switch rest[after] {
             case "\\":
@@ -285,8 +294,10 @@ extension Terminal {
             case "x", "X":
                 let digits = rest.index(after: after)
                 let end = rest.index(digits, offsetBy: 2, limitedBy: rest.endIndex) ?? rest.endIndex
-                if rest.distance(from: digits, to: end) == 2, let byte = UInt8(rest[digits..<end], radix: 16),
-                    let scalar = Unicode.Scalar(UInt32(byte))
+                // `isHexDigit` on both, because `UInt8(_:radix:)` accepts a leading sign: on
+                // its own, `\x+3` would have been read as the byte 3 rather than left alone.
+                if rest.distance(from: digits, to: end) == 2, rest[digits..<end].allSatisfy(\.isHexDigit),
+                    let byte = UInt8(rest[digits..<end], radix: 16), let scalar = Unicode.Scalar(UInt32(byte))
                 {
                     out.unicodeScalars.append(scalar)
                     rest = rest[end...]
@@ -300,28 +311,7 @@ extension Terminal {
             }
         }
         out += rest
-        return Self.cleanCommand(out)
-    }
-
-    /// A command line is shown on screen and kept on disk, so it carries no control characters
-    /// and no unbounded length. The same rule the rest of the app uses for borrowed text.
-    ///
-    /// A tab or a line break becomes one space rather than nothing: a command written across
-    /// two lines is perfectly ordinary, and dropping its newline would run the halves together
-    /// into `echo aecho b`. Every other control goes, which is what the rule is for.
-    private static func cleanCommand(_ text: String) -> String {
-        var out = String.UnicodeScalarView()
-        for scalar in text.unicodeScalars {
-            if scalar == "\t" || scalar == "\n" || scalar == "\r" {
-                out.append(" ")
-            } else if scalar.value >= 0x20, scalar.value != 0x7F, !(0x80...0x9F).contains(scalar.value) {
-                out.append(scalar)
-            } else {
-                continue
-            }
-            if out.count >= CommandRecord.textLimit { break }
-        }
-        return String(out)
+        return CommandRecord.cleaned(out)
     }
 
     // MARK: - DCS

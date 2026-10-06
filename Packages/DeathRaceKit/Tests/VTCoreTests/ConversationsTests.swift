@@ -125,6 +125,41 @@ import Testing
         #expect(t.row(0).command?.text == "")
     }
 
+    /// VS Code's own form is `E;<command>;<nonce>`. Taking everything after the first `;`
+    /// put the nonce, and the separator before it, on the end of every command it reported.
+    /// Nothing is lost by splitting on all of them: both escapers write a real `;` as `\x3b`.
+    @Test func theCommandStopsAtTheNextParameter() {
+        let t = makeTerminal()
+        t.feed("\u{1B}]633;E;echo hi;1a2b3c\u{7}\u{1B}]133;D;0\u{7}")
+        #expect(t.row(0).command?.text == "echo hi")
+    }
+
+    /// And a `;` that was part of the command still arrives whole, because it travels escaped.
+    @Test func anEscapedSemicolonIsStillPartOfTheCommand() {
+        let t = makeTerminal()
+        t.feed("\u{1B}]633;E;echo a\\x3b echo b;nonce\u{7}\u{1B}]133;D;0\u{7}")
+        #expect(t.row(0).command?.text == "echo a; echo b")
+    }
+
+    /// `UInt8(_:radix:)` accepts a leading sign, so `\x+3` was read as the byte 3 — a control
+    /// character smuggled in through an escape that is not one. Anything that is not two hex
+    /// digits is taken literally, as every other near-miss already is.
+    @Test func aSignIsNotAHexDigit() {
+        let t = makeTerminal()
+        t.feed("\u{1B}]633;E;a\\x+3b\u{7}\u{1B}]133;D;0\u{7}")
+        #expect(t.row(0).command?.text == "ax+3b")
+    }
+
+    /// A shell that reports the command and then never reports its end — killed, or an
+    /// integration half installed — must not have its text turn up on the next command.
+    @Test func aCommandWithNoEndDoesNotLandOnTheNextOne() {
+        let t = makeTerminal()
+        t.feed("\u{1B}]633;E;the one that got away\u{7}")
+        t.feed("\u{1B}]133;A\u{7}\u{1B}]133;D;0\u{7}")
+        #expect(t.row(0).command?.text != "the one that got away")
+        #expect(t.row(0).command?.text.isEmpty != false)
+    }
+
     // MARK: - Does a mark survive what the screen does?
 
     /// ED. This was the second bug: a blanked row kept its marks, so a block model would draw
@@ -221,15 +256,67 @@ import Testing
     }
 
     /// Trimming the scrollback past its cap drops whole rows; nothing is left half-marked.
+    /// A cap of 1 byte leaves no scrollback at all, so the loop that used to be here never
+    /// ran a single iteration and the test could not have failed. The cap is now big enough to
+    /// keep some rows and small enough to drop others, and the first assertion is that there
+    /// is in fact something to look at.
     @Test func trimmingTheScrollbackDropsWholeRows() {
-        let t = makeTerminal(rows: 2) { $0.scrollbackLimitBytes = 1 }
-        t.feed("\u{1B}]133;A\u{7}$ ls\u{1B}]133;D;0\u{7}\r\n")
-        for i in 0..<50 { t.feed("line \(i)\r\n") }
-        // Whatever survived the cap, no row claims a command the trim should have taken.
+        let t = makeTerminal(columns: 20, rows: 2) { $0.scrollbackLimitBytes = 8_000 }
+        t.feed("\u{1B}]133;A\u{7}$ ls\u{1B}]133;D;0;dur=5\u{7}\r\n")
+        for i in 0..<200 { t.feed("line \(i)\r\n") }
+        #expect(t.scrollbackCount > 0, "nothing was kept, so nothing below was checked")
+        #expect(t.scrollbackCount < 200, "nothing was dropped, so the trim was never exercised")
+        // Whatever survived the cap, no row claims a command without the mark it belongs to —
+        // a row cannot be half trimmed.
         for i in 0..<t.scrollbackCount {
             let row = t.scrollbackRow(i)
             if row.command != nil { #expect(row.promptMarks.contains(PromptMarks.commandEnd)) }
         }
+    }
+
+    /// A command line is the one thing on a row whose size is not fixed, and the scrollback is
+    /// trimmed by `estimatedBytes` — so a row left it out of the count, and a thousand long
+    /// command lines were a megabyte the cap could not see.
+    @Test func aCommandLineCountsTowardsTheScrollbacksSize() {
+        let long = String(repeating: "x", count: CommandRecord.textLimit)
+        let plain = makeTerminal(columns: 20, rows: 2) { $0.scrollbackLimitBytes = 40_000 }
+        let withCommands = makeTerminal(columns: 20, rows: 2) { $0.scrollbackLimitBytes = 40_000 }
+        for i in 0..<60 {
+            plain.feed("line \(i)\r\n")
+            withCommands.feed("\u{1B}]633;E;\(long)\u{7}\u{1B}]133;D;0\u{7}line \(i)\r\n")
+        }
+        #expect(
+            withCommands.scrollbackCount < plain.scrollbackCount,
+            "rows carrying a kilobyte of command line were counted as though they did not")
+    }
+    /// `ESC[H ESC[J` is how a full-screen program and `clear` wipe the screen, and it leaves
+    /// nothing on the rows below the cursor — so their marks are about text that is gone.
+    @Test func eraseToTheEndOfTheScreenForgetsTheRowsItBlanked() {
+        let t = makeTerminal(rows: 4)
+        t.feed("\u{1B}[3;1H\u{1B}]133;A\u{7}$ ls\u{1B}]133;D;7\u{7}")
+        #expect(t.row(2).promptMarks.contains(.commandEnd))
+        t.feed("\u{1B}[H\u{1B}[J")
+        #expect(t.row(2).promptMarks.isEmpty, "a mark was left on a row that was blanked")
+        #expect(t.row(2).command == nil)
+    }
+
+    /// But the cursor's own row keeps its marks, because erasing part of it is exactly how a
+    /// prompt redraws itself — `\r` then erase-to-end — and that row is the one holding them.
+    @Test func aPromptRedrawingItselfKeepsItsOwnMark() {
+        let t = makeTerminal(rows: 4)
+        t.feed("\u{1B}]133;A\u{7}$ ls\u{1B}]133;D;0\u{7}")
+        t.feed("\r\u{1B}[J$ ls -l")
+        #expect(t.row(0).promptMarks.contains(.promptStart))
+        #expect(t.row(0).promptMarks.contains(.commandEnd))
+    }
+
+    /// The other half of the same rule: `ESC[1J` blanks every row above the cursor.
+    @Test func eraseToTheStartOfTheScreenForgetsTheRowsItBlanked() {
+        let t = makeTerminal(rows: 4)
+        t.feed("\u{1B}]133;A\u{7}$ ls\u{1B}]133;D;7\u{7}")
+        t.feed("\u{1B}[3;1H\u{1B}[1J")
+        #expect(t.row(0).promptMarks.isEmpty)
+        #expect(t.row(0).command == nil)
     }
 
     /// Reflow folds a wrapped line's marks onto its first row and mints new row ids, which is

@@ -100,7 +100,10 @@ import VTCore
             Issue.record("the app used a daemon whose screen format it cannot read")
             return
         }
-        #expect(because != nil)
+        // What the status bar will actually show, and that it is the *right* sentence of the
+        // six: `#expect(because != nil)`, which used to stand here, held for every one of
+        // them — and for a `.refused` or a `.unreachable`, which would mean a different bug.
+        #expect(because == Legends.sentence(for: .incompatible(ours: 1...1, theirs: 1...1, build: "")))
 
         // And the old daemon was told to finish what it holds rather than to end anything.
         let frame = try #require(

@@ -64,9 +64,11 @@ import VTCore
         #expect(rig.run("echo one &&\\\necho two", awaiting: ShellRig.commandEnd))
         let text = try #require(rig.commands().last?.text)
         #expect(text.contains("echo one"))
-        #expect(text.contains("echo two"))
         #expect(!text.contains("\n"))
-        #expect(!text.contains("oneecho"), "a line break was dropped rather than made a space")
+        // The space is the assertion. `!text.contains("oneecho")`, which used to stand here,
+        // held whether or not the line break survived — the `&&\` between the halves kept
+        // them apart on its own, so the test could not fail.
+        #expect(text.hasSuffix(" echo two"), "the line break did not become a space: \(text)")
     }
 
     /// `ZDOTDIR` is inherited, so without our `.zshrc` putting the user's own back, every zsh

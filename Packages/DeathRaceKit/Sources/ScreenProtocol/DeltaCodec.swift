@@ -494,10 +494,14 @@ public struct ByteReader {
     /// a megabyte of text on every row it carried, and nothing downstream wants that.
     public mutating func command() throws(DeltaCodec.DecodeError) -> CommandRecord? {
         guard try bool() else { return nil }
-        let text = try string()
+        // `CommandRecord.cleaned`, not a cap of our own: the sender is another process, so the
+        // text has to come out the far side holding exactly what the engine would have let in
+        // — bounded in scalars and free of control characters. Counting `Character`s here, as
+        // this did, let one base scalar with two hundred thousand combining marks through as a
+        // string of "length 1".
+        let text = CommandRecord.cleaned(try string())
         return CommandRecord(
-            text: text.count > CommandRecord.textLimit ? String(text.prefix(CommandRecord.textLimit)) : text,
-            durationMilliseconds: try optionalU32(), exitCode: try optionalI32())
+            text: text, durationMilliseconds: try optionalU32(), exitCode: try optionalI32())
     }
 
     public mutating func rgb() throws(DeltaCodec.DecodeError) -> RGB {

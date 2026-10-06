@@ -193,6 +193,9 @@ public final class Row {
         var bytes = 96 + cells.count * MemoryLayout<Cell>.stride + styles.count * MemoryLayout<Style>.stride
         for extra in graphemes.values { bytes += 48 + extra.count * MemoryLayout<UInt32>.stride }
         for link in links { bytes += 48 + link.id.utf8.count + link.uri.utf8.count }
+        // The command line is the one other thing on a row that is not a fixed size, and the
+        // scrollback is trimmed by this number.
+        if let command { bytes += 48 + command.text.utf8.count }
         return bytes
     }
 
@@ -228,16 +231,48 @@ public enum PromptMark: Equatable, Sendable {
 /// ran while the app was closed — the case the session daemon exists for — was never watched
 /// by anything that could have timed it.
 public struct CommandRecord: Equatable, Sendable {
-    /// The command line, capped at `textLimit` bytes of UTF-8 and stripped of controls.
+    /// The command line, capped at `textLimit` Unicode scalars and stripped of controls by
+    /// `cleaned(_:)`, which is the only way text gets in here.
     public var text: String
     /// How long it ran, from `dur=` on the `D` mark; nil when the shell did not say.
     public var durationMilliseconds: UInt32?
     /// Its exit status, from the bare parameter on the `D` mark; nil when the shell did not say.
     public var exitCode: Int32?
 
-    /// A command line longer than this is cut. Deltas carry rows, so an unbounded string here
-    /// would be an unbounded string on every frame that touched the row.
+    /// A command line longer than this is cut, counted in Unicode scalars. Deltas carry rows,
+    /// so an unbounded string here would be an unbounded string on every frame that touched
+    /// the row.
+    ///
+    /// Scalars rather than `Character`s, and that is not pedantry: one base scalar followed by
+    /// two hundred thousand combining marks is a single `Character`, so a limit counted that
+    /// way would have let four hundred kilobytes through on every frame.
     public static let textLimit = 1024
+
+    /// The one rule for text that becomes a command line, wherever it came from — the parser,
+    /// or a delta decoded from another process. A command line is shown on screen and kept on
+    /// disk, so it carries no control characters and no unbounded length.
+    ///
+    /// A tab or a line break becomes one space rather than nothing: a command written across
+    /// two lines is perfectly ordinary, and dropping its newline would run the halves together
+    /// into `echo aecho b`. Every other control goes, which is what the rule is for.
+    public static func cleaned(_ text: String) -> String {
+        var out = String.UnicodeScalarView()
+        // Counted as we go: `out.count` on a scalar view walks the whole view, so asking it
+        // once per scalar made this quadratic in the length of the command.
+        var kept = 0
+        for scalar in text.unicodeScalars {
+            if scalar == "\t" || scalar == "\n" || scalar == "\r" {
+                out.append(" ")
+            } else if scalar.value >= 0x20, scalar.value != 0x7F, !(0x80...0x9F).contains(scalar.value) {
+                out.append(scalar)
+            } else {
+                continue
+            }
+            kept += 1
+            if kept >= textLimit { break }
+        }
+        return String(out)
+    }
 
     public init(text: String = "", durationMilliseconds: UInt32? = nil, exitCode: Int32? = nil) {
         self.text = text

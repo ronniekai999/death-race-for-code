@@ -479,6 +479,30 @@ private func text(_ row: RowSnapshot) -> String {
         #expect(link.mirror.link(column: 3, row: 0) == nil)
         #expect(link.mirror.link(column: 99, row: 9) == nil)
     }
+
+    // MARK: - What the decoder lets through for a command line
+
+    /// A command line arriving from another process goes through the same rule as one the
+    /// parser read, because there is nothing else between it and the screen.
+    @Test func aForgedCommandLineIsCutToTheSameRuleAsAReadOne() throws {
+        // One base scalar and a great many combining marks is a single `Character`, so a cap
+        // counted that way let this through whole: four hundred kilobytes on every frame.
+        let combining = "a" + String(repeating: "\u{0301}", count: 200_000)
+        var writer = ByteWriter()
+        writer.command(CommandRecord(text: combining, exitCode: 0))
+        var reader = ByteReader(bytes: writer.bytes)
+        let record = try #require(try reader.command())
+        #expect(record.text.unicodeScalars.count <= CommandRecord.textLimit)
+    }
+
+    @Test func aForgedCommandLineCarriesNoControlCharacters() throws {
+        var writer = ByteWriter()
+        writer.command(CommandRecord(text: "echo\u{1B}]0;title\u{7}\u{7F}\u{9B}x", exitCode: 0))
+        var reader = ByteReader(bytes: writer.bytes)
+        let record = try #require(try reader.command())
+        #expect(!record.text.unicodeScalars.contains { $0.value < 0x20 })
+        #expect(!record.text.unicodeScalars.contains { $0.value == 0x7F || (0x80...0x9F).contains($0.value) })
+    }
 }
 
 /// A small deterministic generator, so failures reproduce.

@@ -329,6 +329,13 @@ struct UnixSocketTests {
 
     /// `accepts` is a connect and a hang-up, so the listener is left a connection to accept
     /// and find closed. Asking here, where nothing else accepts, keeps that out of the way.
+    ///
+    /// The second half waits rather than asking once, and that is not a weakened assertion:
+    /// closing a listening Unix socket that still has an unaccepted connection in its backlog
+    /// — the one the first `accepts` just made — tears it down when the last reference goes,
+    /// not at the `close`, so a connect in that window is still queued. Seen once in a full
+    /// parallel run, and it says nothing about the daemon: two of them racing is kept apart by
+    /// `ProcessLock`, and a client that reaches a daemon on its way out falls back in process.
     @Test("something listening is found")
     func somebodyHome() throws {
         let folder = shortTemporaryFolder()
@@ -337,7 +344,11 @@ struct UnixSocketTests {
         let listener = try UnixSocket.listen(at: path)
         #expect(UnixSocket.accepts(path))
         close(listener)
-        #expect(!UnixSocket.accepts(path), "and not once it has stopped")
+        var stopped = false
+        for _ in 0..<100 where !stopped {
+            if UnixSocket.accepts(path) { usleep(10_000) } else { stopped = true }
+        }
+        #expect(stopped, "and not once it has stopped")
     }
 
     @Test("a path too long for a sockaddr is refused rather than truncated")

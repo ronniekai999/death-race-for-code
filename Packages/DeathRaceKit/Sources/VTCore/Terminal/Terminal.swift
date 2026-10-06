@@ -77,6 +77,9 @@ public final class Terminal {
 
     /// The last printed character, for REP.
     var lastGraphic: UInt32?
+    /// The command line from `OSC 633;E`, waiting for the `OSC 133;D` that ends that command.
+    /// Cleared when it is used, so one command's text can never label the next one.
+    var pendingCommandText: String?
     /// The OSC 8 link characters print into, until the program closes it.
     public internal(set) var currentLink: Hyperlink?
     /// Links opened without an id, numbered so each is its own.

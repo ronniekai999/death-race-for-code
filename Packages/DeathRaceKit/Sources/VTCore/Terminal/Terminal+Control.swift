@@ -173,6 +173,11 @@ extension Terminal {
             row.graphemes.removeAll()
             for x in 0..<s.columns { row.cells[x] = Cell(scalar: 0x45, styleID: 0) }
             row.isWrapped = false
+            // Every cell is replaced, so whatever the shell said about this row is no longer
+            // about anything on it. DECALN writes cells directly rather than erasing them, so
+            // the rule `ScreenBuffer.erase` applies has to be repeated here.
+            row.promptMarks = []
+            row.command = nil
             s.touch(row)
         }
         s.cursor.x = 0

@@ -282,6 +282,16 @@ final class ScreenBuffer {
             }
         }
         if upper == columns { row.isWrapped = false }
+        // A row erased end to end has no command on it any more, so its semantic marks go too.
+        // Without this, ED, RIS, the 1049 clear and DECALN all left prompt marks and command
+        // records on rows whose text they had just blanked — and a block model built from the
+        // marks would draw a rail around nothing. A *partial* erase keeps them: erasing to the
+        // end of a line does not unsay where its prompt began, and a selective erase has left
+        // protected cells behind, so the row is not empty either.
+        if lower == 0, upper == columns, !selective {
+            row.promptMarks = []
+            row.command = nil
+        }
         touch(row)
     }
 

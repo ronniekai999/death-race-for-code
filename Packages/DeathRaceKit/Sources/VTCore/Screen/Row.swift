@@ -22,8 +22,11 @@ public final class Row {
     /// The OSC 133 marks the shell placed on this row. One row often carries several: the
     /// previous command's end and the next prompt's start, or a prompt and its command.
     public internal(set) var promptMarks: PromptMarks = []
+    /// What the shell said about the command that ended on this row: its text, how long it
+    /// took, how it went. Only rows carrying `.commandEnd` have one.
+    public internal(set) var command: CommandRecord?
     /// The exit code from a `commandEnd` mark, when the shell sent one.
-    public internal(set) var exitCode: Int32?
+    public var exitCode: Int32? { command?.exitCode }
     /// The OSC 8 links the row's cells belong to; a cell's `linkIndex` counts from 1.
     public internal(set) var links: ContiguousArray<Hyperlink> = []
     /// The most links one row holds; past it, characters print without their link.
@@ -167,7 +170,7 @@ public final class Row {
         links.removeAll(keepingCapacity: true)
         isWrapped = false
         promptMarks = []
-        exitCode = nil
+        command = nil
     }
 
     /// Changes the width without rewrapping: truncates or pads with default blanks.
@@ -214,6 +217,36 @@ public enum PromptMark: Equatable, Sendable {
     case commandStart
     case outputStart
     case commandEnd(exitCode: Int32?)
+}
+
+/// One command, as the shell reported it: `OSC 633;E` for the text, and `OSC 133;D` for the
+/// exit code and the duration.
+///
+/// The shell is asked for all three rather than the terminal working them out, because the
+/// shell knows them exactly and the terminal does not. A duration in particular cannot be
+/// measured here: VTCore is deliberately Foundation-free and has no clock, and a command that
+/// ran while the app was closed — the case the session daemon exists for — was never watched
+/// by anything that could have timed it.
+public struct CommandRecord: Equatable, Sendable {
+    /// The command line, capped at `textLimit` bytes of UTF-8 and stripped of controls.
+    public var text: String
+    /// How long it ran, from `dur=` on the `D` mark; nil when the shell did not say.
+    public var durationMilliseconds: UInt32?
+    /// Its exit status, from the bare parameter on the `D` mark; nil when the shell did not say.
+    public var exitCode: Int32?
+
+    /// A command line longer than this is cut. Deltas carry rows, so an unbounded string here
+    /// would be an unbounded string on every frame that touched the row.
+    public static let textLimit = 1024
+
+    public init(text: String = "", durationMilliseconds: UInt32? = nil, exitCode: Int32? = nil) {
+        self.text = text
+        self.durationMilliseconds = durationMilliseconds
+        self.exitCode = exitCode
+    }
+
+    /// Whether there is anything worth keeping. A record of three nils is not worth a frame.
+    public var isEmpty: Bool { text.isEmpty && durationMilliseconds == nil && exitCode == nil }
 }
 
 /// The OSC 133 marks on one row.

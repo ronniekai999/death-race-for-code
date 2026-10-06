@@ -11,10 +11,15 @@ import pathlib, re, sys, collections
 root = pathlib.Path("Sources")
 
 def strip(text):
+    # Strings before line comments, and both in one pass: a `//` inside a string literal is
+    # not a comment, so removing comments first cut `"https://…"` in half and left an unpaired
+    # quote that swallowed the rest of the file. Block comments go first because they are the
+    # one thing that can contain either.
     text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
-    text = re.sub(r"//[^\n]*", " ", text)
-    text = re.sub(r'"""(?:.|\n)*?"""', ' "" ', text)
-    return re.sub(r'"(?:\\.|[^"\\\n])*"', ' "" ', text)
+    def seen(match):
+        return " " if match.group(0).startswith("//") else ' "" '
+    return re.sub(
+        r'"""(?:.|\n)*?"""' r'|"(?:\\.|[^"\\\n])*"' r'|//[^\n]*', seen, text)
 
 # Top-level only: the keyword starts at column 0 after an access modifier.
 TOP = re.compile(

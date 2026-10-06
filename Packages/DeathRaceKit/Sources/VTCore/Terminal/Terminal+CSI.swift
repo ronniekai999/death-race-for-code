@@ -249,16 +249,23 @@ extension Terminal {
         let s = screen
         let fill = s.cursor.pen.erasing
         switch mode {
+        // A row erased end to end has nothing left for its marks to be about, so it forgets
+        // them; the cursor's own row keeps them, because erasing part of it is how a prompt
+        // redraws itself — `\r` then erase-to-end — and that row is the one carrying the mark.
         case 0:
             s.erase(row: s.cursor.y, from: s.cursor.x, to: s.columns, fill: fill, selective: selective)
             for y in (s.cursor.y + 1)..<max(s.cursor.y + 1, s.rows) {
-                s.erase(row: y, from: 0, to: s.columns, fill: fill, selective: selective)
+                s.erase(row: y, from: 0, to: s.columns, fill: fill, selective: selective, forgetting: true)
             }
         case 1:
-            for y in 0..<s.cursor.y { s.erase(row: y, from: 0, to: s.columns, fill: fill, selective: selective) }
+            for y in 0..<s.cursor.y {
+                s.erase(row: y, from: 0, to: s.columns, fill: fill, selective: selective, forgetting: true)
+            }
             s.erase(row: s.cursor.y, from: 0, to: s.cursor.x + 1, fill: fill, selective: selective)
         case 2:
-            for y in 0..<s.rows { s.erase(row: y, from: 0, to: s.columns, fill: fill, selective: selective) }
+            for y in 0..<s.rows {
+                s.erase(row: y, from: 0, to: s.columns, fill: fill, selective: selective, forgetting: true)
+            }
         case 3:
             if !selective { s.clearScrollback() }
         default:

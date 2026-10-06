@@ -117,7 +117,7 @@ private struct ReflowWriter {
         let first = screen.makeRow(fill: .default, columns: columns)
         for row in line {
             first.promptMarks.formUnion(row.promptMarks)
-            if let code = row.exitCode { first.exitCode = code }
+            if let command = row.command { first.command = command }
         }
         rows.append(first)
         x = 0

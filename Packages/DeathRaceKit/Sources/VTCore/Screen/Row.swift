@@ -22,8 +22,11 @@ public final class Row {
     /// The OSC 133 marks the shell placed on this row. One row often carries several: the
     /// previous command's end and the next prompt's start, or a prompt and its command.
     public internal(set) var promptMarks: PromptMarks = []
+    /// What the shell said about the command that ended on this row: its text, how long it
+    /// took, how it went. Only rows carrying `.commandEnd` have one.
+    public internal(set) var command: CommandRecord?
     /// The exit code from a `commandEnd` mark, when the shell sent one.
-    public internal(set) var exitCode: Int32?
+    public var exitCode: Int32? { command?.exitCode }
     /// The OSC 8 links the row's cells belong to; a cell's `linkIndex` counts from 1.
     public internal(set) var links: ContiguousArray<Hyperlink> = []
     /// The most links one row holds; past it, characters print without their link.
@@ -167,7 +170,7 @@ public final class Row {
         links.removeAll(keepingCapacity: true)
         isWrapped = false
         promptMarks = []
-        exitCode = nil
+        command = nil
     }
 
     /// Changes the width without rewrapping: truncates or pads with default blanks.
@@ -190,6 +193,9 @@ public final class Row {
         var bytes = 96 + cells.count * MemoryLayout<Cell>.stride + styles.count * MemoryLayout<Style>.stride
         for extra in graphemes.values { bytes += 48 + extra.count * MemoryLayout<UInt32>.stride }
         for link in links { bytes += 48 + link.id.utf8.count + link.uri.utf8.count }
+        // The command line is the one other thing on a row that is not a fixed size, and the
+        // scrollback is trimmed by this number.
+        if let command { bytes += 48 + command.text.utf8.count }
         return bytes
     }
 
@@ -214,6 +220,68 @@ public enum PromptMark: Equatable, Sendable {
     case commandStart
     case outputStart
     case commandEnd(exitCode: Int32?)
+}
+
+/// One command, as the shell reported it: `OSC 633;E` for the text, and `OSC 133;D` for the
+/// exit code and the duration.
+///
+/// The shell is asked for all three rather than the terminal working them out, because the
+/// shell knows them exactly and the terminal does not. A duration in particular cannot be
+/// measured here: VTCore is deliberately Foundation-free and has no clock, and a command that
+/// ran while the app was closed — the case the session daemon exists for — was never watched
+/// by anything that could have timed it.
+public struct CommandRecord: Equatable, Sendable {
+    /// The command line, capped at `textLimit` Unicode scalars and stripped of controls by
+    /// `cleaned(_:)`, which is the only way text gets in here.
+    public var text: String
+    /// How long it ran, from `dur=` on the `D` mark; nil when the shell did not say.
+    public var durationMilliseconds: UInt32?
+    /// Its exit status, from the bare parameter on the `D` mark; nil when the shell did not say.
+    public var exitCode: Int32?
+
+    /// A command line longer than this is cut, counted in Unicode scalars. Deltas carry rows,
+    /// so an unbounded string here would be an unbounded string on every frame that touched
+    /// the row.
+    ///
+    /// Scalars rather than `Character`s, and that is not pedantry: one base scalar followed by
+    /// two hundred thousand combining marks is a single `Character`, so a limit counted that
+    /// way would have let four hundred kilobytes through on every frame.
+    public static let textLimit = 1024
+
+    /// The one rule for text that becomes a command line, wherever it came from — the parser,
+    /// or a delta decoded from another process. A command line is shown on screen and kept on
+    /// disk, so it carries no control characters and no unbounded length.
+    ///
+    /// A tab or a line break becomes one space rather than nothing: a command written across
+    /// two lines is perfectly ordinary, and dropping its newline would run the halves together
+    /// into `echo aecho b`. Every other control goes, which is what the rule is for.
+    public static func cleaned(_ text: String) -> String {
+        var out = String.UnicodeScalarView()
+        // Counted as we go: `out.count` on a scalar view walks the whole view, so asking it
+        // once per scalar made this quadratic in the length of the command.
+        var kept = 0
+        for scalar in text.unicodeScalars {
+            if scalar == "\t" || scalar == "\n" || scalar == "\r" {
+                out.append(" ")
+            } else if scalar.value >= 0x20, scalar.value != 0x7F, !(0x80...0x9F).contains(scalar.value) {
+                out.append(scalar)
+            } else {
+                continue
+            }
+            kept += 1
+            if kept >= textLimit { break }
+        }
+        return String(out)
+    }
+
+    public init(text: String = "", durationMilliseconds: UInt32? = nil, exitCode: Int32? = nil) {
+        self.text = text
+        self.durationMilliseconds = durationMilliseconds
+        self.exitCode = exitCode
+    }
+
+    /// Whether there is anything worth keeping. A record of three nils is not worth a frame.
+    public var isEmpty: Bool { text.isEmpty && durationMilliseconds == nil && exitCode == nil }
 }
 
 /// The OSC 133 marks on one row.

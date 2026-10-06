@@ -112,6 +112,13 @@ var targets: [Target] = [
     .testTarget(
         name: "SurfaceCoreTests", dependencies: ["SurfaceCore", "VTCore", "ScreenProtocol", "SessionKit", "ConfigKit"]),
     .testTarget(name: "AppCoreTests", dependencies: ["AppCore", "ConfigKit", "PTYKit", "Vault"]),
+    // Real zsh, bash and fish in a pseudo-terminal, with their output fed through the engine:
+    // what the scripts write and what the parser expects can only disagree where both are in
+    // one test. Its own target because the suite is heavyweight and env-gated, so the Thread
+    // Sanitizer run leaves it out on its own and `--filter RealShellTests` runs only it —
+    // the type's name, not the suite's display name, which `--filter` never sees.
+    .testTarget(
+        name: "ShellIntegrationTests", dependencies: ["AppCore", "PTYKit", "CPTY", "VTCore", "ConfigKit"]),
     .testTarget(name: "VaultTests", dependencies: ["Vault"]),
     // Depends on the helper so `swift test` builds it: the tests run it against the broker.
     .testTarget(

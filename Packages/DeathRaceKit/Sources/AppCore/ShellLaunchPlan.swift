@@ -1,4 +1,5 @@
 import ConfigKit
+import Foundation
 import PTYKit
 
 #if canImport(Darwin)
@@ -13,7 +14,8 @@ public enum ShellLaunchPlan {
     /// pane's, with `working-directory = inherit`) or the configured one.
     public static func launch(
         config: Config, directory: String?, environment: [String: String] = ShellLaunch.processEnvironment(),
-        appVersion: String, isExecutable: (String) -> Bool = { access($0, X_OK) == 0 }
+        appVersion: String, isExecutable: (String) -> Bool = { access($0, X_OK) == 0 },
+        integration: URL? = ShellIntegration.directory()
     ) -> ShellLaunch {
         let home = environment["HOME"] ?? "/"
         var launch = ShellLaunch.loginShell(inheriting: environment, appVersion: appVersion)
@@ -27,6 +29,15 @@ public enum ShellLaunchPlan {
         case .inherit: launch.workingDirectory = directory ?? home
         case .home: launch.workingDirectory = home
         case .path(let path): launch.workingDirectory = expandingTilde(path, home: home)
+        }
+        // Here, because this is the one place the app decides what a pane runs — and because
+        // a `ShellLaunch` is what crosses to `legendsd`, so a session the daemon holds gets
+        // the integration for free rather than needing a second path through the wire.
+        // Keyed on the executable that will actually run, which `command` may have replaced.
+        if config.shellIntegration {
+            launch.environment = ShellIntegration.adding(
+                to: launch.environment, shell: ShellIntegration.shell(ofExecutable: launch.executable),
+                directory: integration)
         }
         return launch
     }

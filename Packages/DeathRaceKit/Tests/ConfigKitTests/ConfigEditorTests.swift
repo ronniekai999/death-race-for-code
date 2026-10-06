@@ -16,6 +16,7 @@ import VTCore
         "clipboard-write": "ask", "secure-keyboard-entry": "always", "follow-low-power-mode": "false",
         "output-frame-rate-cap": "false", "wrld-check-hosts": "false", "wrld-host-os": "false",
         "legends-never-die": "false",
+        "shell-integration": "false",
         "copy-on-select": "true", "bell": "visual", "command": "/bin/zsh -l",
         "working-directory": "~/code", "scrollback-limit": "10MB", "lucid-dreams-hotkey": "⌃⌘T",
     ]

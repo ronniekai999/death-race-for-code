@@ -113,8 +113,9 @@ extension Terminal {
     func fullReset() {
         if isAlternateScreen { leaveAlternateScreen(restoreCursor: false) }
         for s in [primary, alternate] {
-            for y in 0..<s.rows { s.erase(row: y, from: 0, to: s.columns, fill: .default) }
+            for y in 0..<s.rows { s.erase(row: y, from: 0, to: s.columns, fill: .default, forgetting: true) }
             s.active.forEach { $0.isWrapped = false }
+            pendingCommandText = nil
             s.cursor = Cursor()
             s.savedCursor = nil
             s.scrollTop = 0
@@ -173,6 +174,11 @@ extension Terminal {
             row.graphemes.removeAll()
             for x in 0..<s.columns { row.cells[x] = Cell(scalar: 0x45, styleID: 0) }
             row.isWrapped = false
+            // Every cell is replaced, so whatever the shell said about this row is no longer
+            // about anything on it. DECALN writes cells directly rather than erasing them, so
+            // the rule `ScreenBuffer.erase` applies has to be repeated here.
+            row.promptMarks = []
+            row.command = nil
             s.touch(row)
         }
         s.cursor.x = 0
@@ -191,7 +197,9 @@ extension Terminal {
         alternate.cursor.pen = pen
         isAlternateScreen = true
         if clear {
-            for y in 0..<alternate.rows { alternate.erase(row: y, from: 0, to: alternate.columns, fill: .default) }
+            for y in 0..<alternate.rows {
+                alternate.erase(row: y, from: 0, to: alternate.columns, fill: .default, forgetting: true)
+            }
         }
         bumpGeneration()
     }

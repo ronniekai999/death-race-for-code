@@ -56,6 +56,8 @@ extension Terminal {
             clipboard(rest)
         case 133:
             promptMark(text)
+        case 633:
+            vsCodeCommand(text)
         case 777:
             let parts = text.split(separator: ";", maxSplits: 2, omittingEmptySubsequences: false)
             if parts.first == "notify" {
@@ -193,15 +195,38 @@ extension Terminal {
     }
 
     /// OSC 133 (FinalTerm semantic prompts): A prompt, B command, C output, D;exit done.
+    ///
+    /// `D` takes a parameter list, not a single value: the first bare number is the exit code
+    /// and the rest are `key=value`. Reading only the first parameter as an `Int32`, as this
+    /// did, silently dropped the exit code of every `OSC 133;D;aid=7` — iTerm2's own form —
+    /// and a bare `OSC 133;D` cleared a code already on the row rather than leaving it be.
+    /// Unknown keys are ignored, which is what lets us add `dur=` without breaking anyone.
     private func promptMark(_ text: String) {
         let s = screen
         let parts = text.split(separator: ";", omittingEmptySubsequences: false)
         let mark: PromptMark
+        var duration: UInt32?
         switch parts.first {
-        case "A": mark = .promptStart
+        case "A":
+            mark = .promptStart
+            // A new prompt starts: whatever command text was being held belongs to a command
+            // whose `D` never came, and holding it would put it on the *next* command instead.
+            pendingCommandText = nil
         case "B": mark = .commandStart
         case "C": mark = .outputStart
-        case "D": mark = .commandEnd(exitCode: parts.count > 1 ? Int32(parts[1]) : nil)
+        case "D":
+            var code: Int32?
+            for parameter in parts.dropFirst() {
+                guard let equals = parameter.firstIndex(of: "=") else {
+                    // The first bare parameter is the exit code; later ones are not.
+                    if code == nil { code = Int32(parameter) }
+                    continue
+                }
+                let key = parameter[..<equals]
+                let value = parameter[parameter.index(after: equals)...]
+                if key == "dur" { duration = UInt32(value) }
+            }
+            mark = .commandEnd(exitCode: code)
         default: return
         }
         let row = s.active[s.cursor.y]
@@ -211,10 +236,82 @@ extension Terminal {
         case .outputStart: row.promptMarks.insert(.outputStart)
         case .commandEnd(let exitCode):
             row.promptMarks.insert(.commandEnd)
-            row.exitCode = exitCode
+            // Only what the shell actually said. A `D` with no exit code is a shell that does
+            // not report one, not a shell saying the last one was wrong.
+            var record = row.command ?? CommandRecord()
+            if let exitCode { record.exitCode = exitCode }
+            if let duration { record.durationMilliseconds = duration }
+            if let pending = pendingCommandText {
+                record.text = pending
+                pendingCommandText = nil
+            }
+            row.command = record.isEmpty ? nil : record
         }
         s.touch(row)
         emit(.promptMark(mark, rowID: row.id))
+    }
+
+    /// OSC 633 (Visual Studio Code's shell integration): only `E;<command line>`, which is the
+    /// one thing OSC 133 has no room for — the text of the command itself.
+    ///
+    /// Adopting VS Code's sequence rather than inventing one means a shell already set up for
+    /// its terminal reports its command lines to ours. The text is held rather than written to
+    /// a row, because it arrives while the cursor is still on the prompt and belongs with the
+    /// `commandEnd` that comes after the output, which is usually a different row.
+    ///
+    /// Split on *every* `;` and the command is the second field, because VS Code's own form is
+    /// `E;<command>;<nonce>` — taking the rest of the line would have put its nonce, and the
+    /// separator before it, on the end of every command it reported. Nothing is lost by it:
+    /// both escapers turn a `;` inside the command into `\x3b` precisely so this can be true.
+    private func vsCodeCommand(_ text: String) {
+        let parts = text.split(separator: ";", omittingEmptySubsequences: false)
+        guard parts.first == "E" else { return }
+        guard parts.count > 1 else {
+            pendingCommandText = nil
+            return
+        }
+        pendingCommandText = Self.unescapeVSCode(String(parts[1]))
+    }
+
+    /// VS Code escapes its command line so a `;` in it cannot end the parameter: `\xHH` for a
+    /// byte, `\\` for a backslash. Anything else after a backslash is taken literally rather
+    /// than dropped, so a command line is never silently mangled.
+    static func unescapeVSCode(_ text: String) -> String {
+        var out = ""
+        out.reserveCapacity(text.count)
+        var rest = Substring(text)
+        while let slash = rest.firstIndex(of: "\\") {
+            out += rest[..<slash]
+            let after = rest.index(after: slash)
+            guard after < rest.endIndex else {
+                out.append("\\")
+                return CommandRecord.cleaned(out)
+            }
+            switch rest[after] {
+            case "\\":
+                out.append("\\")
+                rest = rest[rest.index(after: after)...]
+            case "x", "X":
+                let digits = rest.index(after: after)
+                let end = rest.index(digits, offsetBy: 2, limitedBy: rest.endIndex) ?? rest.endIndex
+                // `isHexDigit` on both, because `UInt8(_:radix:)` accepts a leading sign: on
+                // its own, `\x+3` would have been read as the byte 3 rather than left alone.
+                if rest.distance(from: digits, to: end) == 2, rest[digits..<end].allSatisfy(\.isHexDigit),
+                    let byte = UInt8(rest[digits..<end], radix: 16), let scalar = Unicode.Scalar(UInt32(byte))
+                {
+                    out.unicodeScalars.append(scalar)
+                    rest = rest[end...]
+                } else {
+                    out.append(rest[after])
+                    rest = rest[rest.index(after: after)...]
+                }
+            default:
+                out.append(rest[after])
+                rest = rest[rest.index(after: after)...]
+            }
+        }
+        out += rest
+        return CommandRecord.cleaned(out)
     }
 
     // MARK: - DCS

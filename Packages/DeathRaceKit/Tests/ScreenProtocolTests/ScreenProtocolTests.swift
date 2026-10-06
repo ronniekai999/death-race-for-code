@@ -337,7 +337,8 @@ private func text(_ row: RowSnapshot) -> String {
                     foreground: .rgb(1, 2, 3), background: .indexed(200), underlineColor: .indexed(5),
                     attributes: [.bold, .italic], underline: .curly),
             ],
-            graphemes: [3: [0x301]], isWrapped: true, promptMarks: [.promptStart, .commandEnd], exitCode: -1,
+            graphemes: [3: [0x301]], isWrapped: true, promptMarks: [.promptStart, .commandEnd],
+            command: CommandRecord(text: "swift build ✦", durationMilliseconds: 12_400, exitCode: -1),
             links: [Hyperlink(id: ":1", uri: "https://wrld.example/999"), Hyperlink(id: "f", uri: "file:///tmp/✦")])
         return ScreenDelta(
             generation: 3, version: 99, isSnapshot: false, columns: 4, rows: 1, viewportOffset: 2,
@@ -395,6 +396,18 @@ private func text(_ row: RowSnapshot) -> String {
         w.u64(0)  // viewport top line
         w.u32(UInt32.max)  // "four billion row ids"
         #expect(throws: DeltaCodec.DecodeError.truncated) { try DeltaCodec.decode(w.bytes) }
+    }
+
+    /// A command record whose text is longer than the engine would ever produce. `count`
+    /// already stops a forged length from making the decoder allocate, but a frame that is
+    /// legitimately large could still carry a megabyte of text on every row, so the decoder
+    /// cuts it to the same cap the engine applies.
+    @Test func anOverlongCommandTextIsCutOnDecode() throws {
+        var delta = richDelta()
+        delta.changedRows[0].command = CommandRecord(text: String(repeating: "x", count: 100_000), exitCode: 0)
+        let decoded = try DeltaCodec.decode(DeltaCodec.encode(delta))
+        #expect(decoded.changedRows[0].command?.text.count == CommandRecord.textLimit)
+        #expect(decoded.changedRows[0].exitCode == 0)
     }
 
     @Test func forgedSizesAndLineNumbersAreRejected() {
@@ -465,6 +478,30 @@ private func text(_ row: RowSnapshot) -> String {
         #expect(link.mirror.link(column: 2, row: 0) == link.mirror.link(column: 1, row: 0))
         #expect(link.mirror.link(column: 3, row: 0) == nil)
         #expect(link.mirror.link(column: 99, row: 9) == nil)
+    }
+
+    // MARK: - What the decoder lets through for a command line
+
+    /// A command line arriving from another process goes through the same rule as one the
+    /// parser read, because there is nothing else between it and the screen.
+    @Test func aForgedCommandLineIsCutToTheSameRuleAsAReadOne() throws {
+        // One base scalar and a great many combining marks is a single `Character`, so a cap
+        // counted that way let this through whole: four hundred kilobytes on every frame.
+        let combining = "a" + String(repeating: "\u{0301}", count: 200_000)
+        var writer = ByteWriter()
+        writer.command(CommandRecord(text: combining, exitCode: 0))
+        var reader = ByteReader(bytes: writer.bytes)
+        let record = try #require(try reader.command())
+        #expect(record.text.unicodeScalars.count <= CommandRecord.textLimit)
+    }
+
+    @Test func aForgedCommandLineCarriesNoControlCharacters() throws {
+        var writer = ByteWriter()
+        writer.command(CommandRecord(text: "echo\u{1B}]0;title\u{7}\u{7F}\u{9B}x", exitCode: 0))
+        var reader = ByteReader(bytes: writer.bytes)
+        let record = try #require(try reader.command())
+        #expect(!record.text.unicodeScalars.contains { $0.value < 0x20 })
+        #expect(!record.text.unicodeScalars.contains { $0.value == 0x7F || (0x80...0x9F).contains($0.value) })
     }
 }
 

@@ -28,10 +28,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       # OpenSSH's client: SSHKit's tests check the config WRLD writes with real `ssh -G`.
+      # zsh and fish: the shell integration is tested by running the real shells in a
+      # pseudo-terminal, and zsh 5.9 here is the same version macOS ships. bash is in the
+      # image already. About ten seconds.
       - name: Tools the image may lack
         run: |
           missing=""
-          for tool in make python3; do command -v $tool >/dev/null || missing="$missing $tool"; done
+          for tool in make python3 zsh fish; do command -v $tool >/dev/null || missing="$missing $tool"; done
           command -v ssh >/dev/null || missing="$missing openssh-client"
           if [ -n "$missing" ]; then apt-get update -qq && apt-get install -y -qq $missing; fi
       - name: Build
@@ -39,9 +42,14 @@ jobs:
       # sshd on loopback for SSHKit's end-to-end suite, started in this step only, so the
       # Thread Sanitizer run below leaves that suite out. Sourced from a file rather than
       # eval'd: a failed start stops the step instead of skipping the suite.
+      # DEATHRACE_SHELLS asks for the real-shell suite, and only this step sets it, so the
+      # sanitizer run below leaves it out — real shells in pseudo-terminals would be slow
+      # under TSan and tell it nothing, being separate processes. A shell missing from a run
+      # that asked for shells fails on its own: each test `#require`s the path it looked in.
       - name: Test
         env:
           DEATHRACE_REQUIRE_SSH: "1"
+          DEATHRACE_SHELLS: "1"
         run: |
           scripts/ci-sshd.sh > /tmp/sshd-env
           . /tmp/sshd-env

@@ -357,7 +357,19 @@ public enum ConfigSchema {
                 "which goes when it does.",
             ],
             read: { value, config throws(ConfigValueError) in config.legendsNeverDie = try Value.bool(value) },
-            write: { String($0.legendsNeverDie) })
+            write: { String($0.legendsNeverDie) }),
+        ConfigKey(
+            "shell-integration", .sessions,
+            help: [
+                "Tell your shell to say where each prompt and command begins and ends, which is what",
+                "a command's duration, its pass or fail mark, and the word when a long one finishes",
+                "are all read from.",
+                "zsh and fish are set up through the environment and no file of yours is touched.",
+                "bash is different: it is offered one line to add to your ~/.bashrc, and shown the",
+                "line first. Turning this off stops all three.",
+            ],
+            read: { value, config throws(ConfigValueError) in config.shellIntegration = try Value.bool(value) },
+            write: { String($0.shellIntegration) }),
     ]
 
     private static let other: [ConfigKey] = [

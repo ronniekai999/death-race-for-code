@@ -433,9 +433,14 @@ struct PreambleTests {
 
     /// There is one version today. The test exists so that adding a second has to be a
     /// deliberate change here, with the compatibility it implies thought about.
+    ///
+    /// The screen format is pinned for the same reason, and it did its job: Phase 8 moved it
+    /// from 3 to 4 to carry a command's text, duration and exit code on the row, and had to
+    /// come here to say so. What that bump means for a daemon an older build left running is
+    /// `HandOverTests`, which exists because this was the change that made that path live.
     @Test("this build speaks exactly one version")
     func whatWeSpeak() {
         #expect(SessionWire.versions == 1...1)
-        #expect(DeltaCodec.formatVersion == 3)
+        #expect(DeltaCodec.formatVersion == 4)
     }
 }

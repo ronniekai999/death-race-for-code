@@ -112,7 +112,11 @@ public enum SettingsCatalog {
                     settings: [
                         Setting(
                             "legends-never-die", "Keep local shells running when Death Race quits", .toggle,
-                            note: "They go back in their windows next time. Sessions on a host are not kept.")
+                            note: "They go back in their windows next time. Sessions on a host are not kept."),
+                        Setting(
+                            "shell-integration", "Let your shell say where each command begins and ends", .toggle,
+                            note: "Where a command's duration and its pass or fail mark come from. zsh and fish "
+                                + "are set up through the environment; bash is offered one line for your ~/.bashrc."),
                     ]),
                 Group(
                     title: "New tabs",

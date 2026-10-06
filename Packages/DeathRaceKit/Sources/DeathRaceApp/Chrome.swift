@@ -1,6 +1,7 @@
 import AppKit
 import ConfigKit
 import CoreText
+import SurfaceCore
 import TerminalUI
 import VTCore
 

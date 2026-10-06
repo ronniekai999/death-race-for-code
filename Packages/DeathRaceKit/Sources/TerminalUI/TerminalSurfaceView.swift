@@ -735,7 +735,9 @@ public final class TerminalSurfaceView: NSView {
     /// draws, so there is no second signal to listen for.
     func updateBadges() {
         guard self.layer != nil, let makeBadge, let model, !blockRuns.isEmpty else { return hideBadges() }
-        let scale = window?.backingScaleFactor ?? cell.scale
+        // `CGFloat(…)` spelled out: AppKit's scale is a CGFloat and ours is a Double, and
+        // although the two are the same thing on this platform, `??` will not bridge them.
+        let scale = window?.backingScaleFactor ?? CGFloat(cell.scale)
         if scale != badgePictureScale {
             badgePictures.removeAll(keepingCapacity: true)
             badgePictureScale = scale

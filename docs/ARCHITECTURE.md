@@ -649,9 +649,22 @@ seam depends on the answer.
   past syntax and the macOS-only targets have no other gate. The same hole cost another round
   to a plainer thing: `LegendsService` named `ShellLaunch` and `Terminal.Configuration`
   without importing PTYKit or VTCore, which parses here and cannot compile there. That one is
-  now caught before any macOS minute is spent — `scripts/check-imports.py`, which `make lint`
+  caught before any macOS minute is spent — `scripts/check-imports.py`, which `make lint`
   runs, maps every top-level public type in the package to its module and reports one a
   macOS-only file names but cannot reach.
+
+  It did not, for three phases. The script read `Sources`, a path that exists under
+  `Packages/DeathRaceKit` and not at the repository root where `make lint` runs it, so it
+  mapped nothing, found nothing unreachable and said so on every run. Phase 8 lost a macOS
+  round to the very error it was written for. It now resolves its root from its own location
+  and **exits non-zero when that root is missing**, because the failure mode was not a wrong
+  answer but a confident empty one.
+
+  What still has no gate but a macOS runner is the type arithmetic at the AppKit edge:
+  `window?.backingScaleFactor ?? cell.scale` is `CGFloat?` against `Double`, which the
+  implicit conversion between them does not reach inside `??`. There is no way to type-check
+  that here, so the mitigation is the one the module layout already applies — keep the macOS
+  code thin, and put every decision in portable code with Linux tests.
 
 - **CI's GPU is virtual.** macOS runners are VMs with a paravirtual Metal device. The renderer
   tests and the smoke test's render run there, and every run keeps the corpus screens it

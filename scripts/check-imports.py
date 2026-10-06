@@ -8,7 +8,14 @@ comments and string literals.
 """
 import pathlib, re, sys, collections
 
-root = pathlib.Path("Sources")
+# From this script's own location, not from the working directory. `make lint` runs it from the
+# repository root, where `Sources` does not exist — so this read nothing, mapped no types, found
+# nothing unreachable and said so. It had been a no-op since the day it was written, and the
+# error it exists to catch went to a macOS runner again. Hence the guard below: a root that is
+# not there is now a failure, not a pass.
+root = pathlib.Path(__file__).resolve().parent.parent / "Packages/DeathRaceKit/Sources"
+if not root.is_dir():
+    sys.exit(f"check-imports: no sources at {root}")
 
 def strip(text):
     # Strings before line comments, and both in one pass: a `//` inside a string literal is

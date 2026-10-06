@@ -16,7 +16,15 @@ import VTCore
 /// It never carries a screen, so nothing here is large or urgent, and the only thing that
 /// arrives unasked is a session's end — which a client needs even for a session it has not
 /// taken up, so that a relaunched app can say how a shell went.
-final class ControlConnection {
+///
+/// Unchecked, and in two parts. The daemon's thread reaches a connection only through
+/// `announce` and `isFinished`, and the three things those touch — `pending`, `wake` and
+/// `finished` — are each behind their own `Locked`. Everything else here (`reader`, `writer`,
+/// `buffer`, `running`) is touched only from `run` and the private methods it calls, and
+/// `run` is called once, on the thread that greeted this client. `socket` is closed in
+/// `deinit`, which cannot run before `run` has returned and the daemon has pruned its
+/// reference. `ControlClient`, the app's end of the same connection, makes the same claim.
+final class ControlConnection: @unchecked Sendable {
     static let requestTimeout = 10_000
 
     private let socket: Int32

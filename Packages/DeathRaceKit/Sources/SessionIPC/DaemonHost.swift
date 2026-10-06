@@ -40,9 +40,14 @@ public final class SpawnLauncher: DaemonLauncher {
     private let logPath: String?
     private let environment: [String: String]
     private let extra: [String]
-    /// Kept only so a daemon that exits while the app runs can be reaped rather than left a
-    /// zombie. The daemon usually outlives the app, in which case this never matters.
-    private let child = Locked<ChildProcess?>(nil)
+    /// The pid of the last daemon started, kept only so one that exits while the app runs can
+    /// be reaped rather than left a zombie. The daemon usually outlives the app, in which case
+    /// this never matters.
+    ///
+    /// A pid and not the `ChildProcess` itself: that type is owned by one thread at a time and
+    /// so deliberately not `Sendable`, and reaping needs nothing more. Its three descriptors
+    /// are all closed below before the pid is stored, so letting it go costs nothing.
+    private let child = Locked<pid_t?>(nil)
 
     public init(
         executable: String, logPath: String? = nil, environment: [String: String] = ["PATH": "/usr/bin:/bin"],
@@ -56,7 +61,9 @@ public final class SpawnLauncher: DaemonLauncher {
 
     public func start(socketPath: String, lockPath: String) {
         child.withLock { child in
-            if let waiting = child, waiting.reap() != nil { child = nil }
+            guard let waiting = child else { return }
+            var ignored: Int32 = 0
+            if waitpid(waiting, &ignored, WNOHANG) == waiting { child = nil }
         }
         var arguments = ["legendsd", "--socket", socketPath, "--lock", lockPath]
         if let logPath { arguments += ["--log", logPath] }
@@ -67,7 +74,7 @@ public final class SpawnLauncher: DaemonLauncher {
         // Its own standard streams are a log of its own by now, so ours are no use to it.
         started?.closeInput()
         started?.closeOutput()
-        child.withLock { $0 = started }
+        if let pid = started?.pid { child.withLock { $0 = pid } }
     }
 }
 

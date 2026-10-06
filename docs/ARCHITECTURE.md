@@ -636,6 +636,18 @@ seam depends on the answer.
   dash, which has no line editor.
 - **The notch is shared with MenuGlance.** A DistributedNotificationCenter handshake makes
   MenuGlance hide its island while Lucid Dreams is open.
+- **Our own code must not be stricter on one platform than the other.** `Locked` has two
+  implementations, and that part is deliberate: `Synchronization.Mutex` on Apple platforms, a
+  pthread mutex on Linux, because `Mutex` hands a contended lock over through a futex inside
+  the Synchronization library where the Thread Sanitizer cannot see it. What was not
+  deliberate is that only the Darwin one took `sending`. Portable code that stored a
+  task-isolated value in a box therefore compiled on every Linux run and could fail only on a
+  macOS runner — and Phase 7's first macOS build died on exactly two such errors, both latent
+  since M2, in portable code. The Linux signature now matches Darwin's down to `sending`, and
+  reproduces both errors here. Anything split by `#if` is a candidate for the same hole: keep
+  the signatures identical and let only the body differ, because `swiftc -parse` cannot see
+  past syntax and the macOS-only targets have no other gate.
+
 - **CI's GPU is virtual.** macOS runners are VMs with a paravirtual Metal device. The renderer
   tests and the smoke test's render run there, and every run keeps the corpus screens it
   rendered as an artifact for review. Pixel goldens, which need a real GPU's antialiasing,

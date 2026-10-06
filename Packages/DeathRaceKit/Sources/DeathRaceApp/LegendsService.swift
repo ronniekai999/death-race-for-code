@@ -1,8 +1,10 @@
 import Foundation
 import IPCKit
+import PTYKit
 import SSHKit
 import SessionIPC
 import SessionKit
+import VTCore
 import os
 
 /// Legends Never Die, as the app sees it: where a pane's session comes from, which sessions

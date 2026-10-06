@@ -646,7 +646,12 @@ seam depends on the answer.
   since M2, in portable code. The Linux signature now matches Darwin's down to `sending`, and
   reproduces both errors here. Anything split by `#if` is a candidate for the same hole: keep
   the signatures identical and let only the body differ, because `swiftc -parse` cannot see
-  past syntax and the macOS-only targets have no other gate.
+  past syntax and the macOS-only targets have no other gate. The same hole cost another round
+  to a plainer thing: `LegendsService` named `ShellLaunch` and `Terminal.Configuration`
+  without importing PTYKit or VTCore, which parses here and cannot compile there. That one is
+  now caught before any macOS minute is spent — `scripts/check-imports.py`, which `make lint`
+  runs, maps every top-level public type in the package to its module and reports one a
+  macOS-only file names but cannot reach.
 
 - **CI's GPU is virtual.** macOS runners are VMs with a paravirtual Metal device. The renderer
   tests and the smoke test's render run there, and every run keeps the corpus screens it

@@ -15,7 +15,7 @@
 PKG := Packages/DeathRaceKit
 APP := build/Death Race for Code.app
 
-.PHONY: test test-render esctest fuzz bench vtdiff lint format run smoke bundle clean install-swift-linux
+.PHONY: test test-render esctest fuzz bench vtdiff lint check-imports format run smoke bundle clean install-swift-linux
 
 FUZZ := Tools/VTFuzz
 DIFF := Tools/VTDiff
@@ -53,8 +53,14 @@ vtdiff:
 SWIFT_SOURCES := $(PKG)/Sources $(PKG)/Tests $(PKG)/Tools $(PKG)/Package.swift $(FUZZ)/Sources $(FUZZ)/Package.swift \
 	$(DIFF)/Sources $(DIFF)/Package.swift
 
-lint:
+lint: check-imports
 	swift format lint --recursive --strict $(SWIFT_SOURCES)
+
+# A type the macOS-only sources name but cannot reach. `swiftc -parse` is syntax only, so
+# this is otherwise found by a macOS runner rather than here (see docs/ARCHITECTURE.md,
+# known risks).
+check-imports:
+	python3 scripts/check-imports.py
 
 format:
 	swift format --in-place --recursive $(SWIFT_SOURCES)

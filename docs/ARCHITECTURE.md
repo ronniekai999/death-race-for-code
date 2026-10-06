@@ -44,7 +44,7 @@ UI half needs macOS.
 | `CPTY` | macOS, Linux | `openpty` → `fork` → `setsid` → `TIOCSCTTY` → `dup2` → `execve`, in C |
 | `PTYKit` | macOS, Linux | `PseudoTerminal` (non-blocking master, resize, password-prompt detection, child-exit watch, hang-up), `ShellLaunch`, `SmokeTest` |
 | `VTCore` | macOS, Linux | the engine: parser, screens and scrollback, reflow, SGR, modes, reports, OSC/DCS (OSC 8 links in per-row tables); key, mouse, focus and paste encoding |
-| `ScreenProtocol` | macOS, Linux | `ScreenDelta`, `DeltaBuilder` (session side), `MirrorGrid` (app side), `DeltaCodec` (the bytes a session sends the app, format 3) |
+| `ScreenProtocol` | macOS, Linux | `ScreenDelta`, `DeltaBuilder` (session side), `MirrorGrid` (app side), `DeltaCodec` (the bytes a session sends the app, format 4) |
 | `SessionKit` | macOS, Linux | `TerminalSession`/`ShellSession`/`SessionHost`, the seam a session is reached through; `Session`: one thread per shell owning its PTY and engine, a locked mailbox for deltas and commands; `InProcessHost` |
 | `IPCKit` | macOS, Linux | what the askpass broker and the session daemon both need and neither owns: `UnixSocket`, `FrameReader`/`FrameWriter` (a control lane drained before a bulk one), `PeerInspector`, `PeerCode` (macOS: a peer's audit token against a requirement built from our own signature), `secureFolder`, `ProcessLock`, constant-time compare |
 | `SessionIPC` | macOS, Linux | Legends Never Die: `SessionWire`/`ControlWire`/`StreamWire` (the messages and their bounds), `SessionRegistry`, `ControlConnection`, `SessionBridge` (one per attached session, with a one-delta acknowledgement window), `Daemon`; the app's end — `DaemonHost`, `RemoteSession`, `SpawnLauncher`, `PeerPolicy`, `Legends`, `SessionPlacement` |

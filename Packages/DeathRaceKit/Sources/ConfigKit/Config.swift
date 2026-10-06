@@ -70,6 +70,11 @@ public struct Config: Sendable, Equatable {
     /// Whether a shell is told to report where its prompts and commands begin and end, which
     /// is what Conversations, Fast and Ring Ring are built on.
     public var shellIntegration = true
+    /// Whether what the shell reports is drawn: a rail beside each command, a band behind the
+    /// one you are in, and a badge saying how long it took.
+    public var conversations = true
+    /// A command faster than this gets no badge. One that failed gets one however fast it was.
+    public var fastThresholdMilliseconds = 1_000
     /// Read what each host runs from its /etc/os-release, at most weekly.
     public var readHostOS = true
 

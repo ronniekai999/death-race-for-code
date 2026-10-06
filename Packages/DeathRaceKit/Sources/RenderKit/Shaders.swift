@@ -165,6 +165,7 @@ public enum Shaders {
             uint kind [[flat]];
             float thickness [[flat]];
             float height [[flat]];
+            float left [[flat]];  // the run's own left edge, for a pattern measured from it
         };
 
         vertex DecorationOut decorationVertex(uint vid [[vertex_id]], uint iid [[instance_id]],
@@ -183,6 +184,7 @@ public enum Shaders {
             out.kind = uint(item.kind);
             out.thickness = max(float(item.thickness), 1.0);
             out.height = float(item.height);
+            out.left = origin.x;
             return out;
         }
 
@@ -209,6 +211,14 @@ public enum Shaders {
                 }
                 case 5u: {  // dashed
                     alpha = fmod(x, t * 6.0) < t * 4.0 ? 1.0 : 0.0;
+                    break;
+                }
+                case 8u: {  // rail: a bar hugging the left edge of the run, however tall it is
+                    // From the run's own left edge, not from absolute x: this is the one
+                    // pattern that is about where the box starts rather than about continuing
+                    // across cells. Horizontal geometry is whole cells, so without this a rail
+                    // would be a cell-wide block over the first character of every line.
+                    alpha = (x - in.left) < t ? 1.0 : 0.0;
                     break;
                 }
                 default:

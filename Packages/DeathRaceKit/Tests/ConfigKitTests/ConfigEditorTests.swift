@@ -10,6 +10,7 @@ import VTCore
         "font-thicken": "true", "cursor-style": "bar", "cursor-style-blink": "false", "option-as-meta": "both",
         "mouse-scroll-multiplier": "1.5", "mouse-scroll-alternate": "false", "window-padding-x": "10",
         "window-padding-y": "4", "window-size": "120x40", "pane-headers": "always", "starfield": "false",
+        "conversations": "false", "fast-threshold-milliseconds": "2500",
         "theme": "righteous", "background": "#000000", "foreground": "#FFFFFF", "cursor-color": "#FF0000",
         "cursor-text": "#000000", "selection-background": "#333333", "selection-foreground": "#FFFFFF",
         "palette": "1=#FF0000", "bold-is-bright": "true", "confirm-close": "false", "paste-protection": "false",

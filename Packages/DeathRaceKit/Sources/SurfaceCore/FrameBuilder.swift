@@ -31,6 +31,47 @@ public enum DecorationKind: UInt8, Sendable {
     case dashedUnderline = 5
     case strikethrough = 6
     case overline = 7
+    /// A block's rail: a thin bar down the left edge of a run of rows, `thickness` pixels wide
+    /// and as tall as the run. The one kind whose pattern is measured from the run's own left
+    /// edge rather than from absolute x, because horizontal geometry is whole cells and a
+    /// cell-wide bar would sit on the first character of every line.
+    case rail = 8
+}
+
+/// What block chrome is drawn in.
+///
+/// Resolved colors rather than a theme: a `FrameBuilder` knows a terminal's palette, not the
+/// window's chrome, and the rail and the band are the window's. Settable on the view, so one
+/// value turns the whole thing on and off.
+public struct BlockColors: Sendable, Equatable {
+    /// The rail of a block that went well, or has not finished. Neutral on purpose: a color on
+    /// its own is not allowed to mean pass or fail (`docs/DESIGN.md` asks for a word or a ✓ / ✗
+    /// beside it), and a command quick enough to need no badge has neither.
+    public var rail: RGB
+    /// The rail of one that failed — which always has a badge, so its ✗ is always there too.
+    public var railFailed: RGB
+    /// Mixed into the background of the block you are in, and no other: twenty tinted bands
+    /// read as stripes, one reads as "here".
+    public var band: RGB
+    public var bandAmount: Double
+
+    public init(rail: RGB, railFailed: RGB, band: RGB, bandAmount: Double = 0.35) {
+        self.rail = rail
+        self.railFailed = railFailed
+        self.band = band
+        self.bandAmount = bandAmount
+    }
+}
+
+/// The blocks to draw over the grid, and the colors to draw them in.
+public struct BlockChrome: Sendable, Equatable {
+    public var runs: [BlockRun]
+    public var colors: BlockColors
+
+    public init(runs: [BlockRun], colors: BlockColors) {
+        self.runs = runs
+        self.colors = colors
+    }
 }
 
 /// A line under, through or over a run of cells, as the shader's `DecorationInstance` lays
@@ -102,10 +143,12 @@ public final class FrameBuilder {
     /// The frame for `mirror` drawn with `theme` at `cell`, with `selection` highlighted and
     /// an input method's composing text (`preedit`) drawn over the cells it covers, underlined.
     /// With `starfield`, each row's empty end is marked for the shader's stars. `link`, the
-    /// one ⌘ is held over, is underlined.
+    /// one ⌘ is held over, is underlined. `blocks` draws a rail beside each command and a band
+    /// behind the one you are in.
     public func build(
         mirror: MirrorGrid, theme: Theme, cell: CellMetrics, selection: TextRegion?, glyphs: any GlyphSource,
-        preedit: PreeditLayout? = nil, starfield: Bool = false, link: LinkHit? = nil
+        preedit: PreeditLayout? = nil, starfield: Bool = false, link: LinkHit? = nil,
+        blocks: BlockChrome? = nil
     ) -> Frame {
         let current = Inputs(
             palette: mirror.palette, theme: theme, reverseVideo: mirror.modes.reverseVideo, cell: cell,
@@ -152,12 +195,60 @@ public final class FrameBuilder {
         }
         // Rows that scrolled out of view are not kept.
         if cache.count > visible.count { cache = cache.filter { visible.contains($0.key) } }
+        // Before the composing text and the hovered link, so a band never tints over them.
+        if let blocks { chrome(blocks, on: &frame, mirror: mirror, cell: cell) }
         if let preedit {
             overlay(preedit, on: &frame, resolver: resolver, cell: cell, glyphs: glyphs, shelves: &shelves)
         }
         if let link { underline(link, on: &frame, mirror: mirror, resolver: resolver, cell: cell) }
         glyphs.markUsed(shelves: Array(shelves))
         return frame
+    }
+
+    /// A block's rail and the current block's band. Added to the frame each time, like
+    /// composing text and the hovered link, so a block appearing or the cursor moving between
+    /// two of them rebuilds no rows at all.
+    private func chrome(_ blocks: BlockChrome, on frame: inout Frame, mirror: MirrorGrid, cell: CellMetrics) {
+        guard frame.rows > 0, frame.columns > 0 else { return }
+        let top = mirror.viewportTopLine
+        for run in blocks.runs {
+            // Clipped to what is on screen. `Blocks.runs` only makes runs that are in view, but
+            // this is public, and a run past either edge must not index past the buffers.
+            guard run.lines.upperBound >= top else { continue }
+            let lowerInView = run.lines.lowerBound > top ? Int(run.lines.lowerBound - top) : 0
+            let upperInView = min(Int(run.lines.upperBound - top), frame.rows - 1)
+            guard lowerInView <= upperInView, lowerInView < frame.rows else { continue }
+            if run.isCurrent {
+                band(blocks.colors, rows: lowerInView...upperInView, on: &frame)
+            }
+            frame.decorations.append(
+                DecorationInstance(
+                    cellX: 0, cellY: UInt16(clamping: lowerInView), cellCount: 1,
+                    kind: DecorationKind.rail.rawValue, thickness: UInt8(clamping: cell.underlineThickness),
+                    top: 0, height: Int16(clamping: (upperInView - lowerInView + 1) * cell.height),
+                    color: (run.failed == true ? blocks.colors.railFailed : blocks.colors.rail).packed))
+        }
+    }
+
+    /// The band, mixed into the backgrounds the rows already built.
+    ///
+    /// Each cell's own alpha byte is kept rather than written: `starryAlpha` is that byte, so a
+    /// constant would put out every star the band covers, and a hand-packed one could make a
+    /// tinted cell starry. The stars are hashed from the pixel, so they stay where they were
+    /// and come back mixed from the tinted color instead of the plain one.
+    private func band(_ colors: BlockColors, rows: ClosedRange<Int>, on frame: inout Frame) {
+        for row in rows {
+            for column in 0..<frame.columns {
+                let index = row * frame.columns + column
+                guard index >= 0, index < frame.backgrounds.count else { continue }
+                let was = frame.backgrounds[index]
+                let tinted = RGB(
+                    UInt8(truncatingIfNeeded: was), UInt8(truncatingIfNeeded: was >> 8),
+                    UInt8(truncatingIfNeeded: was >> 16)
+                ).mixed(with: colors.band, amount: colors.bandAmount)
+                frame.backgrounds[index] = (tinted.packed & 0x00FF_FFFF) | (was & 0xFF00_0000)
+            }
+        }
     }
 
     /// The hovered link's underline, in each span's text color. Added to the frame each
@@ -382,6 +473,11 @@ private struct DecorationRuns {
             (top, height) = (cell.strikethroughTop, cell.strikethroughThickness)
         case .overline:
             (top, height) = (0, thickness)
+        case .rail:
+            // Not reached: a rail is a block's, appended whole by `chrome`, and no style
+            // produces one. The arm is here so this switch stays exhaustive and checked — one
+            // cell's worth is the right answer if a rail ever did arrive as a run.
+            (top, height) = (0, cell.height)
         }
         // Keep the box inside the cell.
         height = min(height, cell.height)

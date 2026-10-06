@@ -28,6 +28,28 @@ struct Chrome {
         GradientText.render("999", font: GradientText.wordmarkFont(size: size), colors: colors.neon, scale: scale)
     }
 
+    /// What a block's rail and the band behind the one you are in are drawn in.
+    ///
+    /// The rail is neutral whatever happened, except on a failure: `docs/DESIGN.md` asks that
+    /// the danger color always arrive with a word or a ✗, and a failure always has a badge, so
+    /// it always does. A command quick enough to need no badge has neither, which is why a
+    /// successful one does not get the cyan it would otherwise have earned.
+    var blockColors: BlockColors {
+        BlockColors(
+            rail: colors.lineStrong, railFailed: colors.danger, band: colors.surface, bandAmount: Self.bandAmount)
+    }
+
+    /// A command's badge: its words, filled with the gradient when it beat its own best and in
+    /// plain secondary ink otherwise.
+    ///
+    /// `colors.gradient` rather than `colors.neon`, because the tokens already say which is
+    /// which — "Five stops, left to right: the active tab pill, the 999 personal bests".
+    func badge(_ words: String, isPersonalBest: Bool, scale: CGFloat) -> CGImage? {
+        let font = NSFont.systemFont(ofSize: Self.badgeTextSize, weight: isPersonalBest ? .bold : .medium)
+        let fill = isPersonalBest ? colors.gradient : [colors.inkMuted, colors.inkMuted]
+        return GradientText.render(words, font: font as CTFont, colors: fill, scale: scale)
+    }
+
     // MARK: - Metrics (the mockup's, in points)
 
     static let titleRowHeight: CGFloat = 46
@@ -45,6 +67,12 @@ struct Chrome {
     static let paneHeaderHeight: CGFloat = 26
     /// How far a pane that is not the active one fades toward the ground.
     static let inactiveDim = 0.14
+    /// How far the block you are in is tinted toward `surface`. Enough to find, not enough to
+    /// read as a highlight over the text.
+    static let bandAmount = 0.22
+    /// A badge is beside terminal text, not part of it, so it takes the chrome's own size
+    /// rather than the terminal font's.
+    static let badgeTextSize: CGFloat = 11
 }
 
 /// Text filled with a gradient, drawn once into an image: cheaper than a gradient layer

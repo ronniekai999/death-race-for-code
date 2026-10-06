@@ -1,6 +1,7 @@
 #ifndef CPTY_H
 #define CPTY_H
 
+#include <stdint.h>
 #include <sys/types.h>
 
 #ifdef __cplusplus
@@ -74,6 +75,15 @@ ssize_t cpty_write_no_sigpipe(int fd, const void *buffer, size_t count);
 /// The process and user at the other end of a connected Unix-domain socket: LOCAL_PEERPID
 /// and getpeereid() on macOS, SO_PEERCRED on Linux. Returns 0, or -1 with errno set.
 int cpty_peer_credentials(int socket_fd, pid_t *pid, uid_t *uid);
+
+/// The audit token of the peer on a connected Unix-domain socket, eight words, on macOS
+/// only; elsewhere -1 with errno ENOTSUP.
+///
+/// A pid is not enough to decide whether to trust a peer: it can be reused, and a process can
+/// exec something else between being asked about and being answered. An audit token carries
+/// the pid's generation, so it names one run of one program and nothing else — which is what
+/// SecCodeCopyGuestWithAttributes wants.
+int cpty_peer_audit_token(int socket_fd, uint32_t token[8]);
 
 /// The parent of process `pid` (PROC_PIDTBSDINFO on macOS, /proc/<pid>/stat on Linux), or -1
 /// with errno set.

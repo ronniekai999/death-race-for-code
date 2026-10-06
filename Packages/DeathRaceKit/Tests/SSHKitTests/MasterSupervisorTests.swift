@@ -1,4 +1,5 @@
 import Foundation
+import IPCKit
 import PTYKit
 import Testing
 import Vault
@@ -134,7 +135,7 @@ struct MasterSupervisorTests {
         let started = UnixSocket.monotonicMilliseconds()
         try master.start()
         #expect(await ending(of: master) == .failed(.cancelled))
-        #expect(UnixSocket.monotonicMilliseconds() - started < 10_000)
+        #expect(UnixSocket.monotonicMilliseconds() - started < patience(10_000))
     }
 
     @Test(.enabled(if: RealSSH.shouldRun)) func aMasterAlreadyListeningIsntReplaced() throws {

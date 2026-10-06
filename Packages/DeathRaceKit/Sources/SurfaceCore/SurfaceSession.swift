@@ -2,29 +2,10 @@ import ScreenProtocol
 import SessionKit
 import VTCore
 
-/// What a terminal view needs from the session behind it. `Session` runs a shell on a
-/// pseudo-terminal; `ReplaySession` feeds an engine in process, for tests and tools.
-public protocol SurfaceSession: AnyObject, Sendable {
-    /// The waiting delta, if any.
-    func takeDelta() -> ScreenDelta?
-    var status: Session.Status { get }
-    /// Queues bytes for the program; false when too much is already waiting.
-    @discardableResult func send(_ bytes: [UInt8]) -> Bool
-    /// Queues what the terminal reports on its own (focus, mouse, key releases): like
-    /// `send`, but a scrolled-back view stays where it is.
-    @discardableResult func sendReport(_ bytes: [UInt8]) -> Bool
-    func resize(columns: Int, rows: Int, cellPixelWidth: Int, cellPixelHeight: Int)
-    func scroll(by lines: Int)
-    func scrollToBottom()
-    func requestSnapshot()
-    func setFocused(_ focused: Bool)
-    func setBasePalette(_ palette: Palette)
-    /// Clear to Start (⌘K) or Clear Scrollback (⌥⌘K).
-    func clear(_ kind: Terminal.ClearKind)
-    func text(in range: TextRegion, generation: UInt64) async -> String?
-}
-
-extension Session: SurfaceSession {}
+/// What a terminal view needs from the session behind it. It lives in SessionKit, so a
+/// session in another process can meet it without SurfaceCore — and the terminal view, and
+/// `vthost` with it — having to know anything about sockets.
+public typealias SurfaceSession = TerminalSession
 
 /// An engine in process behind the `SurfaceSession` interface: bytes go in through `feed`,
 /// deltas come out the way a session publishes them, and what the view sends collects in

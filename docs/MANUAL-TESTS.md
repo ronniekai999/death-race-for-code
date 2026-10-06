@@ -4,8 +4,61 @@ What CI cannot check, because it needs a real Mac, a real GPU, a keyboard, input
 your eyes. Run it with a debug build (`CONFIG=debug make run`) before closing a phase, and
 note the macOS build (`sw_vers`) with the results.
 
-Phase 6's checks come first; Phase 5's, Phase 4's, Phase 3's and Phase 2's follow, and still
-apply.
+Phase 7's checks come first; Phase 6's, Phase 5's, Phase 4's, Phase 3's and Phase 2's follow,
+and still apply.
+
+## Phase 7 exit criteria
+
+Phase 7 is done when all of these hold on the M5. Run [SPIKE.md](SPIKE.md) first: it is a
+Phase 2 criterion that is still open, and criterion 4 below is the same question asked of the
+real thing.
+
+1. **It survives being killed.** With three panes running `vim`, `htop` and a `tail -f`, and a
+   second window with two tabs, `kill -9` the app (`pkill -9 -f 'Death Race for Code'`) and
+   relaunch. Every session is back, in the windows and tabs it was in, panes side by side in
+   the order they sat in — and scrolling up in each reaches the scrollback it had.
+2. **They are live, not a picture.** Type in each reattached pane and it answers: `:q` leaves
+   vim, `q` leaves htop, and a `date >> file` in the third shows up in the `tail -f`. That is
+   the pseudo-terminal, the engine and the shell all still running, not a snapshot replayed.
+3. **Quitting is quiet, closing is not.** ⌘Q with only local shells open asks nothing and the
+   sessions come back next launch. ⌘W on a pane running something still asks "Goodbye & Good
+   Riddance?", and answering Quit ends that shell for good — it does not come back.
+4. **Privacy grants survive.** From a reattached session, `ls ~/Desktop` (or another
+   TCC-protected folder Death Race has been granted) still works, with no new prompt and
+   nothing in `log show --predicate 'eventMessage CONTAINS "Attribution Chain"'`. This is the
+   spike's question asked of the shipped daemon; if it fails, record it in
+   [ARCHITECTURE.md](ARCHITECTURE.md#the-legendsd-spike) and turn `legends-never-die` off.
+5. **Idle costs nothing.** Quit the app with sessions running. `sudo powermetrics --samplers
+   tasks` shows `legendsd` at ≈0% CPU and ≈0 wakeups a second over a minute. A detached pane
+   running `yes` costs parser time and no more — no deltas are being built for nobody.
+6. **Nothing is left behind.** Close every session, wait ten seconds, and `legendsd` is gone
+   (`pgrep legendsd` finds nothing); `~/.deathrace/run` holds no socket. Nothing in
+   `launchctl list` mentions Death Race.
+7. **It is signed as the app expects.** `codesign -dv "…/Contents/MacOS/legendsd"` shows
+   `Identifier=local.deathraceforcode.legendsd`, and `~/.deathrace/run/legendsd.log` does
+   **not** carry the "no signature to pin" line — if it does, the build is ad-hoc and the peer
+   check is uid-only.
+8. **A broken daemon costs nothing.** Move the bundled `legendsd` aside and launch: the app
+   opens as always, panes work, and the status bar reads "Sessions end with the app". Clicking
+   that opens Settings at the Sessions group. Put it back and relaunch: sessions are kept
+   again.
+
+## Legends Never Die
+
+- [ ] ⌘Q then relaunch: the sessions come back. (The quick path for criterion 1.)
+- [ ] Turning the setting off in Settings while sessions are running keeps them running; new
+      tabs are in-process from then on, and the ones already kept still come back next launch.
+- [ ] Turning it off, quitting and relaunching: the kept sessions are still found and put back.
+      (They were the daemon's before the setting changed.)
+- [ ] An ssh pane is never kept: quitting with one open still asks, and it is gone next launch.
+- [ ] Lucid Dreams is never kept: ⌥Space, type something, quit, relaunch — a fresh shell, and
+      no stray tab holding the old one.
+- [ ] Move Tab to New Window, then quit and relaunch: the tab comes back in a second window.
+- [ ] `legendsd` with a session open and the app gone: `ps` shows one `legendsd`, in a session
+      of its own (`ps -o pid,ppid,sess`), parented to launchd, and **not** double-forked.
+- [ ] Two app launches at once (open the bundle twice quickly): one daemon, one socket, every
+      session reachable. `~/.deathrace/run/legendsd.log` shows the second daemon standing down.
+- [ ] `~/.deathrace/run` is `drwx------` and the socket `srw-------`, both owned by you.
 
 ## Phase 6 exit criteria
 
@@ -307,7 +360,11 @@ Phase 2 is done when all of these hold on the M5:
 2. An idle window draws no frames: **Debug › Log Frame Stats** shows the frame count
    standing still while nothing changes, and the cursor keeps blinking.
 3. The budgets in [PERF.md](PERF.md) are met.
-4. The [legendsd spike](SPIKE.md)'s verdict is in [ARCHITECTURE.md](ARCHITECTURE.md#the-legendsd-spike).
+4. The [legendsd spike](SPIKE.md)'s verdict is in
+   [ARCHITECTURE.md](ARCHITECTURE.md#the-legendsd-spike). **Still open.** Phase 7 shipped on
+   the reasoning instead, with a fallback for the answer going the wrong way; this is the one
+   criterion a later phase did not make moot, and Phase 7's criterion 4 is the same question
+   asked of what shipped.
 5. `make test-render` passes, with its goldens committed.
 
 ## Rendering

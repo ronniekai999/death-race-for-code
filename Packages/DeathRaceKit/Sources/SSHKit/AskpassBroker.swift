@@ -1,5 +1,6 @@
 import CPTY
 import Foundation
+import IPCKit
 import PTYKit
 
 #if canImport(Darwin)
@@ -73,28 +74,6 @@ public protocol PromptPresenter: Sendable {
     func answer(_ question: AskpassQuestion) async -> PromptAnswer
     /// Something ssh shows while it waits (Touch ID for a Secure Enclave key); no answer.
     func notice(_ prompt: AskpassPrompt, for context: AskpassContext) async
-}
-
-/// Who is at the other end of the broker's socket.
-public protocol PeerInspector: Sendable {
-    func credentials(of fd: Int32) -> (pid: Int32, uid: UInt32)?
-    func parent(of pid: Int32) -> Int32?
-}
-
-public struct SystemPeerInspector: PeerInspector {
-    public init() {}
-
-    public func credentials(of fd: Int32) -> (pid: Int32, uid: UInt32)? {
-        var pid: pid_t = 0
-        var uid: uid_t = 0
-        guard cpty_peer_credentials(fd, &pid, &uid) == 0 else { return nil }
-        return (Int32(pid), UInt32(uid))
-    }
-
-    public func parent(of pid: Int32) -> Int32? {
-        let parent = cpty_parent_pid(pid_t(pid))
-        return parent > 0 ? Int32(parent) : nil
-    }
 }
 
 /// What the broker may do for one ssh process tree the app started.
@@ -352,7 +331,7 @@ public final class AskpassBroker: Sendable {
         let folder = (socketPath as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(
             atPath: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try secureFolder(folder)
+        try secureFolder(folder, what: "askpass folder")
         let listener = try UnixSocket.listen(at: socketPath)
         var wake: [Int32] = [-1, -1]
         guard pipe(&wake) == 0 else {
@@ -370,25 +349,6 @@ public final class AskpassBroker: Sendable {
         let thread = Thread { [self] in acceptLoop(listener: listener, wake: wakeRead) }
         thread.name = "Death Race: askpass broker"
         thread.start()
-    }
-
-    /// Opens the socket's folder without following a symlink and checks this user owns it and
-    /// nobody else can write it, then tightens it to 0700. A folder someone else controls (a
-    /// planted symlink, a shared or misconfigured home) could otherwise let another user put
-    /// the socket where they receive the prompts and the token.
-    private func secureFolder(_ folder: String) throws {
-        let fd = open(folder, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
-        guard fd >= 0 else { throw UnixSocket.Failure.system("open askpass folder", errno: errno) }
-        defer { close(fd) }
-        var info = stat()
-        guard fstat(fd, &info) == 0 else { throw UnixSocket.Failure.system("stat askpass folder", errno: errno) }
-        guard info.st_uid == getuid() else {
-            throw UnixSocket.Failure.system("askpass folder is owned by another user", errno: EPERM)
-        }
-        _ = fchmod(fd, 0o700)
-        guard fstat(fd, &info) == 0, info.st_mode & 0o077 == 0 else {
-            throw UnixSocket.Failure.system("askpass folder is open to other users", errno: EPERM)
-        }
     }
 
     /// Stops listening; questions in flight are cancelled by their helpers' ssh.
@@ -434,7 +394,8 @@ public final class AskpassBroker: Sendable {
     private func serve(_ client: Int32) {
         defer { close(client) }
         guard let (pid, uid) = peers.credentials(of: client),
-            let payload = UnixSocket.readFrame(client, timeoutMilliseconds: Self.requestTimeout),
+            let payload = UnixSocket.readFrame(
+                client, limit: AskpassWire.largestMessage, timeoutMilliseconds: Self.requestTimeout),
             let request = AskpassWire.decodeRequest(payload)
         else {
             _ = UnixSocket.writeAll(client, AskpassWire.encode(.cancel))
@@ -476,7 +437,9 @@ public enum AskpassClient {
         let request = AskpassWire.Request(token: token, prompt: prompt, hint: hint)
         guard UnixSocket.writeAll(fd, AskpassWire.encode(request)) else { return nil }
         guard waitForReply else { return .done }
-        guard let payload = UnixSocket.readFrame(fd, timeoutMilliseconds: nil) else { return nil }
+        guard let payload = UnixSocket.readFrame(fd, limit: AskpassWire.largestMessage, timeoutMilliseconds: nil) else {
+            return nil
+        }
         return AskpassWire.decodeReply(payload)
     }
 }

@@ -12,6 +12,7 @@ public struct ConfigKey: Sendable {
         case safety = "Safety"
         case energy = "Energy"
         case wrld = "WRLD"
+        case sessions = "Sessions"
         case other = "Other"
         case newTabs = "New tabs"
     }
@@ -56,7 +57,7 @@ public struct ConfigValueError: Error, Sendable, Equatable {
 /// the template itself.
 public enum ConfigSchema {
     public static let keys: [ConfigKey] =
-        fonts + cursor + input + window + colors + safety + energy + wrld + other + newTabs
+        fonts + cursor + input + window + colors + safety + energy + wrld + sessions + other + newTabs
 
     public static func key(named name: some StringProtocol) -> ConfigKey? {
         keys.first { $0.name == name }
@@ -343,6 +344,20 @@ public enum ConfigSchema {
             ],
             read: { value, config throws(ConfigValueError) in config.readHostOS = try Value.bool(value) },
             write: { String($0.readHostOS) }),
+    ]
+
+    private static let sessions: [ConfigKey] = [
+        ConfigKey(
+            "legends-never-die", .sessions,
+            help: [
+                "Keep local shells running when Death Race quits or crashes, and put them back in",
+                "their windows the next time it starts. They are held by legendsd, a small program",
+                "beside the app, which ends on its own once nothing is left in it.",
+                "Sessions on a host are not kept: they run through an ssh connection this app owns,",
+                "which goes when it does.",
+            ],
+            read: { value, config throws(ConfigValueError) in config.legendsNeverDie = try Value.bool(value) },
+            write: { String($0.legendsNeverDie) })
     ]
 
     private static let other: [ConfigKey] = [

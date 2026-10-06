@@ -19,14 +19,17 @@ import PackageDescription
 var products: [Product] = [
     .library(name: "VTCore", targets: ["VTCore"]),
     .library(name: "PTYKit", targets: ["PTYKit"]),
+    .library(name: "IPCKit", targets: ["IPCKit"]),
     .library(name: "ScreenProtocol", targets: ["ScreenProtocol"]),
     .library(name: "SessionKit", targets: ["SessionKit"]),
+    .library(name: "SessionIPC", targets: ["SessionIPC"]),
     .library(name: "ConfigKit", targets: ["ConfigKit"]),
     .library(name: "SurfaceCore", targets: ["SurfaceCore"]),
     .library(name: "Vault", targets: ["Vault"]),
     .library(name: "SSHKit", targets: ["SSHKit"]),
     .library(name: "SFTPKit", targets: ["SFTPKit"]),
     .library(name: "AppCore", targets: ["AppCore"]),
+    .executable(name: "legendsd", targets: ["legendsd"]),
     .executable(name: "vthost", targets: ["vthost"]),
     .executable(name: "deathrace-askpass", targets: ["deathrace-askpass"]),
 ]
@@ -39,6 +42,9 @@ var targets: [Target] = [
         linkerSettings: [.linkedLibrary("util", .when(platforms: [.linux]))]
     ),
     .target(name: "PTYKit", dependencies: ["CPTY"]),
+    // Unix-domain sockets, frames, and who is at the other end: what the askpass broker and
+    // the session daemon both need, with nothing of either in it.
+    .target(name: "IPCKit", dependencies: ["CPTY"]),
     .target(
         name: "VTCore",
         swiftSettings: [
@@ -52,6 +58,9 @@ var targets: [Target] = [
     .target(name: "ScreenProtocol", dependencies: ["VTCore"]),
     // One thread per session owns its pseudo-terminal and engine, and publishes deltas.
     .target(name: "SessionKit", dependencies: ["PTYKit", "VTCore", "ScreenProtocol"]),
+    // The session daemon and the app's end of it: the wire, the registry, and a session
+    // that lives in another process.
+    .target(name: "SessionIPC", dependencies: ["SessionKit", "ScreenProtocol", "PTYKit", "VTCore", "IPCKit"]),
     // The settings file: its schema, parser, diagnostics and template.
     .target(name: "ConfigKit", dependencies: ["VTCore"]),
     // What a terminal view does, apart from AppKit and Metal: cell geometry, colors, the
@@ -67,11 +76,14 @@ var targets: [Target] = [
     // The Termius layer's OpenSSH side: reading ~/.ssh/config, the config WRLD compiles to,
     // ssh's command lines, prompts and their answers, and what a master's errors mean. Runs
     // macOS's own ssh; no SSH crypto of ours.
-    .target(name: "SSHKit", dependencies: ["Vault", "PTYKit", "CPTY"]),
+    .target(name: "SSHKit", dependencies: ["Vault", "PTYKit", "CPTY", "IPCKit"]),
     // Maze: an SFTP v3 client we speak ourselves over a host's existing ssh connection
     // (`ssh … -s sftp`). The packet codec, the client, the transfer queue and the local-file
     // seam are portable and Linux-tested against a real sftp-server.
     .target(name: "SFTPKit", dependencies: ["Vault", "PTYKit", "CPTY", "SSHKit"]),
+    // The session daemon: it holds the pseudo-terminals and engines so sessions outlive the
+    // app. Portable, so the whole of it is tested on Linux as a real second process.
+    .executableTarget(name: "legendsd", dependencies: ["SessionIPC", "IPCKit"]),
     // ssh's SSH_ASKPASS: hands each question to the app's broker and prints its answer.
     // The app bundles it in Contents/MacOS.
     .executableTarget(name: "deathrace-askpass", dependencies: ["SSHKit"]),
@@ -80,17 +92,30 @@ var targets: [Target] = [
         dependencies: ["VTCore", "PTYKit", "SurfaceCore"],
         path: "Tools/vthost"
     ),
+    // Stands in for the app in the daemon's tests, which have to kill their client: the
+    // exit criterion is what happens when the app is killed, and a test cannot kill itself.
+    .executableTarget(name: "legendsd-probe", dependencies: ["SessionIPC"], path: "Tools/legendsd-probe"),
     .testTarget(name: "PTYKitTests", dependencies: ["PTYKit", "CPTY"]),
+    .testTarget(name: "IPCKitTests", dependencies: ["IPCKit", "CPTY", "PTYKit"]),
     .testTarget(name: "VTCoreTests", dependencies: ["VTCore"]),
     .testTarget(name: "ScreenProtocolTests", dependencies: ["ScreenProtocol", "VTCore"]),
     .testTarget(name: "SessionKitTests", dependencies: ["SessionKit", "ScreenProtocol", "PTYKit", "VTCore"]),
+    // Depends on both executables so `swift test` builds them: the tests run the daemon and
+    // its stand-in client as real processes, the way SSHKitTests runs the askpass helper.
+    .testTarget(
+        name: "SessionIPCTests",
+        dependencies: [
+            "SessionIPC", "SessionKit", "ScreenProtocol", "PTYKit", "VTCore", "IPCKit", "legendsd",
+            "legendsd-probe",
+        ]),
     .testTarget(name: "ConfigKitTests", dependencies: ["ConfigKit", "VTCore"]),
     .testTarget(
         name: "SurfaceCoreTests", dependencies: ["SurfaceCore", "VTCore", "ScreenProtocol", "SessionKit", "ConfigKit"]),
     .testTarget(name: "AppCoreTests", dependencies: ["AppCore", "ConfigKit", "PTYKit", "Vault"]),
     .testTarget(name: "VaultTests", dependencies: ["Vault"]),
     // Depends on the helper so `swift test` builds it: the tests run it against the broker.
-    .testTarget(name: "SSHKitTests", dependencies: ["SSHKit", "Vault", "PTYKit", "deathrace-askpass"]),
+    .testTarget(
+        name: "SSHKitTests", dependencies: ["SSHKit", "Vault", "PTYKit", "IPCKit", "deathrace-askpass"]),
     .testTarget(name: "SFTPKitTests", dependencies: ["SFTPKit", "SSHKit", "Vault", "PTYKit", "deathrace-askpass"]),
 ]
 
@@ -115,8 +140,8 @@ var targets: [Target] = [
         .target(
             name: "DeathRaceApp",
             dependencies: [
-                "LegendsUI", "TerminalUI", "RenderKit", "SurfaceCore", "AppCore", "SessionKit", "ScreenProtocol",
-                "ConfigKit", "PTYKit", "VTCore", "Vault", "SSHKit", "SFTPKit",
+                "LegendsUI", "TerminalUI", "RenderKit", "SurfaceCore", "AppCore", "SessionKit", "SessionIPC",
+                "IPCKit", "ScreenProtocol", "ConfigKit", "PTYKit", "VTCore", "Vault", "SSHKit", "SFTPKit",
             ]),
         .executableTarget(name: "DeathRace", dependencies: ["DeathRaceApp", "RenderKit"]),
         // Temporary: the one-day privacy-permission spike for legendsd (docs/SPIKE.md).
@@ -127,8 +152,8 @@ var targets: [Target] = [
         .testTarget(
             name: "DeathRaceAppTests",
             dependencies: [
-                "DeathRaceApp", "AppCore", "TerminalUI", "SurfaceCore", "SessionKit", "ScreenProtocol", "ConfigKit",
-                "PTYKit", "VTCore", "SSHKit", "Vault", "SFTPKit",
+                "DeathRaceApp", "AppCore", "TerminalUI", "SurfaceCore", "SessionKit", "SessionIPC", "ScreenProtocol",
+                "ConfigKit", "PTYKit", "VTCore", "SSHKit", "Vault", "SFTPKit",
             ]),
     ]
 #endif

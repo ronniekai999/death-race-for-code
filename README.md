@@ -9,11 +9,11 @@ L E G E N D S   N E V E R   D I E
 
 ## Status
 
-Phases 1 to 5 are merged and green on both CIs: the engine, the window, the Pit Lane, the
-Termius layer and Lucid Dreams, the quick terminal that drops out of the notch. Phase 6,
-**Maze**, is written: its SFTP half is tested on Linux against a real `sshd` — including the
-whole round trip over an `internal-sftp` subsystem — and its window waits for the hands-on
-pass in [docs/MANUAL-TESTS.md](docs/MANUAL-TESTS.md).
+Phases 1 to 6 are merged and green on both CIs: the engine, the window, the Pit Lane, the
+Termius layer, Lucid Dreams — the quick terminal that drops out of the notch — and Maze, the
+SFTP browser. Phase 7, **Legends Never Die**, is written: the daemon and both ends of its wire
+are tested on Linux as two real processes, including the `kill -9` criterion, and the app's
+half waits for the hands-on pass in [docs/MANUAL-TESTS.md](docs/MANUAL-TESTS.md).
 
 - **WRLD, your hosts:** kept in `wrld.json` next to the settings file, which never holds a
   secret. Hosts in your `~/.ssh/config` join with one click and keep using that file, which
@@ -38,6 +38,12 @@ pass in [docs/MANUAL-TESTS.md](docs/MANUAL-TESTS.md).
 - **Lucid Dreams (⌥Space):** one terminal that springs out of the notch and keeps its
   session across hide and show. It doesn't switch apps, and it yields the notch to
   MenuGlance.
+- **Legends Never Die:** a `legendsd` the app starts holds the pseudo-terminals and the
+  engines, so local shells outlive the app — quit, crash or update — and come back in the
+  windows and tabs they were in, with their scrollback. Quitting detaches and asks nothing;
+  closing a pane still ends its shell. Sessions on a host are not kept, and the setting says
+  so. The daemon is never required: anything that goes wrong leaves you with a session in the
+  app and a line in the status bar saying as much.
 - **Hear Me Calling** finds hosts, snippets and tunnels as well.
 
 Phase 3 built the Pit Lane: tabs of split panes under gradient pills, Hear Me Calling
@@ -74,6 +80,10 @@ font-size = 14
 option-as-meta = left
 palette = 1=#FF5277
 ```
+
+`~/.deathrace/run` holds what is running rather than what you keep: the session daemon's
+socket, the lock that makes it the only one, and its log. It is yours and `0700`, and it is
+empty once nothing is running.
 
 WRLD lives beside the settings file, in `wrld.json`: hosts, groups, snippets, tunnels, and
 which key file each host uses (never a key itself), as JSON you can keep in a dotfiles
@@ -126,7 +136,10 @@ Packages/DeathRaceKit/   one SwiftPM package; macOS-only targets appear only on 
   Sources/PTYKit/        pseudo-terminals, shell launch, hang-up, the smoke test
   Sources/VTCore/        the terminal engine: parser, screens, reflow, Unicode, input encoding
   Sources/ScreenProtocol/ screen deltas, the app's mirror, the byte codec
-  Sources/SessionKit/    one thread per shell, publishing deltas
+  Sources/SessionKit/    the session seam, and one thread per shell publishing deltas
+  Sources/IPCKit/        Unix sockets, frames, and who is at the other end
+  Sources/SessionIPC/    Legends Never Die: the wire, the daemon, and the app's end of it
+  Sources/legendsd/      the session daemon: it holds the shells so they outlive the app
   Sources/ConfigKit/     the settings file: schema, parser, diagnostics, template
   Sources/Vault/         WRLD's data: hosts, groups, snippets, tunnels, wrld.json
   Sources/SSHKit/        OpenSSH, driven: generated config, masters, tunnels, askpass broker
@@ -139,6 +152,7 @@ Packages/DeathRaceKit/   one SwiftPM package; macOS-only targets appear only on 
   Sources/DeathRaceApp/  the app: windows, tabs, menus, settings, WRLD (macOS)
   Sources/DeathRace/     the executable (macOS)
   Tools/vthost/          headless host for the engine: run, replay, bench, smoke
+  Tools/legendsd-probe/  stands in for the app in the daemon's tests, which have to kill it
 Tools/VTFuzz/            libFuzzer target (a package of its own)
 Tools/VTDiff/            VTCore next to SwiftTerm, the referee (a package of its own)
 App/                     Info.plist and entitlements for the bundle

@@ -52,7 +52,8 @@ extension WindowTests {
 
     @Test func theQuickTerminalKeepsItsSessionAcrossHideAndShow() async throws {
         let controller = LucidDreamsController(
-            config: { Config() }, makeSession: { _, configuration, _ in FakeSession(configuration) }, ids: IDSource())
+            config: { Config() }, makeSession: { _, configuration, _, _ in FakeSession(configuration) }, ids: IDSource()
+        )
         defer { controller.shutDown() }
 
         #expect(!controller.isOnScreen)

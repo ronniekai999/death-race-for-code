@@ -1,4 +1,5 @@
 import Foundation
+import IPCKit
 import PTYKit
 import Testing
 
@@ -317,7 +318,7 @@ struct AskpassHelperTests {
     func helper(_ prompt: String, environment: [String: String]) async throws -> ChildResult {
         let helper = try #require(BuiltHelper.path, BuiltHelper.missing)
         return try await SystemProcessRunner().run(
-            Command([helper, prompt], environment: environment, timeoutMilliseconds: 10_000))
+            Command([helper, prompt], environment: environment, timeoutMilliseconds: patience(10_000)))
     }
 
     func broker(saved: [SecretRef: String] = [:], presenter: ScriptedPresenter = ScriptedPresenter())

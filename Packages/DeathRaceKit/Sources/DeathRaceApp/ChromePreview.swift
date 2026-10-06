@@ -19,7 +19,9 @@
     /// runs where, as a pane's pill and status bar ask.
     final class ScriptedSession: PaneSession, @unchecked Sendable {
         let replay: ReplaySession
+        let id = SessionID.next()
         let foreground: ForegroundProcess
+        var outlivesItsClient: Bool { false }
 
         init(_ configuration: Terminal.Configuration, program: String, directory: String) {
             replay = ReplaySession(configuration)
@@ -46,6 +48,7 @@
         }
         func foregroundProcess() async -> ForegroundProcess? { foreground }
         func close() {}
+        func detach() {}
     }
 
     /// `DeathRace --render-chrome DIR` (debug builds): the Pit Lane in each of the eight themes,
@@ -150,7 +153,7 @@
             var scripts = ChromePreview.scripts
             private(set) var sessions: [ScriptedSession] = []
             var makeSession: SessionMaker {
-                { [unowned self] _, configuration, _ in
+                { [unowned self] _, configuration, _, _ in
                     let script: (program: String, output: String) =
                         self.scripts.isEmpty ? ("zsh", "") : self.scripts.removeFirst()
                     let session = ScriptedSession(

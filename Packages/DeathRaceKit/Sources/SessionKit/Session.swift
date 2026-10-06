@@ -3,10 +3,6 @@ import PTYKit
 import ScreenProtocol
 import VTCore
 
-public enum SessionError: Error, Equatable {
-    case wakePipe(errno: Int32)
-}
-
 /// A shell on a pseudo-terminal, run by its own thread.
 ///
 /// The thread owns the terminal and the engine; nothing is shared with the app except a
@@ -23,6 +19,13 @@ public final class Session: Sendable {
         /// The shell exited; nil when its status could not be collected.
         case exited(ExitStatus?)
     }
+
+    /// Which session this is. An in-process session mints its own: nothing outside the
+    /// process can refer to it anyway.
+    public let id = SessionID.next()
+
+    /// A shell in this process goes when the process does.
+    public var outlivesItsClient: Bool { false }
 
     let channel: SessionChannel
 
@@ -100,6 +103,33 @@ public final class Session: Sendable {
         channel.send(.close)
     }
 
+    /// Stops watching and leaves the shell running — except that in this process there is
+    /// nowhere to leave it, so this ends the session exactly as `close` does.
+    ///
+    /// It is here so that every place in the app which lets go of a session has to say which
+    /// it means, whether or not a daemon is holding it. A pane being closed means `close`; the
+    /// app quitting means `detach`, and only then does the difference show.
+    public func detach() {
+        close()
+    }
+
+    /// Stops building deltas, or starts again.
+    ///
+    /// Nothing takes the deltas of a session nobody is watching, so `DeltaBuilder` never
+    /// advances and every publish would rebuild the whole viewport — and in debug builds send
+    /// it through the codec as well. A detached session running `yes` would spend its time
+    /// drawing screens that will never be read. The shell keeps running throughout; turning
+    /// publishing back on makes the next delta a full one.
+    public func setPublishing(_ on: Bool) {
+        channel.send(.publishing(on))
+    }
+
+    /// Whether this session has ever published a screen, so a client taking it up can be
+    /// given a whole one rather than a delta built on a base it has never seen.
+    public var hasPublished: Bool {
+        channel.mailbox.withLock { $0.published }
+    }
+
     /// Installs a new base palette, the app's theme: colors programs set stay, the rest
     /// change, and the next delta carries the result.
     public func setBasePalette(_ palette: Palette) {
@@ -147,6 +177,8 @@ public final class Session: Sendable {
     }
 }
 
+extension Session: ShellSession {}
+
 /// What the app and the session thread share: a mailbox under a lock, and the pipe that
 /// wakes the thread.
 final class SessionChannel: Sendable {
@@ -160,6 +192,7 @@ final class SessionChannel: Sendable {
         case focus(Bool)
         case setBasePalette(Palette)
         case clear(Terminal.ClearKind)
+        case publishing(Bool)
         case query(Query)
         case close
     }
@@ -187,6 +220,10 @@ final class SessionChannel: Sendable {
         /// Taken by the app; the session thread records it as delivered.
         var taken: ScreenDelta?
         var status = Session.Status.running
+        /// Whether any screen has ever been published. A session that has published has a
+        /// builder whose base is some client's last screen, so whoever takes it up next needs
+        /// a whole screen rather than a delta chained off a base it does not hold.
+        var published = false
     }
 
     /// Input bytes allowed to wait for the shell to read them.

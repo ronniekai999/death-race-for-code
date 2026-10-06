@@ -4,7 +4,7 @@
 /// |---|---|
 /// | `ssh_config` | the config WRLD compiles to (`GeneratedConfig`) |
 /// | `cm/` | the masters' control sockets, one fixed name per host |
-/// | `run/` | the askpass broker's socket |
+/// | `run/` | the askpass broker's socket, and the session daemon's |
 /// | `keys/` | Secure Enclave key handles |
 /// | `state.json` | what changes on its own: last connected, OS, latency, use counts |
 ///
@@ -46,6 +46,16 @@ public struct WRLDPaths: Equatable, Sendable {
 
     /// The broker's socket for the app process `pid`.
     public func brokerSocket(pid: Int32) -> String { runFolder + "/askpass-\(pid).sock" }
+
+    /// The session daemon's socket. One per user, not one per app process: the whole point is
+    /// that what is behind it outlives any one of them.
+    public var daemonSocket: String { runFolder + "/legendsd.sock" }
+    /// What a daemon holds to be the only one at `daemonSocket`. The file is left behind; it
+    /// is the lock on it that means something, so finding one says nothing about whether a
+    /// daemon is running.
+    public var daemonLock: String { runFolder + "/legendsd.lock" }
+    /// Where the daemon's own output goes. It has no terminal and no app to tell.
+    public var daemonLog: String { runFolder + "/legendsd.log" }
 
     /// A host's control socket: a fixed name from `key` (a host id, or `alias:` and a name
     /// from `~/.ssh/config`), not ssh's `%C`, which hashes this Mac's host name and so

@@ -4,6 +4,7 @@ import ConfigKit
 import Foundation
 import LegendsUI
 import SSHKit
+import SessionKit
 import SurfaceCore
 import TerminalUI
 import VTCore
@@ -34,6 +35,9 @@ protocol WindowHost: AnyObject {
     var makeSession: SessionMaker { get }
     func windowClosed(_ controller: PitLaneWindowController)
     func inputStateChanged()
+    /// Tabs or panes moved, opened or closed: where each session sits has changed, and the
+    /// sessions that outlive the app have to be told so they can be put back.
+    func layoutChanged()
     func open(
         detached tab: TabModel, panes: [PaneController], area: PaneAreaView, from controller: PitLaneWindowController)
 
@@ -60,6 +64,8 @@ protocol WindowHost: AnyObject {
 }
 
 extension WindowHost {
+    /// Nothing is keeping sessions: previews and window tests whose panes die with them.
+    func layoutChanged() {}
     /// No WRLD: previews and window tests that don't connect anywhere.
     var connections: (any HostConnecting)? { nil }
     func showWRLD(at place: WRLDBoard.Place, selecting host: HostID?) {}
@@ -108,6 +114,10 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         didSet { if settingsProblems != oldValue { refreshStatus() } }
     }
     var onSettingsProblemsClick: (() -> Void)?
+    /// Legends Never Die was asked for and could not be had: the bar says so.
+    var sessionsEndWithTheApp = false {
+        didSet { if sessionsEndWithTheApp != oldValue { refreshStatus() } }
+    }
 
     /// A new window with one tab, in `directory` (with `working-directory = inherit`).
     convenience init(config: Config, host: any WindowHost, directory: String?) {
@@ -125,6 +135,21 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         self.init(config: config, host: host)
         if let pane = panes.first { sizeWindow(toFit: pane) }
         install(tab, panes: panes, area: area)
+    }
+
+    /// A window whose tabs are sessions a daemon kept running while the app was away.
+    ///
+    /// `tabs` says how many panes each tab had. The panes are made one after another, here
+    /// and now rather than in a task, because what is behind each of them is decided by the
+    /// order they are asked for: the maker hands out the waiting sessions in turn.
+    convenience init(config: Config, host: any WindowHost, reattaching tabs: [Int]) {
+        self.init(config: config, host: host)
+        for panes in tabs where panes > 0 {
+            let first = makePane(directory: nil)
+            if self.panes.isEmpty { sizeWindow(toFit: first) }
+            install(TabModel(id: ids.tab(), pane: first.id), panes: [first], area: nil)
+            for _ in 1..<panes { add(makePane(directory: nil), splitting: .sideBySide) }
+        }
     }
 
     private init(config: Config, host: any WindowHost) {
@@ -149,6 +174,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             switch tap {
             case .settingsProblems: self?.onSettingsProblemsClick?()
             case .comeAndGo: self?.host?.showWRLD(at: .comeAndGo, selecting: nil)
+            case .sessions: self?.host?.showSettings(page: .general)
             }
         }
         applyChrome()
@@ -187,6 +213,22 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     private var pitLaneWindow: PitLaneWindow? { window as? PitLaneWindow }
 
     var activePane: PaneController? { model.activePane.flatMap { panes[$0] } }
+
+    /// This window's sessions, by tab and then by pane in reading order, for the record of
+    /// where each one belonged. A pane whose session has not started yet is left out.
+    var sessionLayout: [[(id: SessionID, title: String)]] {
+        model.tabs.map { tab in
+            tab.panes.compactMap { id -> (id: SessionID, title: String)? in
+                guard let pane = panes[id], let session = pane.sessionID else { return nil }
+                return (
+                    id: session,
+                    title: TabLabel.text(
+                        title: pane.title, program: pane.programName ?? pane.shellName, directory: pane.directory,
+                        home: Self.home)
+                )
+            }
+        }
+    }
 
     // MARK: - Building tabs and panes
 
@@ -274,6 +316,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         model.insert(tab, at: model.activeIndex.map { $0 + 1 })
         activity[tab.id] = TabActivity()
         show(tab.id)
+        host?.layoutChanged()
     }
 
     /// Sizes a new window for `window-size` cells in its first pane, beside the sidebar
@@ -339,6 +382,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     private func moveTab(from: Int, to: Int) {
         model.moveTab(from: from, to: to)
         refreshTabs()
+        host?.layoutChanged()
     }
 
     /// Move Tab to New Window: the tab's views and sessions go along untouched.
@@ -356,6 +400,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         area.isHidden = false
         host.open(detached: tab, panes: moving, area: area, from: self)
         if let active = model.activeTabID { show(active) }
+        host.layoutChanged()
     }
 
     // MARK: - Panes
@@ -452,6 +497,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     private func closeNow(_ id: PaneID) {
         guard let tab = model.tab(containing: id), let closed = model.closePane(id) else { return }
         panes.removeValue(forKey: id)?.shutDown()
+        defer { host?.layoutChanged() }
         switch closed {
         case .pane:
             if let area = areas[tab.id], let updated = model.tabs.first(where: { $0.id == tab.id }) {
@@ -710,6 +756,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         area.add(card)
         if pane.banner != nil { showBanner(of: pane.id) }
         focusActivePane()
+        host?.layoutChanged()
     }
 
     /// A session on `host`: in a new tab, or beside the active pane.
@@ -1241,6 +1288,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         facts.program = pane.programName
         facts.secureInput = showsSecureInput
         facts.settingsProblems = settingsProblems
+        facts.sessionsEndWithTheApp = sessionsEndWithTheApp
         facts.openTunnels = host?.connections?.openTunnelCount ?? 0
         if let tab = model.activeTab, tab.isArmed {
             facts.armedPanes = tab.armedPanes.count

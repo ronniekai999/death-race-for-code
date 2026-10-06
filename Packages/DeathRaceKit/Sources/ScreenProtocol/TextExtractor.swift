@@ -68,12 +68,24 @@ extension RowSnapshot: TextLine {}
 /// each character comes once however many cells it covers, and the blanks a line ends with
 /// are left out.
 public enum TextExtractor {
+    /// The most lines one region may be read across.
+    ///
+    /// A selection cannot be longer than the scrollback, which at the default budget is tens
+    /// of thousands of lines. The cap is here because the line numbers can come from another
+    /// process once a daemon holds the session: a region ending at `UInt64.max` would
+    /// otherwise walk for ever on the thread that owns the engine, and that session's shell
+    /// would never answer again. The wire refuses such a region too; this is the backstop.
+    public static let longestRegion = 2_000_000
+
     /// The text of `range`; `line` gives the line with a number, or nil for one that is gone
     /// (trimmed from history), which then contributes nothing.
     public static func text(in range: TextRegion, line: (UInt64) -> (any TextLine)?) -> String {
         var out = ""
         var number = range.start.line
+        var left = longestRegion
         while true {
+            if left == 0 { break }
+            left -= 1
             if let row = line(number) {
                 let isLast = number == range.end.line
                 let joinsNext = !range.isRectangular && !isLast && row.isWrapped

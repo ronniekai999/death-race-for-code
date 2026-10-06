@@ -85,7 +85,7 @@ Each theme carries the window's colors as well as the terminal's (`ChromeColors`
 | neon (3 stops) | the focused pane's border, the 999, the equalizer |
 | accent | branch names, the palette's highlights |
 | glow, glowOpacity | the halo around the focused pane in the key window |
-| danger, warning | failed tabs; settings that could not be used |
+| danger, warning | failed tabs; settings that could not be used; sessions that will not outlive the app |
 | armed (warning → danger) | Armed and Dangerous: each armed pane's border, the status bar's warning |
 | armedTint | the armed banner's fill: the ground mixed 16% toward each armed stop |
 

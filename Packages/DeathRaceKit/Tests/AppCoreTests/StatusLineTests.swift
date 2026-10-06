@@ -61,6 +61,17 @@ import Testing
         #expect(StatusLine(facts).leading.last?.text == "1 setting could not be used")
     }
 
+    @Test func sessionsThatWillNotSurviveAreSaidSo() {
+        var facts = StatusLine.Facts(columns: 80, rows: 24)
+        #expect(!StatusLine(facts).leading.contains { $0.tap == .sessions })
+        facts.sessionsEndWithTheApp = true
+        #expect(
+            StatusLine(facts).leading.contains(StatusLine.Run("Sessions end with the app", .warning, tap: .sessions)))
+        // A hovered link takes the whole left side, as it does over everything else there.
+        facts.hoveredLink = "https://example.com"
+        #expect(StatusLine(facts).leading == [StatusLine.Run("https://example.com", .ink)])
+    }
+
     @Test func activityQuietsDownAndClearsWhenSeen() {
         var activity = TabActivity()
         #expect(!activity.isBusy(at: 0))

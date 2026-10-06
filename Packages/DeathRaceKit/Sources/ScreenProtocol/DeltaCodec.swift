@@ -54,10 +54,7 @@ public enum DeltaCodec {
         w.string(delta.title)
         if let palette = delta.palette {
             w.bool(true)
-            for color in palette.colors { w.rgb(color) }
-            w.rgb(palette.foreground)
-            w.rgb(palette.background)
-            w.rgb(palette.cursor)
+            w.palette(palette)
         } else {
             w.bool(false)
         }
@@ -231,12 +228,7 @@ public enum DeltaCodec {
         let isAlternateScreen = try r.bool()
         let title = try r.string()
         var palette: Palette?
-        if try r.bool() {
-            var colors: [RGB] = []
-            colors.reserveCapacity(256)
-            for _ in 0..<256 { colors.append(try r.rgb()) }
-            palette = Palette(colors: colors, foreground: try r.rgb(), background: try r.rgb(), cursor: try r.rgb())
-        }
+        if try r.bool() { palette = try r.palette() }
         let eventCount = try r.count(elementSize: 1)
         var events: [TerminalEvent] = []
         events.reserveCapacity(eventCount)
@@ -383,52 +375,66 @@ public enum DeltaCodec {
 
 // MARK: - Bytes
 
-struct ByteWriter {
-    var bytes: [UInt8] = []
+/// Little-endian bytes, the order every wire in this package writes in. Public because the
+/// session daemon's command codec is built the same way, out of the same pieces.
+public struct ByteWriter {
+    public var bytes: [UInt8] = []
 
-    mutating func u8(_ v: UInt8) { bytes.append(v) }
-    mutating func bool(_ v: Bool) { bytes.append(v ? 1 : 0) }
-    mutating func u16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { bytes.append(contentsOf: $0) } }
-    mutating func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { bytes.append(contentsOf: $0) } }
-    mutating func u64(_ v: UInt64) { withUnsafeBytes(of: v.littleEndian) { bytes.append(contentsOf: $0) } }
+    public init() {}
 
-    mutating func optionalI32(_ v: Int32?) {
+    public mutating func u8(_ v: UInt8) { bytes.append(v) }
+    public mutating func bool(_ v: Bool) { bytes.append(v ? 1 : 0) }
+    public mutating func u16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { bytes.append(contentsOf: $0) } }
+    public mutating func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { bytes.append(contentsOf: $0) } }
+    public mutating func u64(_ v: UInt64) { withUnsafeBytes(of: v.littleEndian) { bytes.append(contentsOf: $0) } }
+
+    public mutating func optionalI32(_ v: Int32?) {
         bool(v != nil)
         if let v { u32(UInt32(bitPattern: v)) }
     }
 
-    mutating func string(_ s: String) {
+    public mutating func string(_ s: String) {
         u32(UInt32(s.utf8.count))
         bytes.append(contentsOf: s.utf8)
     }
 
-    mutating func rgb(_ c: RGB) {
+    public mutating func rgb(_ c: RGB) {
         bytes.append(contentsOf: [c.red, c.green, c.blue])
+    }
+
+    /// A whole palette: the 256 indexed colours, then foreground, background and cursor.
+    public mutating func palette(_ p: Palette) {
+        for color in p.colors { rgb(color) }
+        rgb(p.foreground)
+        rgb(p.background)
+        rgb(p.cursor)
     }
 }
 
-struct ByteReader {
-    let bytes: [UInt8]
-    private(set) var index = 0
+/// The other half, and strict: every count is checked against the bytes that remain before
+/// anything is allocated, so a forged length cannot make a decoder reserve gigabytes.
+public struct ByteReader {
+    public let bytes: [UInt8]
+    public private(set) var index = 0
 
-    init(bytes: [UInt8]) { self.bytes = bytes }
+    public init(bytes: [UInt8]) { self.bytes = bytes }
 
-    var isAtEnd: Bool { index == bytes.count }
-    var remaining: Int { bytes.count - index }
+    public var isAtEnd: Bool { index == bytes.count }
+    public var remaining: Int { bytes.count - index }
 
-    mutating func take(_ n: Int) throws(DeltaCodec.DecodeError) -> [UInt8] {
+    public mutating func take(_ n: Int) throws(DeltaCodec.DecodeError) -> [UInt8] {
         guard n >= 0, n <= remaining else { throw .truncated }
         defer { index += n }
         return Array(bytes[index..<(index + n)])
     }
 
-    mutating func u8() throws(DeltaCodec.DecodeError) -> UInt8 {
+    public mutating func u8() throws(DeltaCodec.DecodeError) -> UInt8 {
         guard remaining >= 1 else { throw .truncated }
         defer { index += 1 }
         return bytes[index]
     }
 
-    mutating func bool() throws(DeltaCodec.DecodeError) -> Bool {
+    public mutating func bool() throws(DeltaCodec.DecodeError) -> Bool {
         switch try u8() {
         case 0: return false
         case 1: return true
@@ -445,32 +451,32 @@ struct ByteReader {
         return value
     }
 
-    mutating func u16() throws(DeltaCodec.DecodeError) -> UInt16 { try integer(UInt16.self) }
-    mutating func u32() throws(DeltaCodec.DecodeError) -> UInt32 { try integer(UInt32.self) }
-    mutating func u64() throws(DeltaCodec.DecodeError) -> UInt64 { try integer(UInt64.self) }
+    public mutating func u16() throws(DeltaCodec.DecodeError) -> UInt16 { try integer(UInt16.self) }
+    public mutating func u32() throws(DeltaCodec.DecodeError) -> UInt32 { try integer(UInt32.self) }
+    public mutating func u64() throws(DeltaCodec.DecodeError) -> UInt64 { try integer(UInt64.self) }
 
     /// A count of elements that each take at least `elementSize` bytes, checked against what
     /// remains so a forged count cannot make the decoder allocate.
-    mutating func count(elementSize: Int) throws(DeltaCodec.DecodeError) -> Int {
+    public mutating func count(elementSize: Int) throws(DeltaCodec.DecodeError) -> Int {
         let n = Int(try u32())
         guard n <= remaining / max(elementSize, 1) else { throw .truncated }
         return n
     }
 
-    mutating func optionalI32() throws(DeltaCodec.DecodeError) -> Int32? {
+    public mutating func optionalI32() throws(DeltaCodec.DecodeError) -> Int32? {
         try bool() ? Int32(bitPattern: try u32()) : nil
     }
 
-    mutating func string() throws(DeltaCodec.DecodeError) -> String {
+    public mutating func string() throws(DeltaCodec.DecodeError) -> String {
         let n = try count(elementSize: 1)
         return String(decoding: try take(n), as: UTF8.self)
     }
 
-    mutating func rgb() throws(DeltaCodec.DecodeError) -> RGB {
+    public mutating func rgb() throws(DeltaCodec.DecodeError) -> RGB {
         RGB(try u8(), try u8(), try u8())
     }
 
-    mutating func color() throws(DeltaCodec.DecodeError) -> TerminalColor {
+    public mutating func color() throws(DeltaCodec.DecodeError) -> TerminalColor {
         let raw = try u32()
         switch raw >> 24 {
         case 0 where raw == 0, 2: break  // default, RGB
@@ -480,8 +486,16 @@ struct ByteReader {
         return TerminalColor(raw: raw)
     }
 
+    /// A whole palette, as `ByteWriter.palette` wrote it.
+    public mutating func palette() throws(DeltaCodec.DecodeError) -> Palette {
+        var colors: [RGB] = []
+        colors.reserveCapacity(256)
+        for _ in 0..<256 { colors.append(try rgb()) }
+        return Palette(colors: colors, foreground: try rgb(), background: try rgb(), cursor: try rgb())
+    }
+
     /// A Unicode scalar value, or 0 for none.
-    static func isValidScalar(_ value: UInt32) -> Bool {
+    public static func isValidScalar(_ value: UInt32) -> Bool {
         value <= 0x10_FFFF && !(0xD800...0xDFFF).contains(value)
     }
 }

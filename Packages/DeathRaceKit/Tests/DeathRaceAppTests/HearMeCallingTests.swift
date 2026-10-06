@@ -135,7 +135,7 @@ extension WindowTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let app = AppDelegate(
-            makeSession: { _, configuration, _ in FakeSession(configuration) },
+            makeSession: { _, configuration, _, _ in FakeSession(configuration) },
             configStore: ConfigStore(environment: ["XDG_CONFIG_HOME": home.path]), defaults: defaults)
         app.newWindow(nil)
         app.newWindow(nil)

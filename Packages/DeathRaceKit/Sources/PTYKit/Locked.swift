@@ -34,7 +34,7 @@ public final class Locked<Value>: @unchecked Sendable {
         private let mutex = UnsafeMutablePointer<pthread_mutex_t>.allocate(capacity: 1)
         private var value: Value
 
-        public init(_ value: Value) {
+        public init(_ value: sending Value) {
             self.value = value
             pthread_mutex_init(mutex, nil)
         }
@@ -44,7 +44,14 @@ public final class Locked<Value>: @unchecked Sendable {
             mutex.deallocate()
         }
 
-        public func withLock<Result, E: Error>(_ body: (inout Value) throws(E) -> Result) throws(E) -> Result {
+        /// Deliberately the same signature as the `Mutex.withLock` above, down to `sending`,
+        /// which a pthread mutex does not itself need. Without it this type is stricter on
+        /// Apple platforms than on Linux, and portable code that stores a task-isolated value
+        /// in a box compiles here and fails only on a macOS runner. That is how two such
+        /// errors reached Phase 7's first macOS build having passed every Linux run.
+        public func withLock<Result: ~Copyable, E: Error>(
+            _ body: (inout sending Value) throws(E) -> sending Result
+        ) throws(E) -> sending Result {
             pthread_mutex_lock(mutex)
             defer { pthread_mutex_unlock(mutex) }
             return try body(&value)

@@ -108,6 +108,13 @@ public enum SettingsCatalog {
                         Setting("window-size", "New window size", .gridSize, note: "In columns and rows."),
                     ]),
                 Group(
+                    title: "Sessions",
+                    settings: [
+                        Setting(
+                            "legends-never-die", "Keep local shells running when Death Race quits", .toggle,
+                            note: "They go back in their windows next time. Sessions on a host are not kept.")
+                    ]),
+                Group(
                     title: "New tabs",
                     settings: [
                         Setting(

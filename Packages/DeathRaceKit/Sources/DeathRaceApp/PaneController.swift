@@ -12,18 +12,19 @@ import VTCore
 import Vault
 import os
 
-/// What a pane needs of its shell's session; `Session` in the app, a stand-in in tests.
-protocol PaneSession: SurfaceSession {
-    func foregroundProcess() async -> ForegroundProcess?
-    func close()
-}
-
-extension Session: PaneSession {}
+/// What a pane needs of its shell's session. It is SessionKit's `ShellSession`: `Session` in
+/// this process, `RemoteSession` when the daemon is holding the shell, a stand-in in tests.
+typealias PaneSession = ShellSession
 
 /// Starts the session for a new pane.
+///
+/// `mayOutliveTheApp` says whether this pane's shell is one the session daemon may keep: a
+/// local shell is, a session on a host is not, because it runs through an ssh connection this
+/// app owns and goes when it does.
 typealias SessionMaker =
     @MainActor (
-        _ launch: ShellLaunch, _ configuration: Terminal.Configuration, _ onUpdate: @escaping @Sendable () -> Void
+        _ launch: ShellLaunch, _ configuration: Terminal.Configuration, _ mayOutliveTheApp: Bool,
+        _ onUpdate: @escaping @Sendable () -> Void
     ) throws -> any PaneSession
 
 /// One pane: a terminal view and the shell running in it, or a session on a host. It keeps
@@ -79,7 +80,9 @@ final class PaneController {
     /// The banner changed.
     var onBannerChange: (() -> Void)?
 
-    static let realSession: SessionMaker = { launch, configuration, onUpdate in
+    /// A shell in this process, which is what every phase before Legends Never Die did and
+    /// what the app falls back to whenever the daemon cannot be used.
+    static let realSession: SessionMaker = { launch, configuration, _, onUpdate in
         try Session(launch: launch, configuration: configuration, onUpdate: onUpdate)
     }
 
@@ -246,7 +249,7 @@ final class PaneController {
             cellPixelWidth: surface.cell.width, cellPixelHeight: surface.cell.height)
         let surface = self.surface
         do {
-            let session = try makeSession(launch, terminal) { [weak self] in
+            let session = try makeSession(launch, terminal, self.launch.host == nil) { [weak self] in
                 // On the session's thread: hop to the main thread, where the view lives. `self`
                 // (a @MainActor class) is Sendable and may cross into this @Sendable callback;
                 // the view, an NSView subclass, is not, so we reach it through `self` on main.
@@ -285,12 +288,31 @@ final class PaneController {
         onChange?()
     }
 
-    func shutDown() {
+    /// Lets go of the pane. `leaving` is the app quitting rather than this pane closing, and
+    /// it is the only time a shell is left running instead of hung up.
+    ///
+    /// Every call site has to say which it means. Getting one wrong is how this feature either
+    /// kills a shell someone expected to keep, or keeps one they expected to be rid of.
+    func shutDown(leaving: Bool = false) {
         for work in refreshes { work.cancel() }
         connecting?.cancel()
         surface.shutDown()
-        session?.close()
+        if leaving, survivesQuit {
+            session?.detach()
+        } else {
+            session?.close()
+        }
         if launch.host != nil { connections?.release(id) }
+    }
+
+    /// Which session this pane holds, for the record of where each one belonged; nil before
+    /// it has one, and for a pane whose connection failed.
+    var sessionID: SessionID? { session?.id }
+
+    /// Whether this pane's shell will still be running after the app quits: a local one, held
+    /// by the daemon. A pane on a host never is.
+    var survivesQuit: Bool {
+        launch.host == nil && session?.outlivesItsClient == true
     }
 
     var isRunning: Bool { session?.status == .running }

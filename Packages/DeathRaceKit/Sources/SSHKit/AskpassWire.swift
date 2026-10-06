@@ -1,4 +1,5 @@
 import Foundation
+import IPCKit
 
 /// What `deathrace-askpass` and the app's broker say to each other over the broker's Unix
 /// socket: one request, one reply, each a 4-byte big-endian length and a JSON object.
@@ -75,51 +76,26 @@ public enum AskpassWire {
     }
 
     /// Collects bytes as they arrive and hands back whole payloads.
+    /// The askpass wire's reader: `FrameReader` at this message size, so the helper and the
+    /// broker keep speaking exactly what they always have.
     public struct Reader: Sendable {
-        private var buffer: [UInt8] = []
-        public private(set) var isBroken = false
+        private var frames = FrameReader(limit: AskpassWire.largestMessage)
 
         public init() {}
 
-        /// The payloads `bytes` completes. A length past `largestMessage` breaks the reader
-        /// for good: the connection should be dropped.
-        public mutating func append(_ bytes: [UInt8]) -> [[UInt8]] {
-            guard !isBroken else { return [] }
-            buffer += bytes
-            var payloads: [[UInt8]] = []
-            while buffer.count >= 4 {
-                let length =
-                    Int(buffer[0]) << 24 | Int(buffer[1]) << 16 | Int(buffer[2]) << 8 | Int(buffer[3])
-                guard length <= largestMessage else {
-                    isBroken = true
-                    buffer = []
-                    return payloads
-                }
-                guard buffer.count >= 4 + length else { break }
-                payloads.append(Array(buffer[4..<(4 + length)]))
-                buffer.removeFirst(4 + length)
-            }
-            return payloads
-        }
+        public var isBroken: Bool { frames.isBroken }
+
+        /// The payloads `bytes` completes.
+        public mutating func append(_ bytes: [UInt8]) -> [[UInt8]] { frames.append(bytes) }
     }
 
     /// Compares tokens in time that doesn't depend on where they differ.
     public static func sameToken(_ a: String, _ b: String) -> Bool {
-        let left = Array(a.utf8)
-        let right = Array(b.utf8)
-        guard left.count == right.count else { return false }
-        var difference: UInt8 = 0
-        for index in left.indices { difference |= left[index] ^ right[index] }
-        return difference == 0
+        sameBytes(Array(a.utf8), Array(b.utf8))
     }
 
     /// A new token: 32 random bytes, as hex.
     public static func makeToken() -> String {
-        var generator = SystemRandomNumberGenerator()
-        return (0..<32).map { _ in
-            let byte = UInt8.random(in: .min ... .max, using: &generator)
-            let digits = String(byte, radix: 16)
-            return digits.count == 1 ? "0" + digits : digits
-        }.joined()
+        hexText(randomBytes(32))
     }
 }

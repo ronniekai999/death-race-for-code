@@ -79,10 +79,15 @@ public enum ShellIntegration {
         var environment = environment
         switch shell {
         case .zsh:
-            // Our folder becomes ZDOTDIR so our .zshrc runs; the old value rides along so our
-            // .zshrc can put it back before anything else, which is what stops a zsh started
-            // from this one reading our files instead of yours.
-            environment["DEATHRACE_USER_ZDOTDIR"] = environment["ZDOTDIR"] ?? environment["HOME"] ?? ""
+            // Our folder becomes ZDOTDIR so our files run; the old value rides along so each of
+            // them can put it back before sourcing yours, which is what stops a zsh started from
+            // this one reading our files instead of yours.
+            //
+            // Assigning nil *removes* the key, and that is the point: a shell with no ZDOTDIR is
+            // not the same as one pointing at $HOME, even though zsh reads the same files for
+            // both. The scripts restore the absence, so nothing of ours is left in a nested
+            // shell's environment — including a stale value a parent app run left behind.
+            environment["DEATHRACE_USER_ZDOTDIR"] = environment["ZDOTDIR"]
             environment["ZDOTDIR"] = directory.appendingPathComponent("zsh", isDirectory: true).path
         case .fish:
             // fish reads vendor_conf.d from each entry of XDG_DATA_DIRS.
@@ -97,21 +102,66 @@ public enum ShellIntegration {
         return environment
     }
 
-    /// The one line bash needs in `~/.bashrc`, shown to you before anything is written.
-    public static func bashLine(directory: URL) -> String {
-        let path = directory.appendingPathComponent("bash/deathrace.bash").path
-        return "[ -r \"\(path)\" ] && . \"\(path)\"   # Death Race for Code"
+    /// The startup file a bash this app starts will actually read, which is where the offer to
+    /// add our line has to point.
+    ///
+    /// A pane runs a *login* shell — `ShellLaunch.loginShell` passes `-bash` as argv[0] — and a
+    /// login bash reads the first of `~/.bash_profile`, `~/.bash_login` and `~/.profile` that
+    /// exists, and never `~/.bashrc`. So a line written to `~/.bashrc`, which is what this
+    /// offered at first, is read by nothing we start. That is not a corner case on a Mac:
+    /// Terminal.app and iTerm2 start login shells too, which is exactly why a Mac bash user's
+    /// settings are in `.bash_profile` to begin with.
+    ///
+    /// When the file that does run already pulls in `~/.bashrc` — the usual convention, and
+    /// what most Linux distributions ship — the line goes in `~/.bashrc` after all, so that it
+    /// also reaches the non-login interactive shells other things start. When none of the three
+    /// exists, bash reads none of them, so the first is named and creating it loses nothing.
+    public static func bashProfile(
+        home: String,
+        contentsOfFile: (String) -> String? = { try? String(contentsOfFile: $0, encoding: .utf8) }
+    ) -> String {
+        let candidates = [home + "/.bash_profile", home + "/.bash_login", home + "/.profile"]
+        for path in candidates {
+            guard let contents = contentsOfFile(path) else { continue }
+            return sourcesBashrc(contents) ? home + "/.bashrc" : path
+        }
+        return candidates[0]
     }
 
-    /// Whether a `~/.bashrc` already loads our script, so the offer is not made twice and the
-    /// line is never added again. Matched on the script's path rather than the whole line, so
-    /// a hand-edited or reformatted version still counts as installed.
-    public static func isInstalled(inBashrc contents: String, directory: URL) -> Bool {
+    /// Whether a startup file already pulls in `~/.bashrc`, in any of the spellings people use
+    /// for it (`. ~/.bashrc`, `source "$HOME/.bashrc"`, inside an `if [ -f … ]`).
+    static func sourcesBashrc(_ contents: String) -> Bool {
+        contents.split(whereSeparator: \.isNewline).contains { line in
+            let trimmed = line.drop { $0 == " " || $0 == "\t" }
+            return !trimmed.hasPrefix("#") && trimmed.contains(".bashrc")
+        }
+    }
+
+    /// The one line bash needs in that file, shown to you before anything is written.
+    ///
+    /// Single-quoted, not double: inside double quotes a `$`, a backtick or a `\` in the path
+    /// would be expanded by the very shell that is meant to read the path literally. A quote in
+    /// the path itself is spelled the only way a single-quoted string can spell one.
+    public static func bashLine(directory: URL) -> String {
+        let quoted = singleQuoted(directory.appendingPathComponent("bash/deathrace.bash").path)
+        return "[ -r \(quoted) ] && . \(quoted)   # Death Race for Code"
+    }
+
+    static func singleQuoted(_ path: String) -> String {
+        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// Whether a startup file already loads our script, so the offer is not made twice and the
+    /// line is never added again. Matched on the script's path rather than on the whole line,
+    /// so a hand-edited or reformatted version still counts as installed — with the one
+    /// spelling single quoting forces, `'\''`, read back as the quote it stands for.
+    public static func isInstalled(in contents: String, directory: URL) -> Bool {
         let path = directory.appendingPathComponent("bash/deathrace.bash").path
         return contents.split(whereSeparator: \.isNewline)
             .contains { line in
                 let trimmed = line.drop { $0 == " " || $0 == "\t" }
-                return !trimmed.hasPrefix("#") && trimmed.contains(path)
+                return !trimmed.hasPrefix("#")
+                    && trimmed.replacingOccurrences(of: "'\\''", with: "'").contains(path)
             }
     }
 }

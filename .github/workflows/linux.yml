@@ -44,13 +44,12 @@ jobs:
       # eval'd: a failed start stops the step instead of skipping the suite.
       # DEATHRACE_SHELLS asks for the real-shell suite, and only this step sets it, so the
       # sanitizer run below leaves it out — real shells in pseudo-terminals would be slow
-      # under TSan and tell it nothing, being separate processes. REQUIRE makes a missing
-      # shell fail here rather than quietly skip.
+      # under TSan and tell it nothing, being separate processes. A shell missing from a run
+      # that asked for shells fails on its own: each test `#require`s the path it looked in.
       - name: Test
         env:
           DEATHRACE_REQUIRE_SSH: "1"
           DEATHRACE_SHELLS: "1"
-          DEATHRACE_REQUIRE_SHELLS: "1"
         run: |
           scripts/ci-sshd.sh > /tmp/sshd-env
           . /tmp/sshd-env

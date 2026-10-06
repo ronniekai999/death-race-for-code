@@ -62,9 +62,20 @@ import Testing
         #expect(environment["DEATHRACE_USER_ZDOTDIR"] == "/home/r/.zsh")
     }
 
-    @Test func zshWithNoZdotdirIsGivenItsHome() {
+    /// Not `$HOME`: a shell with no `ZDOTDIR` is not the same as one pointing at the home
+    /// folder, even though zsh reads the same files for both, and the scripts restore the
+    /// absence so that nothing of ours is left in a nested shell's environment.
+    @Test func zshWithNoZdotdirIsGivenNoneBack() {
         let environment = ShellIntegration.adding(to: ["HOME": "/home/r"], shell: .zsh, directory: scripts)
-        #expect(environment["DEATHRACE_USER_ZDOTDIR"] == "/home/r")
+        #expect(environment["DEATHRACE_USER_ZDOTDIR"] == nil)
+    }
+
+    /// And a value a parent app run left behind is cleared rather than carried forward, or a
+    /// second launch would hand the shell a folder that has nothing to do with it.
+    @Test func zshDoesNotInheritAStaleUserZdotdir() {
+        let environment = ShellIntegration.adding(
+            to: ["HOME": "/home/r", "DEATHRACE_USER_ZDOTDIR": "/stale"], shell: .zsh, directory: scripts)
+        #expect(environment["DEATHRACE_USER_ZDOTDIR"] == nil)
     }
 
     @Test func fishIsPrependedToTheDataDirectories() {
@@ -108,23 +119,78 @@ import Testing
         let line = ShellIntegration.bashLine(directory: scripts)
         #expect(line.contains("/opt/dr/shell-integration/bash/deathrace.bash"))
         #expect(line.contains("Death Race for Code"))
-        // Guarded, so a bashrc that outlives an uninstall does not break every new shell.
+        // Guarded, so a startup file that outlives an uninstall does not break every new shell.
         #expect(line.hasPrefix("[ -r "))
+    }
+
+    /// Single quotes, because the path is read by a shell: in double quotes an app installed
+    /// under a folder with a `$` or a backtick in its name would be expanded rather than read,
+    /// and a space would need quoting anyway. A quote in the path gets the only spelling a
+    /// single-quoted string has for one.
+    @Test func theBashLineQuotesAPathTheShellWouldOtherwiseRead() {
+        let awkward = URL(fileURLWithPath: "/opt/my $apps/`x`/it's here", isDirectory: true)
+        let line = ShellIntegration.bashLine(directory: awkward)
+        #expect(line.contains(#"'/opt/my $apps/`x`/it'\''s here/bash/deathrace.bash'"#))
+        #expect(!line.contains("\""))
+        // And a real bash agrees that this is one word: the quoting is the whole point.
+        #expect(line.hasPrefix("[ -r '"))
     }
 
     @Test func anAlreadyInstalledLineIsRecognised() {
         let line = ShellIntegration.bashLine(directory: scripts)
-        #expect(ShellIntegration.isInstalled(inBashrc: "PS1='$ '\n\(line)\n", directory: scripts))
+        #expect(ShellIntegration.isInstalled(in: "PS1='$ '\n\(line)\n", directory: scripts))
         // Reformatted or hand-edited still counts: it is the path that matters, not the line.
         #expect(
             ShellIntegration.isInstalled(
-                inBashrc: "  source /opt/dr/shell-integration/bash/deathrace.bash\n", directory: scripts))
+                in: "  source /opt/dr/shell-integration/bash/deathrace.bash\n", directory: scripts))
+    }
+
+    @Test func anAlreadyInstalledAwkwardPathIsRecognisedThroughItsQuoting() {
+        let awkward = URL(fileURLWithPath: "/opt/it's here", isDirectory: true)
+        let line = ShellIntegration.bashLine(directory: awkward)
+        #expect(ShellIntegration.isInstalled(in: line, directory: awkward))
     }
 
     @Test func aCommentedOutLineIsNotInstalled() {
         let line = ShellIntegration.bashLine(directory: scripts)
-        #expect(!ShellIntegration.isInstalled(inBashrc: "# \(line)\n", directory: scripts))
-        #expect(!ShellIntegration.isInstalled(inBashrc: "PS1='$ '\n", directory: scripts))
+        #expect(!ShellIntegration.isInstalled(in: "# \(line)\n", directory: scripts))
+        #expect(!ShellIntegration.isInstalled(in: "PS1='$ '\n", directory: scripts))
+    }
+
+    // MARK: - Which file the offer points at
+
+    /// A pane runs a *login* bash, which reads `~/.bash_profile` and never `~/.bashrc`. The
+    /// line has to go where the shell we start will actually read it.
+    @Test func theOfferPointsAtTheFileALoginBashReads() {
+        let files = ["/home/r/.bash_profile": "export PATH=/opt/bin:$PATH\n"]
+        #expect(ShellIntegration.bashProfile(home: "/home/r", contentsOfFile: { files[$0] }) == "/home/r/.bash_profile")
+    }
+
+    /// Unless that file already pulls in `~/.bashrc`, which is the usual convention and what
+    /// most distributions ship: then the line belongs there, where the non-login interactive
+    /// shells other things start will read it too.
+    @Test func theOfferFollowsAProfileThatSourcesYourBashrc() {
+        let files = ["/home/r/.bash_profile": "[ -f ~/.bashrc ] && . ~/.bashrc\n"]
+        #expect(ShellIntegration.bashProfile(home: "/home/r", contentsOfFile: { files[$0] }) == "/home/r/.bashrc")
+        // A commented-out one does not count as sourcing it.
+        let commented = ["/home/r/.bash_profile": "# . ~/.bashrc\nexport X=1\n"]
+        #expect(
+            ShellIntegration.bashProfile(home: "/home/r", contentsOfFile: { commented[$0] })
+                == "/home/r/.bash_profile")
+    }
+
+    /// bash reads the first of the three that exists and no more, so the order is the answer.
+    @Test func theOfferFollowsBashsOwnOrderOfPreference() {
+        let both = ["/home/r/.bash_login": "export X=1\n", "/home/r/.profile": "export Y=1\n"]
+        #expect(ShellIntegration.bashProfile(home: "/home/r", contentsOfFile: { both[$0] }) == "/home/r/.bash_login")
+        let only = ["/home/r/.profile": "export Y=1\n"]
+        #expect(ShellIntegration.bashProfile(home: "/home/r", contentsOfFile: { only[$0] }) == "/home/r/.profile")
+    }
+
+    /// With none of the three there, a login bash reads nothing at all, so naming the first
+    /// one costs nothing: creating it adds our line and takes none of yours away.
+    @Test func theOfferNamesAProfileToCreateWhenThereIsNone() {
+        #expect(ShellIntegration.bashProfile(home: "/home/r", contentsOfFile: { _ in nil }) == "/home/r/.bash_profile")
     }
 
     // MARK: - Through the launch the app actually composes

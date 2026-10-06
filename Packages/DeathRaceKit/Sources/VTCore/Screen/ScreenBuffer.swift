@@ -261,7 +261,18 @@ final class ScreenBuffer {
 
     /// Blanks columns `[from, to)` of row `y` in `fill`. With `selective`, protected cells
     /// survive (DECSED / DECSEL).
-    func erase(row y: Int, from start: Int, to end: Int, fill: Style, selective: Bool = false) {
+    /// `forgetting` means the whole screen is being replaced, not redrawn, so the row's prompt
+    /// marks and command record go with its text.
+    ///
+    /// It is a flag rather than something inferred from the range, and that distinction is
+    /// load-bearing. A prompt redraws itself on every single command with `\r` then ED-to-end,
+    /// which erases the cursor's row from column zero to the last column — indistinguishable
+    /// by range from clearing the screen. Inferring it threw away the command record of the
+    /// command that had just finished, every time, because the shell writes `OSC 133;D` on
+    /// exactly that row just before the prompt redraws it.
+    func erase(
+        row y: Int, from start: Int, to end: Int, fill: Style, selective: Bool = false, forgetting: Bool = false
+    ) {
         let row = active[y]
         let lower = max(0, start)
         let upper = min(columns, end)
@@ -282,13 +293,11 @@ final class ScreenBuffer {
             }
         }
         if upper == columns { row.isWrapped = false }
-        // A row erased end to end has no command on it any more, so its semantic marks go too.
-        // Without this, ED, RIS, the 1049 clear and DECALN all left prompt marks and command
-        // records on rows whose text they had just blanked — and a block model built from the
-        // marks would draw a rail around nothing. A *partial* erase keeps them: erasing to the
-        // end of a line does not unsay where its prompt began, and a selective erase has left
-        // protected cells behind, so the row is not empty either.
-        if lower == 0, upper == columns, !selective {
+        // Clearing the screen leaves no command on these rows, so the semantic marks go with
+        // the text. Without it, ED 2, RIS, the 1049 clear and DECALN all left prompt marks and
+        // command records on rows they had just blanked, and a block model built from those
+        // marks would draw a rail around nothing.
+        if forgetting, !selective {
             row.promptMarks = []
             row.command = nil
         }

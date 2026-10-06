@@ -113,8 +113,9 @@ extension Terminal {
     func fullReset() {
         if isAlternateScreen { leaveAlternateScreen(restoreCursor: false) }
         for s in [primary, alternate] {
-            for y in 0..<s.rows { s.erase(row: y, from: 0, to: s.columns, fill: .default) }
+            for y in 0..<s.rows { s.erase(row: y, from: 0, to: s.columns, fill: .default, forgetting: true) }
             s.active.forEach { $0.isWrapped = false }
+            pendingCommandText = nil
             s.cursor = Cursor()
             s.savedCursor = nil
             s.scrollTop = 0
@@ -196,7 +197,9 @@ extension Terminal {
         alternate.cursor.pen = pen
         isAlternateScreen = true
         if clear {
-            for y in 0..<alternate.rows { alternate.erase(row: y, from: 0, to: alternate.columns, fill: .default) }
+            for y in 0..<alternate.rows {
+                alternate.erase(row: y, from: 0, to: alternate.columns, fill: .default, forgetting: true)
+            }
         }
         bumpGeneration()
     }

@@ -145,10 +145,26 @@ import Testing
         #expect(t.row(0).promptMarks == .promptStart)
     }
 
-    @Test func aFullWidthEraseOfOneLineTakesItsMarks() {
+    /// Erasing a whole line is not clearing the screen, and a prompt does it on every single
+    /// command: zsh and bash both rewrite their prompt line with `\r` then an erase. Forgetting
+    /// the marks here threw away the record of the command that had just finished, every time,
+    /// because `OSC 133;D` is written on exactly the row the prompt is about to redraw. Found
+    /// by the real-shell tests, which is the pairing they exist for.
+    @Test func erasingAWholeLineKeepsItsMarksBecauseAPromptDoesThat() {
         let t = makeTerminal()
-        t.feed("\u{1B}]133;A\u{7}$ ls\u{1B}[2K")
-        #expect(t.row(0).promptMarks.isEmpty)
+        t.feed("\u{1B}]133;D;0;dur=5\u{7}\u{1B}]133;A\u{7}$ ls\r\u{1B}[2K")
+        #expect(t.row(0).promptMarks.contains(PromptMarks.commandEnd))
+        #expect(t.row(0).command?.durationMilliseconds == 5)
+    }
+
+    /// The same, for the erase-to-end-of-display a prompt uses. By range this is identical to
+    /// clearing the screen — cursor at column zero, erase to the last column — which is why
+    /// the engine is told the intent rather than left to guess it.
+    @Test func aPromptRedrawingFromTheCursorKeepsItsMarks() {
+        let t = makeTerminal()
+        t.feed("\u{1B}]133;D;3\u{7}\u{1B}]133;A\u{7}$ \r\u{1B}[J")
+        #expect(t.row(0).promptMarks.contains(PromptMarks.commandEnd))
+        #expect(t.row(0).exitCode == 3)
     }
 
     @Test func risLeavesNoMarksBehind() {

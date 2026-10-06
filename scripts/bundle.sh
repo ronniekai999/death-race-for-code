@@ -47,6 +47,13 @@ shopt -u nullglob
 mkdir -p "$APP/Contents/Resources/Fonts"
 cp "$ROOT"/build/fonts/* "$APP/Contents/Resources/Fonts/"
 
+# The shell integration, committed rather than fetched: three small scripts that tell the app
+# where each prompt and command begins and ends. Found at runtime by ShellIntegration.directory,
+# which looks here first and falls back to App/shell-integration for a run from the repository.
+rm -rf "$APP/Contents/Resources/shell-integration"
+mkdir -p "$APP/Contents/Resources/shell-integration"
+cp -R "$ROOT"/App/shell-integration/. "$APP/Contents/Resources/shell-integration/"
+
 # Icon B, drawn by the app itself (AppIcon.swift) at every size and packed by iconutil.
 ICON="$ROOT/build/icon"
 rm -rf "$ICON"

@@ -305,11 +305,20 @@ extension Terminal {
 
     /// A command line is shown on screen and kept on disk, so it carries no control characters
     /// and no unbounded length. The same rule the rest of the app uses for borrowed text.
+    ///
+    /// A tab or a line break becomes one space rather than nothing: a command written across
+    /// two lines is perfectly ordinary, and dropping its newline would run the halves together
+    /// into `echo aecho b`. Every other control goes, which is what the rule is for.
     private static func cleanCommand(_ text: String) -> String {
         var out = String.UnicodeScalarView()
         for scalar in text.unicodeScalars {
-            guard scalar.value >= 0x20, scalar.value != 0x7F, !(0x80...0x9F).contains(scalar.value) else { continue }
-            out.append(scalar)
+            if scalar == "\t" || scalar == "\n" || scalar == "\r" {
+                out.append(" ")
+            } else if scalar.value >= 0x20, scalar.value != 0x7F, !(0x80...0x9F).contains(scalar.value) {
+                out.append(scalar)
+            } else {
+                continue
+            }
             if out.count >= CommandRecord.textLimit { break }
         }
         return String(out)

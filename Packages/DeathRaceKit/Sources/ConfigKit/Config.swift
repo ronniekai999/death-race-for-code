@@ -67,6 +67,9 @@ public struct Config: Sendable, Equatable {
     public var checkHosts = true
     /// Whether local shells are kept running by `legendsd` when the app goes.
     public var legendsNeverDie = true
+    /// Whether a shell is told to report where its prompts and commands begin and end, which
+    /// is what Conversations, Fast and Ring Ring are built on.
+    public var shellIntegration = true
     /// Read what each host runs from its /etc/os-release, at most weekly.
     public var readHostOS = true
 

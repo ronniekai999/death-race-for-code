@@ -258,7 +258,9 @@ extension Terminal {
             for y in 0..<s.cursor.y { s.erase(row: y, from: 0, to: s.columns, fill: fill, selective: selective) }
             s.erase(row: s.cursor.y, from: 0, to: s.cursor.x + 1, fill: fill, selective: selective)
         case 2:
-            for y in 0..<s.rows { s.erase(row: y, from: 0, to: s.columns, fill: fill, selective: selective) }
+            for y in 0..<s.rows {
+                s.erase(row: y, from: 0, to: s.columns, fill: fill, selective: selective, forgetting: true)
+            }
         case 3:
             if !selective { s.clearScrollback() }
         default:

@@ -10,7 +10,7 @@ import VTCore
 public enum DeltaCodec {
     static let magic: [UInt8] = Array("DRSD".utf8)
     /// 2 added `viewportTopLine`; 3 added rows' link tables.
-    public static let formatVersion: UInt8 = 3
+    public static let formatVersion: UInt8 = 4
 
     public enum DecodeError: Error, Equatable {
         case truncated
@@ -69,7 +69,7 @@ public enum DeltaCodec {
         w.u64(row.version)
         w.bool(row.isWrapped)
         w.u8(row.promptMarks.rawValue)
-        w.optionalI32(row.exitCode)
+        w.command(row.command)
         w.u32(UInt32(row.cells.count))
         for cell in row.cells {
             w.u32(cell.content)
@@ -252,7 +252,7 @@ public enum DeltaCodec {
         let version = try r.u64()
         let isWrapped = try r.bool()
         let marks = PromptMarks(rawValue: try r.u8())
-        let exitCode = try r.optionalI32()
+        let command = try r.command()
 
         let cellCount = try r.count(elementSize: 8)
         var cells = ContiguousArray<Cell>()
@@ -320,7 +320,7 @@ public enum DeltaCodec {
         }
         return RowSnapshot(
             id: id, version: version, cells: cells, styles: styles, graphemes: graphemes, isWrapped: isWrapped,
-            promptMarks: marks, exitCode: exitCode, links: links)
+            promptMarks: marks, command: command, links: links)
     }
 
     private static func decodeModes(_ r: inout ByteReader) throws(DecodeError) -> TerminalModes {
@@ -398,6 +398,19 @@ public struct ByteWriter {
         bytes.append(contentsOf: s.utf8)
     }
 
+    public mutating func optionalU32(_ v: UInt32?) {
+        bool(v != nil)
+        if let v { u32(v) }
+    }
+
+    public mutating func command(_ c: CommandRecord?) {
+        bool(c != nil)
+        guard let c else { return }
+        string(c.text)
+        optionalU32(c.durationMilliseconds)
+        optionalI32(c.exitCode)
+    }
+
     public mutating func rgb(_ c: RGB) {
         bytes.append(contentsOf: [c.red, c.green, c.blue])
     }
@@ -470,6 +483,21 @@ public struct ByteReader {
     public mutating func string() throws(DeltaCodec.DecodeError) -> String {
         let n = try count(elementSize: 1)
         return String(decoding: try take(n), as: UTF8.self)
+    }
+
+    public mutating func optionalU32() throws(DeltaCodec.DecodeError) -> UInt32? {
+        try bool() ? try u32() : nil
+    }
+
+    /// The text is cut to the same cap the engine applies. `count` already stops a forged
+    /// length from making us allocate, but a frame that is legitimately large could still put
+    /// a megabyte of text on every row it carried, and nothing downstream wants that.
+    public mutating func command() throws(DeltaCodec.DecodeError) -> CommandRecord? {
+        guard try bool() else { return nil }
+        let text = try string()
+        return CommandRecord(
+            text: text.count > CommandRecord.textLimit ? String(text.prefix(CommandRecord.textLimit)) : text,
+            durationMilliseconds: try optionalU32(), exitCode: try optionalI32())
     }
 
     public mutating func rgb() throws(DeltaCodec.DecodeError) -> RGB {

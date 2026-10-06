@@ -337,7 +337,8 @@ private func text(_ row: RowSnapshot) -> String {
                     foreground: .rgb(1, 2, 3), background: .indexed(200), underlineColor: .indexed(5),
                     attributes: [.bold, .italic], underline: .curly),
             ],
-            graphemes: [3: [0x301]], isWrapped: true, promptMarks: [.promptStart, .commandEnd], exitCode: -1,
+            graphemes: [3: [0x301]], isWrapped: true, promptMarks: [.promptStart, .commandEnd],
+            command: CommandRecord(text: "swift build ✦", durationMilliseconds: 12_400, exitCode: -1),
             links: [Hyperlink(id: ":1", uri: "https://wrld.example/999"), Hyperlink(id: "f", uri: "file:///tmp/✦")])
         return ScreenDelta(
             generation: 3, version: 99, isSnapshot: false, columns: 4, rows: 1, viewportOffset: 2,
@@ -395,6 +396,18 @@ private func text(_ row: RowSnapshot) -> String {
         w.u64(0)  // viewport top line
         w.u32(UInt32.max)  // "four billion row ids"
         #expect(throws: DeltaCodec.DecodeError.truncated) { try DeltaCodec.decode(w.bytes) }
+    }
+
+    /// A command record whose text is longer than the engine would ever produce. `count`
+    /// already stops a forged length from making the decoder allocate, but a frame that is
+    /// legitimately large could still carry a megabyte of text on every row, so the decoder
+    /// cuts it to the same cap the engine applies.
+    @Test func anOverlongCommandTextIsCutOnDecode() throws {
+        var delta = richDelta()
+        delta.changedRows[0].command = CommandRecord(text: String(repeating: "x", count: 100_000), exitCode: 0)
+        let decoded = try DeltaCodec.decode(DeltaCodec.encode(delta))
+        #expect(decoded.changedRows[0].command?.text.count == CommandRecord.textLimit)
+        #expect(decoded.changedRows[0].exitCode == 0)
     }
 
     @Test func forgedSizesAndLineNumbersAreRejected() {

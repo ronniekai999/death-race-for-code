@@ -11,14 +11,19 @@ public struct RowSnapshot: Sendable, Equatable {
     public var graphemes: [Int: [UInt32]]
     public var isWrapped: Bool
     public var promptMarks: PromptMarks
-    public var exitCode: Int32?
+    /// What the shell said about the command that ended on this row. It rides in the snapshot
+    /// rather than in an event because it has to survive scrollback, a reattach, and a second
+    /// window taking the session up — a build that finished while the app was closed is the
+    /// case Legends Never Die exists for, and its badge has to come back with it.
+    public var command: CommandRecord?
+    public var exitCode: Int32? { command?.exitCode }
     /// The OSC 8 links its cells belong to; a cell's `linkIndex` counts from 1.
     public var links: ContiguousArray<Hyperlink>
 
     public init(
         id: UInt64, version: UInt64, cells: ContiguousArray<Cell>, styles: ContiguousArray<Style> = [.default],
         graphemes: [Int: [UInt32]] = [:], isWrapped: Bool = false, promptMarks: PromptMarks = [],
-        exitCode: Int32? = nil, links: ContiguousArray<Hyperlink> = []
+        command: CommandRecord? = nil, links: ContiguousArray<Hyperlink> = []
     ) {
         self.id = id
         self.version = version
@@ -27,14 +32,14 @@ public struct RowSnapshot: Sendable, Equatable {
         self.graphemes = graphemes
         self.isWrapped = isWrapped
         self.promptMarks = promptMarks
-        self.exitCode = exitCode
+        self.command = command
         self.links = links
     }
 
     public init(_ row: Row) {
         self.init(
             id: row.id, version: row.version, cells: row.cells, styles: row.styles, graphemes: row.graphemes,
-            isWrapped: row.isWrapped, promptMarks: row.promptMarks, exitCode: row.exitCode, links: row.links)
+            isWrapped: row.isWrapped, promptMarks: row.promptMarks, command: row.command, links: row.links)
     }
 
     /// The link the cell at `column` belongs to.

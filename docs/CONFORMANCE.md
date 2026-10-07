@@ -24,33 +24,45 @@ known bugs; with it, our deliberate refusals count as failures and DECNCSM count
 
 | | Tests |
 | --- | ---: |
-| Pass | 358 |
+| Pass | 404 |
 | Marked by esctest as known xterm bugs | 33 |
-| Fail: features scheduled for later | 156 |
-| Fail: deliberate differences from xterm | 20 |
+| Fail: features scheduled for later | 89 |
+| Fail: refused by design, or a deliberate difference | 41 |
 
-That is 358 of 378 (95%) on the v1 scope, counting the deliberate differences as failures.
+That is 404 of 445 (91%) of the tests for behavior we mean to have, counting the refusals as
+the failures they are. The headline moved from "95% of 378" in the other direction than it
+looks: the 19 window-manipulation tests used to be filed under "later", and they are never
+going to pass, so they are counted here among the refusals instead.
 
-**Scheduled for later** (from the plan's "Later" list): left/right margins, DECSLRM (66
-tests); rectangle operations, DECCRA, DECERA, DECFRA, DECSERA (22); special colors, OSC
-5/105/106 (19); window manipulation and title reports (19, and see below); CIE, TekHVC
-and RGBi color specifications (14); DECIC, DECDC, DECBI, DECFI (11); ISO protected areas,
-SPA/EPA (5).
+**Scheduled for later:** colors — OSC 4/5/104/105/106 and the CIE, TekHVC and RGBi color
+specifications (33 tests); rectangle operations, DECCRA, DECERA, DECFRA, DECSERA (24);
+DECIC, DECDC, DECBI and DECFI (20); origin mode against a left margin (7); ISO protected
+areas, SPA/EPA (5).
 
-**Deliberate differences:**
+**Left and right margins (DECSLRM) are in**, which is what moved the number: 47 of those
+tests passed with the margins themselves and the reports, and another 44 once movement,
+scrolling, printing and the editing sequences were bounded by them.
 
+**Refusals and deliberate differences:**
+
+- **The window does not move, resize, raise or lower itself.** `Terminal+CSI.swift` answers
+  XTWINOPS' reports and its title stack and ignores the rest: a program does not get to
+  rearrange the desktop (19 tests). These are never going to pass, and that is the point.
 - **We say we are a VT220** (DA1 `?62;22c`, DA2 `>1;10;0c`, DECSCL 62). xterm claims VT420
-  or VT525 features we do not have, and programs act on those claims (6 tests).
+  or VT525 features we do not have, and programs act on those claims (5 tests).
 - **The window owns its size.** Programs cannot resize it (DECSLPP, DECSNLS, `CSI 8 t`) or
-  switch it to 132 columns (DECCOLM) (5 tests). Once a program allows the switch (mode
+  switch it to 132 columns (DECCOLM) (6 tests). Once a program allows the switch (mode
   40), DECCOLM still clears the screen (unless DECNCSM), resets the margins and homes the
   cursor, as xterm does when the window manager refuses the resize.
 - **Titles cannot be read back** (`CSI 20 t`, `CSI 21 t`). Title reports are a well-known
   way to type text into a shell (5 tests).
 - **The clipboard cannot be read** (OSC 52 with `?`): a program would see whatever the user
   last copied (1 test).
-- **DECSCL does not change the conformance level** (1 test), and **mode 41**, xterm's
-  workaround for an old `more(1)` bug, is not implemented (1 test).
+- **DECSCL does not change the conformance level** (3 tests). We answer DECRQSS `"p"` as a
+  VT220 and offer every sequence we have whatever a program asks for, so a program that sets
+  level 3 and then sets a left margin gets one, where xterm refuses it. Gating features by a
+  conformance level would recover these three; nothing else needs it.
+- **Mode 41**, xterm's workaround for an old `more(1)` bug, is not implemented (1 test).
 - **DECARM can be set and queried.** esctest expects xterm to fail this test, so passing it
   counts as a failure (1 test).
 
@@ -156,7 +168,7 @@ with the swift.org toolchain on a Mac).
 ## v1 scope
 
 C0 and ESC (with the DEC line-drawing charset), CSI cursor/erase/insert/delete, scroll regions,
-tabs, REP, DECALN, full SGR (truecolor, underline styles and color), alternate screen
+left and right margins (DECLRMM and DECSLRM), tabs, REP, DECALN, full SGR (truecolor, underline styles and color), alternate screen
 1049/47/1047, mouse 1000/1002/1003/1006, focus 1004, bracketed paste 2004, synchronized output
 2026, DECSCUSR, DA/DSR/CPR/DECRQM/DECRQSS/XTVERSION/XTGETTCAP/XTWINOPS 18t, OSC 0/2/4/7/10–12,
 OSC 52 (write only), OSC 9;4, OSC 133, OSC 633;E, and the Kitty keyboard protocol.
@@ -169,5 +181,4 @@ unescaping (`\\` for a backslash, `\xHH` for `;` and any control character), so 
 light up in its terminal and its scripts light up in ours. Neither is ours to define, and `dur=`
 is parameter-shaped so every other terminal ignores it.
 
-Later: OSC 8 hyperlinks (Phase 3), Sixel, Kitty graphics, iTerm2 images, DECSLRM, double-width
-lines, rectangle operations, VT52.
+Later: Sixel, Kitty graphics, iTerm2 images, double-width lines, rectangle operations, VT52.

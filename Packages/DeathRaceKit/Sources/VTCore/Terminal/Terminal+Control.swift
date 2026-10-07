@@ -13,10 +13,9 @@ extension Terminal {
             s.cursor.pendingWrap = false
         case 0x0A, 0x0B, 0x0C:  // LF, VT, FF
             index()
-            if modes.newline { s.cursor.x = 0 }
+            if modes.newline { carriageReturn() }
         case 0x0D:  // CR
-            s.cursor.x = 0
-            s.cursor.pendingWrap = false
+            carriageReturn()
         case 0x0E:  // SO: G1 into GL
             s.cursor.charsets.gl = 1
         case 0x0F:  // SI: G0 into GL
@@ -60,7 +59,7 @@ extension Terminal {
         case 0x44: index()  // ESC D: IND
         case 0x45:  // ESC E: NEL
             index()
-            s.cursor.x = 0
+            carriageReturn()
         case 0x48: s.tabStops[s.cursor.x] = true  // ESC H: HTS
         case 0x4D: reverseIndex()  // ESC M: RI
         case 0x4E: s.cursor.charsets.singleShift = 2  // ESC N: SS2
@@ -73,6 +72,15 @@ extension Terminal {
         case 0x5A: reply(Self.primaryDeviceAttributes)  // ESC Z: DECID, the old DA1
         default: break  // ESC \ (ST) and the rest
         }
+    }
+
+    /// CR: back to the left margin. A cursor already left of the margin goes to the screen's
+    /// own edge instead — except in origin mode, where the left margin is the only start of a
+    /// line there is. Without margins both answers are column zero.
+    func carriageReturn() {
+        let s = screen
+        s.cursor.x = modes.origin || s.cursor.x >= s.scrollLeft ? s.scrollLeft : 0
+        s.cursor.pendingWrap = false
     }
 
     // MARK: - Cursor save and restore

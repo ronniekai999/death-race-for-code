@@ -126,3 +126,261 @@ import Testing
         #expect(t.columnMargins == 2...5, "the primary screen kept its own")
     }
 }
+
+/// What the margins do to printing, scrolling, editing and the cursor. esctest covers most of
+/// this against xterm; the tests here pin what it cannot see — scrollback, styles, links and
+/// graphemes — and give each rule a name.
+@Suite struct TerminalMarginScrollTests {
+    /// Fills a 5-column screen with five rows of letters and sets margins over columns 2...4,
+    /// which is the shape esctest's own margin fixtures use.
+    func fiveByFive(margins: String = "\u{1B}[2;4s") -> Terminal {
+        let t = makeTerminal(columns: 5, rows: 5)
+        for (row, line) in ["abcde", "fghij", "klmno", "pqrst", "uvwxy"].enumerated() {
+            t.feed("\u{1B}[\(row + 1);1H" + line)
+        }
+        t.feed("\u{1B}[?69h" + margins)
+        return t
+    }
+
+    @Test func printingWrapsAtTheRightMarginOntoTheLeftOne() {
+        let t = makeTerminal(columns: 8, rows: 4)
+        t.feed("\u{1B}[?69h\u{1B}[2;4sabcdefgh")
+        #expect(t.lines == ["abcd", " efg", " h", ""], "the wrap lands on the left margin")
+        #expect(t.cursorPosition == [2, 2])
+    }
+
+    @Test func withoutAutowrapPrintingPilesUpOnTheRightMargin() {
+        let t = makeTerminal(columns: 8, rows: 2)
+        t.feed("\u{1B}[?69h\u{1B}[2;4s\u{1B}[?7l\u{1B}[1;3Habcdef")
+        #expect(t.lines[0] == "  af", "the last character overwrites the right margin")
+        #expect(t.cursorPosition == [3, 0])
+    }
+
+    @Test func repeatingACharacterWrapsAtTheRightMarginToo() {
+        let t = makeTerminal(columns: 5, rows: 3)
+        t.feed("\u{1B}[?69h\u{1B}[2;4s\u{1B}[1;2Ha\u{1B}[3b")
+        #expect(t.lines == [" aaa", " a", ""])
+    }
+
+    @Test func insertModeTruncatesAtTheRightMargin() {
+        let t = makeTerminal(columns: 5, rows: 1)
+        t.feed("abcde\u{1B}[?69h\u{1B}[2;4s\u{1B}[1;2H\u{1B}[4hZ")
+        #expect(t.lines[0] == "aZbce", "the d is pushed off the right margin and the e stays put")
+    }
+
+    @Test func scrollingUpMovesOnlyTheCellsBetweenTheMargins() {
+        let t = fiveByFive()
+        t.feed("\u{1B}[2;3H\u{1B}[2S")
+        #expect(t.lines == ["almne", "fqrsj", "kvwxo", "p   t", "u   y"])
+    }
+
+    @Test func scrollingDownMovesOnlyTheCellsBetweenTheMargins() {
+        let t = fiveByFive()
+        t.feed("\u{1B}[2;3H\u{1B}[2T")
+        #expect(t.lines == ["a   e", "f   j", "kbcdo", "pghit", "ulmny"])
+    }
+
+    /// esctest cannot see scrollback, and this is the rule that keeps a partly-moved line out
+    /// of it: a line that only partly moved is not a line that left the screen.
+    @Test func aScrollBetweenMarginsReachesNoScrollback() {
+        let t = fiveByFive()
+        t.feed("\u{1B}[1;3H\u{1B}[9S")
+        #expect(t.scrollbackCount == 0)
+        #expect(t.linesScrolledOff == 0)
+        #expect(t.lines == ["a   e", "f   j", "k   o", "p   t", "u   y"])
+    }
+
+    /// The same screen with the mode on but the margins left at the full width takes the
+    /// whole-row path, scrollback and all — which is what makes `isFullWidthMargins` the only
+    /// test the buffer needs.
+    @Test func theFullWidthPathStillKeepsItsHistory() {
+        let t = fiveByFive(margins: "\u{1B}[s")
+        t.feed("\u{1B}[1;1H\u{1B}[2S")
+        #expect(t.scrollbackLines == ["abcde", "fghij"])
+        #expect(t.linesScrolledOff == 2)
+    }
+
+    @Test func insertingLinesPushesDownOnlyTheCellsBetweenTheMargins() {
+        let t = fiveByFive()
+        t.feed("\u{1B}[2;4r\u{1B}[2;3H\u{1B}[L")
+        #expect(t.lines == ["abcde", "f   j", "kghio", "plmnt", "uvwxy"])
+    }
+
+    @Test func deletingLinesPullsUpOnlyTheCellsBetweenTheMargins() {
+        let t = fiveByFive()
+        t.feed("\u{1B}[2;3H\u{1B}[M")
+        #expect(t.lines == ["abcde", "flmnj", "kqrso", "pvwxt", "u   y"])
+    }
+
+    @Test func lineEditingDoesNothingWhenTheCursorIsOutsideTheMargins() {
+        for sequence in ["\u{1B}[L", "\u{1B}[M"] {
+            let t = fiveByFive()
+            t.feed("\u{1B}[2;1H" + sequence)
+            #expect(
+                t.lines == ["abcde", "fghij", "klmno", "pqrst", "uvwxy"],
+                "\(sequence.debugDescription) moved cells")
+        }
+    }
+
+    @Test func insertingCharactersDropsWhatPassesTheRightMargin() {
+        let t = makeTerminal(columns: 8, rows: 1)
+        t.feed("abcdefg\u{1B}[?69h\u{1B}[2;5s\u{1B}[1;3H\u{1B}[@")
+        #expect(t.lines[0] == "ab cdfg", "the e is pushed off the margin and gone")
+    }
+
+    @Test func deletingCharactersPullsNothingInFromPastTheRightMargin() {
+        let t = makeTerminal(columns: 5, rows: 1)
+        t.feed("abcde\u{1B}[?69h\u{1B}[2;4s\u{1B}[1;3H\u{1B}[P")
+        #expect(t.lines[0] == "abd e")
+        t.feed("\u{1B}[1;3H\u{1B}[99P")
+        #expect(t.lines[0] == "ab  e", "and it stops at the margin however much is asked for")
+    }
+
+    @Test func characterEditingDoesNothingWhenTheCursorIsOutsideTheMargins() {
+        for sequence in ["\u{1B}[@", "\u{1B}[99P"] {
+            let t = makeTerminal(columns: 5, rows: 1)
+            t.feed("abcde\u{1B}[?69h\u{1B}[2;4s\u{1B}[1;1H" + sequence)
+            #expect(t.lines[0] == "abcde", "\(sequence.debugDescription) moved cells")
+        }
+    }
+
+    @Test func tabsStopAtTheRightMarginAndBackwardsTabsDoNot() {
+        let t = makeTerminal(columns: 40, rows: 1)
+        t.feed("\u{1B}[?69h\u{1B}[10;20s\u{1B}[1;1H\t")
+        #expect(t.cursorPosition == [8, 0])
+        t.feed("\t")
+        #expect(t.cursorPosition == [16, 0])
+        t.feed("\t\t")
+        #expect(t.cursorPosition == [19, 0], "forward tabs stop at the right margin")
+        t.feed("\u{1B}[2Z")
+        #expect(t.cursorPosition == [8, 0], "backward tabs walk out of the margins")
+    }
+
+    @Test func theCursorStopsAtEachMargin() {
+        let t = makeTerminal(columns: 20, rows: 2)
+        t.feed("\u{1B}[?69h\u{1B}[5;10s\u{1B}[1;7H\u{1B}[99C")
+        #expect(t.cursorPosition == [9, 0])
+        t.feed("\u{1B}[99D")
+        #expect(t.cursorPosition == [4, 0])
+    }
+
+    @Test func aCursorOutsideTheMarginsUsesTheScreensOwnEdges() {
+        let t = makeTerminal(columns: 20, rows: 2)
+        t.feed("\u{1B}[?69h\u{1B}[5;10s\u{1B}[1;15H\u{1B}[99C")
+        #expect(t.cursorPosition == [19, 0], "right of the margin, the screen's edge is the stop")
+        t.feed("\u{1B}[1;2H\u{1B}[99D")
+        #expect(t.cursorPosition == [0, 0], "and left of it, column one")
+    }
+
+    @Test func carriageReturnGoesToTheLeftMargin() {
+        let t = makeTerminal(columns: 20, rows: 2)
+        t.feed("\u{1B}[?69h\u{1B}[5;10s\u{1B}[1;6H\r")
+        #expect(t.cursorPosition == [4, 0])
+        t.feed("\u{1B}[1;5H\r")
+        #expect(t.cursorPosition == [4, 0], "and stays put when it is already there")
+        t.feed("\u{1B}[1;3H\r")
+        #expect(t.cursorPosition == [0, 0], "from left of the margin it is the screen's own edge")
+        t.feed("\u{1B}[?6h\u{1B}[1;3H\r")
+        #expect(t.cursorPosition == [4, 0], "except in origin mode, where the margin is the only line start")
+    }
+
+    @Test func indexScrollsOnlyForACursorBetweenTheMargins() {
+        let t = fiveByFive()
+        t.feed("\u{1B}[2;5r\u{1B}[5;1H\u{1B}D")
+        #expect(t.lines == ["abcde", "fghij", "klmno", "pqrst", "uvwxy"], "nothing moved")
+        #expect(t.cursorPosition == [0, 4], "and the cursor stayed on the bottom margin")
+        t.feed("\u{1B}[5;3H\u{1B}D")
+        #expect(t.lines == ["abcde", "flmnj", "kqrso", "pvwxt", "u   y"], "and scrolled from inside them")
+    }
+
+    @Test func reverseIndexScrollsOnlyForACursorBetweenTheMargins() {
+        let t = fiveByFive()
+        t.feed("\u{1B}[2;5r\u{1B}[2;1H\u{1B}M")
+        #expect(t.lines == ["abcde", "fghij", "klmno", "pqrst", "uvwxy"], "nothing moved")
+        #expect(t.cursorPosition == [0, 1], "and the cursor stayed on the top margin")
+    }
+
+    /// Printing one character at a time is a different path from printing a run of ASCII, and
+    /// the margin has to bound both.
+    @Test func aCharacterOffTheASCIIPathWrapsAtTheRightMarginToo() {
+        let t = makeTerminal(columns: 6, rows: 3)
+        t.feed("\u{1B}[?69h\u{1B}[2;4s\u{1B}[1;4H\u{E9}\u{E8}")
+        #expect(t.lines == ["   \u{E9}", " \u{E8}", ""])
+    }
+
+    @Test func aTwoColumnCharacterTooWideForTheMarginWrapsWhole() {
+        let t = makeTerminal(columns: 6, rows: 3)
+        // Columns 3 and 4 are the last two inside the margin, so there it still fits.
+        t.feed("\u{1B}[?69h\u{1B}[2;4s\u{1B}[1;3H\u{4E16}")
+        #expect(t.row(0).cells[2].scalar == 0x4E16)
+        t.feed("\u{1B}[1;4H\u{4E16}")
+        #expect(t.row(0).cells[3].width == .spacerHead, "no room left before the margin: a spacer, then the wrap")
+        #expect(t.row(1).cells[1].scalar == 0x4E16, "and the character itself starts at the left margin")
+        // REP writes its repeats through a path of their own, with the same rule.
+        t.feed("\u{1B}[2;4H\u{4E16}\u{1B}[1b")
+        #expect(t.row(1).cells[3].width == .spacerHead)
+        #expect(t.row(2).cells[1].scalar == 0x4E16)
+    }
+
+    @Test func repeatingATwoColumnCharacterStaysWholeAtTheRightMargin() {
+        let t = makeTerminal(columns: 6, rows: 2)
+        // With autowrap off there is nowhere to wrap to, so the repeats pile up on the last
+        // two columns inside the margin rather than straddling it.
+        t.feed("\u{1B}[?69h\u{1B}[2;4s\u{1B}[?7l\u{1B}[1;3H\u{4E16}\u{1B}[2b")
+        #expect(t.row(0).cells[2].scalar == 0x4E16)
+        #expect(t.row(0).cells[3].width == .spacerTail)
+        #expect(t.cursorPosition == [3, 0])
+    }
+
+    @Test func reverseWrapGoesBackToTheRightMargin() {
+        let t = makeTerminal(columns: 20, rows: 3)
+        // Mode 1045 reverse-wraps whatever the line above looks like.
+        t.feed("\u{1B}[?7h\u{1B}[?1045h\u{1B}[?69h\u{1B}[5;10s")
+        t.feed("\u{1B}[3;5H\u{8}")
+        #expect(t.cursorPosition == [9, 1], "from the left margin, back to the right margin a line up")
+        t.feed("\u{1B}[3;1H\u{8}")
+        #expect(t.cursorPosition == [9, 1], "and the same from the screen's own edge")
+    }
+
+    @Test func movingALineAtATimeLandsOnTheLeftMargin() {
+        let t = makeTerminal(columns: 20, rows: 6)
+        t.feed("\u{1B}[?69h\u{1B}[5;10s\u{1B}[2;4r\u{1B}[3;7H\u{1B}[99E")
+        #expect(t.cursorPosition == [4, 3], "CNL stops at the bottom margin, on the left margin")
+        t.feed("\u{1B}[3;7H\u{1B}[99F")
+        #expect(t.cursorPosition == [4, 1], "and CPL at the top one")
+    }
+
+    /// A cell's style and its link are indexes into the table of the row that holds it, so a
+    /// scroll that moves cells between rows has to look both up again. Nothing esctest checks
+    /// can see either.
+    @Test func aStyleAndALinkRideAlongWithTheCellsTheyBelongTo() {
+        let t = makeTerminal(columns: 5, rows: 3)
+        let open = "\u{1B}]8;;https://wrld.example/999\u{1B}\\"
+        t.feed("\u{1B}[2;1H\u{1B}[1;32m" + open + "xyz" + "\u{1B}]8;;\u{1B}\\\u{1B}[0m")
+        t.feed("\u{1B}[?69h\u{1B}[2;4s\u{1B}[1;3H\u{1B}[S")
+        let row = t.row(0)
+        #expect(row.text == " yz")
+        #expect(t.style(x: 1, y: 0) == Style(foreground: .indexed(2), attributes: .bold))
+        #expect(row.link(at: 1)?.uri == "https://wrld.example/999")
+        #expect(row.link(at: 2)?.uri == "https://wrld.example/999")
+        #expect(row.links.count == 1, "the link is registered once in the row it landed on")
+    }
+
+    @Test func aGraphemeRidesAlongToo() {
+        let t = makeTerminal(columns: 5, rows: 3)
+        t.feed("\u{1B}[2;2He\u{301}")
+        t.feed("\u{1B}[?69h\u{1B}[2;4s\u{1B}[1;3H\u{1B}[S")
+        #expect(t.row(0).text == " e\u{301}")
+        #expect(t.row(0).graphemes[1] == [0x301])
+    }
+
+    @Test func aWideCharacterCutByAMarginLosesTheHalfThatMoved() {
+        let t = makeTerminal(columns: 6, rows: 3)
+        // 世 lands on columns 4 and 5, so the right margin cuts it in half.
+        t.feed("\u{1B}[2;4H\u{4E16}")
+        t.feed("\u{1B}[?69h\u{1B}[2;4s\u{1B}[1;3H\u{1B}[S")
+        #expect(t.row(0).text == "", "the half that moved is blanked rather than drawn without the other")
+        #expect(t.row(1).text == "", "and the margin blanked both halves of the character it cut")
+        #expect(t.row(1).cells[4].width == .narrow, "so no spacer is left behind outside the margin")
+    }
+}

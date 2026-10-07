@@ -15,10 +15,10 @@ extension Terminal {
         case (0, 0, 0x44): cursorBackward(Int(p.value(at: 0, default: 1)))  // CUB, with reverse wrap as BS
         case (0, 0, 0x45):  // CNL
             cursorDown(Int(p.value(at: 0, default: 1)))
-            s.cursor.x = 0
+            carriageReturn()
         case (0, 0, 0x46):  // CPL
             cursorUp(Int(p.value(at: 0, default: 1)))
-            s.cursor.x = 0
+            carriageReturn()
         case (0, 0, 0x47), (0, 0, 0x60):  // CHA, HPA
             setCursorColumn(Int(p.value(at: 0, default: 1)) - 1)
         case (0, 0, 0x48), (0, 0, 0x66):  // CUP, HVP
@@ -52,13 +52,13 @@ extension Terminal {
             s.deleteCells(Int(p.value(at: 0, default: 1)), row: s.cursor.y, at: s.cursor.x, fill: s.cursor.pen.erasing)
             s.cursor.pendingWrap = false
         case (0, 0, 0x4C):  // IL
-            if s.cursor.y >= s.scrollTop && s.cursor.y <= s.scrollBottom {
+            if s.cursor.y >= s.scrollTop && s.cursor.y <= s.scrollBottom && s.cursorIsBetweenMargins {
                 s.insertLines(Int(p.value(at: 0, default: 1)), at: s.cursor.y, fill: s.cursor.pen.erasing)
                 s.cursor.x = 0
                 s.cursor.pendingWrap = false
             }
         case (0, 0, 0x4D):  // DL
-            if s.cursor.y >= s.scrollTop && s.cursor.y <= s.scrollBottom {
+            if s.cursor.y >= s.scrollTop && s.cursor.y <= s.scrollBottom && s.cursorIsBetweenMargins {
                 s.deleteLines(Int(p.value(at: 0, default: 1)), at: s.cursor.y, fill: s.cursor.pen.erasing)
                 s.cursor.x = 0
                 s.cursor.pendingWrap = false
@@ -182,7 +182,7 @@ extension Terminal {
 
     func cursorForward(_ n: Int) {
         let s = screen
-        s.cursor.x = min(s.columns - 1, s.cursor.x + max(n, 1))
+        s.cursor.x = min(s.rightLimit, s.cursor.x + max(n, 1))
         s.cursor.pendingWrap = false
     }
 
@@ -193,8 +193,9 @@ extension Terminal {
         let s = screen
         var n = max(count, 1)
         let extended = modes.reverseWraparoundExtended
+        let left = s.leftLimit
         guard modes.autowrap && (modes.reverseWraparound || extended) else {
-            s.cursor.x = max(0, s.cursor.x - n)
+            s.cursor.x = max(left, s.cursor.x - n)
             s.cursor.pendingWrap = false
             return
         }
@@ -206,7 +207,7 @@ extension Terminal {
         let top = inRegion ? s.scrollTop : 0
         let bottom = inRegion ? s.scrollBottom : s.rows - 1
         while true {
-            let step = min(s.cursor.x, n)
+            let step = min(s.cursor.x - left, n)
             s.cursor.x -= step
             n -= step
             if n == 0 { break }
@@ -217,7 +218,9 @@ extension Terminal {
                 guard extended || s.active[s.cursor.y - 1].isWrapped else { break }
                 s.cursor.y -= 1
             }
-            s.cursor.x = s.columns - 1
+            // Reverse wrap lands on the right margin, which is where printing would have
+            // left off on the line above.
+            s.cursor.x = s.scrollRight
             n -= 1
         }
     }

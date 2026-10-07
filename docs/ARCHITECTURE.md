@@ -44,7 +44,7 @@ UI half needs macOS.
 | `CPTY` | macOS, Linux | `openpty` → `fork` → `setsid` → `TIOCSCTTY` → `dup2` → `execve`, in C |
 | `PTYKit` | macOS, Linux | `PseudoTerminal` (non-blocking master, resize, password-prompt detection, child-exit watch, hang-up), `ShellLaunch`, `SmokeTest` |
 | `VTCore` | macOS, Linux | the engine: parser, screens and scrollback, reflow, SGR, modes, reports, OSC/DCS (OSC 8 links in per-row tables); key, mouse, focus and paste encoding |
-| `ScreenProtocol` | macOS, Linux | `ScreenDelta`, `DeltaBuilder` (session side), `MirrorGrid` (app side), `DeltaCodec` (the bytes a session sends the app, format 3) |
+| `ScreenProtocol` | macOS, Linux | `ScreenDelta`, `DeltaBuilder` (session side), `MirrorGrid` (app side), `DeltaCodec` (the bytes a session sends the app, format 4) |
 | `SessionKit` | macOS, Linux | `TerminalSession`/`ShellSession`/`SessionHost`, the seam a session is reached through; `Session`: one thread per shell owning its PTY and engine, a locked mailbox for deltas and commands; `InProcessHost` |
 | `IPCKit` | macOS, Linux | what the askpass broker and the session daemon both need and neither owns: `UnixSocket`, `FrameReader`/`FrameWriter` (a control lane drained before a bulk one), `PeerInspector`, `PeerCode` (macOS: a peer's audit token against a requirement built from our own signature), `secureFolder`, `ProcessLock`, constant-time compare |
 | `SessionIPC` | macOS, Linux | Legends Never Die: `SessionWire`/`ControlWire`/`StreamWire` (the messages and their bounds), `SessionRegistry`, `ControlConnection`, `SessionBridge` (one per attached session, with a one-delta acknowledgement window), `Daemon`; the app's end — `DaemonHost`, `RemoteSession`, `SpawnLauncher`, `PeerPolicy`, `Legends`, `SessionPlacement` |
@@ -649,14 +649,40 @@ seam depends on the answer.
   past syntax and the macOS-only targets have no other gate. The same hole cost another round
   to a plainer thing: `LegendsService` named `ShellLaunch` and `Terminal.Configuration`
   without importing PTYKit or VTCore, which parses here and cannot compile there. That one is
-  now caught before any macOS minute is spent — `scripts/check-imports.py`, which `make lint`
+  caught before any macOS minute is spent — `scripts/check-imports.py`, which `make lint`
   runs, maps every top-level public type in the package to its module and reports one a
   macOS-only file names but cannot reach.
+
+  It did not, for three phases. The script read `Sources`, a path that exists under
+  `Packages/DeathRaceKit` and not at the repository root where `make lint` runs it, so it
+  mapped nothing, found nothing unreachable and said so on every run. Phase 8 lost a macOS
+  round to the very error it was written for. It now resolves its root from its own location
+  and **exits non-zero when that root is missing**, because the failure mode was not a wrong
+  answer but a confident empty one.
+
+  What still has no gate but a macOS runner is the type arithmetic at the AppKit edge:
+  `window?.backingScaleFactor ?? cell.scale` is `CGFloat?` against `Double`, which the
+  implicit conversion between them does not reach inside `??`. There is no way to type-check
+  that here, so the mitigation is the one the module layout already applies — keep the macOS
+  code thin, and put every decision in portable code with Linux tests.
 
 - **CI's GPU is virtual.** macOS runners are VMs with a paravirtual Metal device. The renderer
   tests and the smoke test's render run there, and every run keeps the corpus screens it
   rendered as an artifact for review. Pixel goldens, which need a real GPU's antialiasing,
   run on a Mac with `make test-render`.
+
+  And **no pane there is ever on screen**, so no pane ever presents a frame. A view draws only
+  while `isSeen` — in a window, not hidden, occlusion `.visible` — and a window on a runner
+  with no display satisfies none of it; the log fills with `CAMetalLayer ignoring invalid
+  setDrawableSize width=0.000000 height=0.000000` as the layout pass retries a size the layer
+  keeps refusing. So the paths that run on CI are the picture paths, `snapshot(using:)` and the
+  `drawCursor(in:)`-shaped hand-draws beside it, and **anything a layer needs must be derivable
+  from the mirror**, never from state a presented frame leaves behind. Phase 8 M3 got this
+  wrong: the badge read the block runs the last frame had cached, so the three badge picture
+  tests failed while the cursor one — which reads the mirror directly — passed on the same
+  window with the same helper. The badge's runs are an argument now, the frame passing the ones
+  it drew and a picture passing the screen as it is. Left as it was, the theme pictures and the
+  render goldens would have carried rails and bands with no badges at all.
 
 ## Roadmap
 

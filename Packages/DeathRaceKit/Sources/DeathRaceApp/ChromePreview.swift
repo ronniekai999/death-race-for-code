@@ -66,25 +66,35 @@
 
         /// What each pane runs, in order: the first tab's two panes, then a tab each.
         static let scripts: [(program: String, output: String)] = [
+            // With the shell integration's marks, so every theme's picture shows Conversations:
+            // a rail beside each command, a badge on the slow one, and the band on the prompt
+            // being typed at. A ⌘-less `ls` is quick enough to get no badge, which is the point.
             (
                 "zsh",
-                "\u{1B}[38;5;213m❯\u{1B}[0m swift build\r\n"
+                "\u{1B}]133;A\u{7}\u{1B}[38;5;213m❯\u{1B}[0m swift build\u{1B}]133;B\u{7}"
+                    + "\u{1B}]633;E;swift build\u{7}\u{1B}]133;C\u{7}\r\n"
                     + "\u{1B}[2m[412/412]\u{1B}[0m Linking DeathRace\r\n"
-                    + "\u{1B}[32mBuild complete!\u{1B}[0m \u{1B}[2m(12.4s)\u{1B}[0m\r\n"
-                    + "\u{1B}[38;5;213m❯\u{1B}[0m ls --hyperlink\r\n"
+                    + "\u{1B}[32mBuild complete!\u{1B}[0m \u{1B}[2m(12.4s)\u{1B}[0m"
+                    + "\u{1B}]133;D;0;dur=12400\u{7}\r\n"
+                    + "\u{1B}]133;A\u{7}\u{1B}[38;5;213m❯\u{1B}[0m ls --hyperlink\u{1B}]133;B\u{7}"
+                    + "\u{1B}]633;E;ls --hyperlink\u{7}\u{1B}]133;C\u{7}\r\n"
                     + "\u{1B}]8;;file:///tmp/App\u{1B}\\\u{1B}[1;34mApp\u{1B}[0m\u{1B}]8;;\u{1B}\\  "
                     + "\u{1B}]8;;file:///tmp/Makefile\u{1B}\\Makefile\u{1B}]8;;\u{1B}\\  "
-                    + "\u{1B}[1;34mPackages\u{1B}[0m  README.md  \u{1B}[1;34mdocs\u{1B}[0m\r\n"
-                    + "\u{1B}[38;5;213m❯\u{1B}[0m "
+                    + "\u{1B}[1;34mPackages\u{1B}[0m  README.md  \u{1B}[1;34mdocs\u{1B}[0m"
+                    + "\u{1B}]133;D;0;dur=14\u{7}\r\n"
+                    + "\u{1B}]133;A\u{7}\u{1B}[38;5;213m❯\u{1B}[0m \u{1B}]133;B\u{7}"
             ),
+            // And one that failed, for the rail and badge a failure gets however fast it was.
             (
                 "make",
-                "\u{1B}[38;5;213m❯\u{1B}[0m make test\r\n"
+                "\u{1B}]133;A\u{7}\u{1B}[38;5;213m❯\u{1B}[0m make test\u{1B}]133;B\u{7}"
+                    + "\u{1B}]633;E;make test\u{7}\u{1B}]133;C\u{7}\r\n"
                     + "\u{1B}[32m✔\u{1B}[0m Suite \u{1B}[1mThemeCatalogTests\u{1B}[0m passed\r\n"
                     + "\u{1B}[32m✔\u{1B}[0m Suite \u{1B}[1mSplitTreeTests\u{1B}[0m passed\r\n"
                     + "\u{1B}[31m✘\u{1B}[0m Test \u{1B}[1mlinksSurviveReflow()\u{1B}[0m failed\r\n"
                     + "  \u{1B}[33mExpectation failed:\u{1B}[0m uris == expected\r\n"
-                    + "See https://github.com/ronniekai999/death-race-for-code\r\n"
+                    + "See https://github.com/ronniekai999/death-race-for-code"
+                    + "\u{1B}]133;D;1;dur=48000\u{7}\r\n"
             ),
             ("vim", "\u{1B}]2;notes.md\u{7}\u{1B}[1m# Legends Never Die\u{1B}[0m\r\n\r\n- 999\r\n- Lucid Dreams\r\n"),
             ("ssh", "\u{1B}]2;prod-api\u{7}prod-api ~ \u{1B}[32m$\u{1B}[0m uptime\r\n 18:42  up 99 days\r\n"),
@@ -373,6 +383,9 @@
                     else { continue }
                     context.draw(image, in: surface.convert(surface.bounds, to: nil))
                     surface.drawCursor(in: context)
+                    // Badges are layers, which an offscreen frame leaves out, so a picture of a
+                    // pane draws them over it — the same obligation the cursor has.
+                    surface.drawBadges(in: context)
                 }
             }
             guard let image = context.makeImage() else { throw Failure(description: "no picture") }

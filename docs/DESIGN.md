@@ -81,8 +81,8 @@ Each theme carries the window's colors as well as the terminal's (`ChromeColors`
 | surface, surfaceHover | cards, Hear Me Calling, Settings' rows |
 | line, lineStrong | borders; key caps and controls |
 | ink, inkMuted, inkFaint | text: primary, secondary, tertiary |
-| gradient (5 stops) | the active tab pill, Settings' switches and sliders |
-| neon (3 stops) | the focused pane's border, the 999, the equalizer |
+| gradient (5 stops) | the active tab pill, Settings' switches and sliders, a 999 personal best |
+| neon (3 stops) | the focused pane's border, the title bar's 999, the equalizer |
 | accent | branch names, the palette's highlights |
 | glow, glowOpacity | the halo around the focused pane in the key window |
 | danger, warning | failed tabs; settings that could not be used; sessions that will not outlive the app |

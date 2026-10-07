@@ -191,6 +191,26 @@ public enum ConfigSchema {
             ],
             read: { value, config throws(ConfigValueError) in config.starfield = try Value.bool(value) },
             write: { String($0.starfield) }),
+        ConfigKey(
+            "conversations", .window,
+            help: [
+                "Draw what your shell reports about each command: a thin rail beside it, a band",
+                "behind the one you are working in, and a badge with how long it took.",
+                "Needs shell-integration, which is what reports any of it. With this off the",
+                "terminal draws exactly what it drew before, and nothing is placed over the grid.",
+            ],
+            read: { value, config throws(ConfigValueError) in config.conversations = try Value.bool(value) },
+            write: { String($0.conversations) }),
+        ConfigKey(
+            "fast-threshold-milliseconds", .window,
+            help: [
+                "A command quicker than this gets no badge, because a badge over every `ls` is",
+                "noise. One that failed gets a badge however fast it was. From 0 to 600000.",
+            ],
+            read: { value, config throws(ConfigValueError) in
+                config.fastThresholdMilliseconds = Int(try Value.number(value, in: 0...600_000))
+            },
+            write: { String($0.fastThresholdMilliseconds) }),
     ]
 
     private static let colors: [ConfigKey] = [
@@ -365,8 +385,9 @@ public enum ConfigSchema {
                 "a command's duration, its pass or fail mark, and the word when a long one finishes",
                 "are all read from.",
                 "zsh and fish are set up through the environment and no file of yours is touched.",
-                "bash is different: it is offered one line to add to your ~/.bashrc, and shown the",
-                "line first. Turning this off stops all three.",
+                "bash is different: it is offered one line to add to the startup file a login",
+                "shell of yours actually reads, and shown the line first. Turning this off stops",
+                "all three.",
             ],
             read: { value, config throws(ConfigValueError) in config.shellIntegration = try Value.bool(value) },
             write: { String($0.shellIntegration) }),

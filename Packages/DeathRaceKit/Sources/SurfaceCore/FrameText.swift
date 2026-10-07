@@ -132,6 +132,7 @@ extension Frame {
         case .dashedUnderline: "dashed-underline"
         case .strikethrough: "strikethrough"
         case .overline: "overline"
+        case .rail: "rail"
         case nil: "decoration-\(kind)"
         }
     }

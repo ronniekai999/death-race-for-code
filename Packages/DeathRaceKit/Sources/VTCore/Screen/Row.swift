@@ -230,7 +230,7 @@ public enum PromptMark: Equatable, Sendable {
 /// measured here: VTCore is deliberately Foundation-free and has no clock, and a command that
 /// ran while the app was closed — the case the session daemon exists for — was never watched
 /// by anything that could have timed it.
-public struct CommandRecord: Equatable, Sendable {
+public struct CommandRecord: Hashable, Sendable {
     /// The command line, capped at `textLimit` Unicode scalars and stripped of controls by
     /// `cleaned(_:)`, which is the only way text gets in here.
     public var text: String

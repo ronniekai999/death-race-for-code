@@ -388,6 +388,14 @@ final class PaneController {
                 else { continue }
                 reportedDirectory = path
                 onChange?()
+            case .promptMark(.commandEnd, let rowID):
+                // The record is on the row, not in the event: the mark carries only the exit
+                // code, while the duration and the text come from `OSC 633;E` and `dur=`. The
+                // row is in view at the moment a command ends, because the cursor is on it.
+                guard let command = surface.model?.mirror.lines.first(where: { $0.id == rowID })?.command else {
+                    continue
+                }
+                recordBest(command)
             default:
                 break
             }
@@ -536,8 +544,58 @@ final class PaneController {
         surface.pasteProtection = config.pasteProtection
         surface.copyOnSelect = config.copyOnSelect
         surface.starfield = config.starfield && config.namedTheme.hasStars
+        applyConversations()
         surface.frameRatePolicy = FrameRatePolicy(
             followsLowPowerMode: config.followLowPowerMode, capsOutput: config.outputFrameRateCap)
+    }
+
+    /// Conversations, on or off, and everything it needs: the colors the rail and the band are
+    /// drawn in, and the one closure that turns what the shell said into a picture.
+    ///
+    /// The words and the records they are compared against are decided here rather than in the
+    /// view, because they are the app's: `TerminalUI` has no business knowing what "faster than
+    /// your best" means, and does not depend on `AppCore`, which does.
+    private func applyConversations() {
+        guard config.shellIntegration, config.conversations else {
+            surface.blockColors = nil
+            surface.makeBadge = nil
+            return
+        }
+        surface.blockColors = Chrome(config.namedTheme).blockColors
+        // `[weak self]` and nothing else captured, the shape every other callback here takes:
+        // the work is a method of this class, so it stays on the main actor where the chrome
+        // and the records live, and a theme or a threshold changed since is read rather than
+        // remembered.
+        surface.makeBadge = { [weak self] command, scale in self?.badge(for: command, scale: scale) }
+    }
+
+    private func badge(for command: CommandRecord, scale: CGFloat) -> CommandBadge? {
+        let best = command.text.isEmpty ? nil : bests.best(for: command.text)
+        guard
+            let words = FastLabel.words(
+                milliseconds: command.durationMilliseconds, exitCode: command.exitCode, bestMilliseconds: best,
+                thresholdMilliseconds: UInt32(clamping: config.fastThresholdMilliseconds))
+        else { return nil }
+        let isBest = FastLabel.isPersonalBest(
+            milliseconds: command.durationMilliseconds, exitCode: command.exitCode, bestMilliseconds: best)
+        guard let picture = Chrome(config.namedTheme).badge(words, isPersonalBest: isBest, scale: scale) else {
+            return nil
+        }
+        return CommandBadge(picture: picture, isPersonalBest: isBest)
+    }
+
+    /// The best time each command has taken in this pane. Records are set from `promptMark`
+    /// events, which arrive once per command, rather than from the rows a frame happens to
+    /// show: a row is drawn again whenever the screen moves, and a time already recorded would
+    /// then be offered as the thing to beat.
+    private var bests = CommandBests()
+
+    /// A command ended: remember its time, if it is one worth remembering.
+    private func recordBest(_ command: CommandRecord) {
+        guard command.exitCode == 0, let milliseconds = command.durationMilliseconds, !command.text.isEmpty else {
+            return
+        }
+        bests.record(command: command.text, milliseconds: milliseconds)
     }
 
     private func applyFonts() {

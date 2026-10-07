@@ -145,6 +145,10 @@ public enum SettingsCatalog {
                     title: "Window",
                     settings: [
                         Setting("starfield", "Starfield behind the terminal", .toggle),
+                        Setting("conversations", "Mark each command and how long it took", .toggle),
+                        Setting(
+                            "fast-threshold-milliseconds", "Show a command's time when it is over",
+                            .number(range: 0...60_000, step: 250, unit: "ms")),
                         Setting("window-padding-x", "Side padding", .number(range: 0...40, step: 1, unit: "pt")),
                         Setting(
                             "window-padding-y", "Top and bottom padding", .number(range: 0...40, step: 1, unit: "pt")),

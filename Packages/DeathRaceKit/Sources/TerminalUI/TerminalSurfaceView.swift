@@ -8,6 +8,23 @@ import SessionKit
 import SurfaceCore
 import VTCore
 
+/// What to draw beside a command: its words, already rasterized, and whether they are worth a
+/// flash.
+///
+/// A picture rather than a string, because the words and the chrome's fonts and gradients are
+/// the app's and `TerminalUI` has no business knowing either. All the view does is find the
+/// cell and place it.
+public struct CommandBadge: Sendable {
+    public var picture: CGImage
+    /// The command beat its own best. Flashed once when the badge appears, never after.
+    public var isPersonalBest: Bool
+
+    public init(picture: CGImage, isPersonalBest: Bool) {
+        self.picture = picture
+        self.isPersonalBest = isPersonalBest
+    }
+}
+
 /// The terminal in a window: it draws a session's screen with Metal and turns keys and input
 /// methods into bytes for it.
 ///
@@ -115,6 +132,27 @@ public final class TerminalSurfaceView: NSView {
     public var contextMenuItems: (() -> [NSMenuItem])?
     /// The link ⌘ is held over, underlined while the pointer is on it.
     public internal(set) var hoveredLink: LinkHit?
+    /// Conversations: what a block's rail and the band behind the one you are in are drawn in.
+    /// Nil draws no blocks at all, which is what `conversations = false` comes to — and with
+    /// it the terminal draws exactly what it drew before any of this.
+    public var blockColors: BlockColors? {
+        didSet {
+            if blockColors != oldValue {
+                needsFrame = true
+                wake()
+            }
+        }
+    }
+    /// The picture of what to say beside a command, or nil for one not worth a word — which is
+    /// most of them. The app draws it, because the words, the records they are compared against
+    /// and the chrome's fonts are all the app's; the view only finds the cell and places it.
+    public var makeBadge: ((CommandRecord, CGFloat) -> CommandBadge?)? {
+        didSet {
+            if makeBadge == nil { removeBadges() }
+            needsFrame = true
+            wake()
+        }
+    }
     /// How fast the view may draw (`follow-low-power-mode`, `output-frame-rate-cap`).
     public var frameRatePolicy = FrameRatePolicy() {
         didSet { if frameRatePolicy != oldValue { applyFrameRate() } }
@@ -146,6 +184,23 @@ public final class TerminalSurfaceView: NSView {
     var restartBlink = false
     /// The visual bell's flash, over everything.
     private let flashLayer = CALayer()
+    /// The blocks the last frame drew, so the badges are placed against the same screen the
+    /// rail and band were drawn on rather than one recomputed a moment later.
+    private var blockRuns: [BlockRun] = []
+    /// One layer per badge on screen, recycled rather than remade: a layer that is not needed
+    /// this frame is hidden, not removed, because the next frame usually needs it again.
+    private var badgeLayers: [CALayer] = []
+    /// Badge pictures by the command they are about, so one is drawn once rather than once a
+    /// frame. The nil answer is cached too: "nothing worth saying" is the common case and
+    /// would otherwise be asked for on every frame of every fast command on screen.
+    private var badgePictures: [CommandRecord: CommandBadge?] = [:]
+    private var badgePictureScale: CGFloat = 0
+    /// Records already flashed, so a personal best is celebrated once rather than on every
+    /// frame it is on screen — and not again when it scrolls back into view.
+    private var flashedBests: Set<CommandRecord> = []
+    /// Enough for a screenful of slow commands, and a bound on the layers either way.
+    private static let badgeLimit = 24
+    private static let badgePictureLimit = 256
     /// For Debug › Log Frame Stats.
     public private(set) var frameStats = FrameStats()
     /// When the oldest key press not yet on screen happened (CACurrentMediaTime).
@@ -394,9 +449,11 @@ public final class TerminalSurfaceView: NSView {
         glyphs.beginFrame()
         // The screen may have moved under a hovered link.
         if hoveredLink != nil { updateHoveredLink(redrawing: false) }
+        blockRuns = blockColors == nil && makeBadge == nil ? [] : Blocks.runs(in: model.mirror)
         let frame = builder.build(
             mirror: model.mirror, theme: theme, cell: cell, selection: selectionRange, glyphs: glyphs,
-            preedit: preedit, starfield: starfield, link: hoveredLink)
+            preedit: preedit, starfield: starfield, link: hoveredLink,
+            blocks: blockColors.map { BlockChrome(runs: blockRuns, colors: $0) })
         guard let drawable = metalLayer.nextDrawable(), let commandBuffer = context.queue.makeCommandBuffer() else {
             needsFrame = true
             return true
@@ -431,6 +488,7 @@ public final class TerminalSurfaceView: NSView {
         commandBuffer.waitUntilScheduled()
         drawable.present()
         updateCursor()
+        updateBadges(runs: blockRuns)
         CATransaction.commit()
         needsFrame = !frame.isComplete
         frameStats.frameDrawn(milliseconds: (CACurrentMediaTime() - started) * 1000)
@@ -659,11 +717,124 @@ public final class TerminalSurfaceView: NSView {
         // As many frames as the glyph cache's per-frame budget needs to draw every glyph.
         let (frame, _) = FrameBuilder().buildComplete(
             mirror: model.mirror, theme: theme, cell: cell, selection: selectionRange, glyphs: glyphs,
-            starfield: starfield, link: hoveredLink)
+            starfield: starfield, link: hoveredLink,
+            blocks: blockColors.map { BlockChrome(runs: Blocks.runs(in: model.mirror), colors: $0) })
         let layout = PixelLayout(
             width: width, height: height, originX: Int((grid.left * scale).rounded()),
             originY: Int((grid.top * scale).rounded()))
         return try renderer.render(frame, cell: cell, layout: layout, glyphs: glyphs, dim: dimming?.packed ?? 0)
+    }
+
+    /// Places a badge beside each command worth a word, at the right-hand end of the line its
+    /// prompt is on, as the board draws it.
+    ///
+    /// Called from inside the transaction that presents the frame, where the cursor is placed:
+    /// `presentsWithTransaction` is what makes a layer and the Metal frame appear together, and
+    /// a badge placed outside it shears against scrolling text. Placed on every frame drawn
+    /// rather than when the view scrolls, for the same reason the cursor is: scrolling always
+    /// draws, so there is no second signal to listen for.
+    ///
+    /// The runs arrive as an argument rather than being read from `blockRuns`, because a
+    /// picture is not the presented frame. A frame passes the runs it has just drawn, so a
+    /// badge can never shear against it; `drawBadges(in:)` passes the screen as it is now, the
+    /// same mirror `snapshot(using:)` builds its own frame from. Reading the cache there drew
+    /// nothing at all until a frame had been presented — and a pane that is never on screen
+    /// never presents one, which is every pane on a CI runner and in `--render-chrome`. The
+    /// cursor was always right about this: it "follows the screen as it is now".
+    func updateBadges(runs: [BlockRun]) {
+        guard self.layer != nil, let makeBadge, let model, !runs.isEmpty else { return hideBadges() }
+        // `CGFloat(…)` spelled out: AppKit's scale is a CGFloat and ours is a Double, and
+        // although the two are the same thing on this platform, `??` will not bridge them.
+        let scale = window?.backingScaleFactor ?? CGFloat(cell.scale)
+        if scale != badgePictureScale {
+            badgePictures.removeAll(keepingCapacity: true)
+            badgePictureScale = scale
+        }
+        if badgePictures.count > Self.badgePictureLimit { badgePictures.removeAll(keepingCapacity: true) }
+        let geometry = CellGeometry(cell: cell, layout: grid)
+        let top = model.mirror.viewportTopLine
+        let right = grid.left + Double(grid.columns) * cell.pointWidth
+        var placed = 0
+        for run in runs {
+            guard placed < Self.badgeLimit else { break }
+            guard let command = run.command, !command.isEmpty else { continue }
+            // The prompt's own line. A block whose prompt is above the screen has nowhere to
+            // put a badge, and putting it on the top row would label the wrong command.
+            guard run.lines.lowerBound >= top else { continue }
+            let row = Int(run.lines.lowerBound - top)
+            guard row >= 0, row < model.mirror.lines.count else { continue }
+            if badgePictures.index(forKey: command) == nil {
+                badgePictures[command] = makeBadge(command, scale)
+            }
+            guard let found = badgePictures[command] ?? nil else { continue }
+            let width = Double(found.picture.width) / Double(scale)
+            let height = Double(found.picture.height) / Double(scale)
+            let cellRect = geometry.rect(column: 0, row: row)
+            let badge = badgeLayer(at: placed)
+            placed += 1
+            badge.contentsScale = scale
+            badge.contents = found.picture
+            badge.isHidden = false
+            badge.frame = convertToLayer(
+                NSRect(
+                    x: max(right - width, grid.left), y: cellRect.y + (cell.pointHeight - height) / 2,
+                    width: width, height: height))
+            if found.isPersonalBest, flashedBests.insert(command).inserted {
+                flash(badge)
+            }
+        }
+        for index in placed..<badgeLayers.count { badgeLayers[index].isHidden = true }
+    }
+
+    /// A new personal best, once: `docs/DESIGN.md` says nothing animates at idle, so this is a
+    /// one-shot added when the badge first appears, the shape the visual bell already uses —
+    /// not a running animation on a badge that simply sits there.
+    private func flash(_ badge: CALayer) {
+        let pulse = CABasicAnimation(keyPath: "opacity")
+        pulse.fromValue = 0.0
+        pulse.toValue = 1.0
+        pulse.duration = 0.35
+        badge.add(pulse, forKey: "best")
+    }
+
+    private func badgeLayer(at index: Int) -> CALayer {
+        if index < badgeLayers.count { return badgeLayers[index] }
+        let badge = CALayer()
+        // No implicit animations: a badge moves with the frame or not at all.
+        badge.actions = ["position": NSNull(), "bounds": NSNull(), "contents": NSNull(), "hidden": NSNull()]
+        badge.contentsGravity = .resizeAspect
+        layer?.addSublayer(badge)
+        badgeLayers.append(badge)
+        return badge
+    }
+
+    private func hideBadges() {
+        for badge in badgeLayers { badge.isHidden = true }
+    }
+
+    /// Every badge gone, for a pane whose blocks were turned off.
+    private func removeBadges() {
+        for badge in badgeLayers { badge.removeFromSuperlayer() }
+        badgeLayers.removeAll()
+        badgePictures.removeAll()
+        flashedBests.removeAll()
+        blockRuns = []
+    }
+
+    /// Draws the badges into `context`, whose coordinates are the window's, the way
+    /// `drawCursor(in:)` draws the cursor: `OffscreenRenderer` only ever draws the `Frame`, and
+    /// a badge is a layer, so a picture of a pane has to be told about it.
+    public func drawBadges(in context: CGContext) {
+        updateBadges(runs: model.map { Blocks.runs(in: $0.mirror) } ?? [])
+        for badge in badgeLayers where !badge.isHidden {
+            guard let contents = badge.contents, CFGetTypeID(contents as CFTypeRef) == CGImage.typeID else {
+                continue
+            }
+            let rect = convert(convertFromLayer(badge.frame), to: nil)
+            context.saveGState()
+            context.draw(contents as! CGImage, in: rect)
+            context.restoreGState()
+        }
     }
 
     /// Draws the cursor, a layer of its own over the frame, into `context`, whose coordinates

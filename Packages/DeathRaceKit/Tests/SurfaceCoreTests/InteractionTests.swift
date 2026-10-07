@@ -51,6 +51,22 @@ private func point(_ line: UInt64, _ column: Int, _ boundary: Int? = nil) -> Sel
     Selection.Point(line: line, column: column, boundary: boundary ?? column)
 }
 
+/// A row of cells written by hand, for states the engine will not produce but the wire can
+/// carry. `RowSnapshot` conforms to `TextLine` too, and its cells are decoded bytes.
+private struct ForgedLine: TextLine {
+    var cells: ContiguousArray<Cell>
+    var isWrapped = false
+    func scalars(at column: Int) -> [UInt32] {
+        let scalar = cells[column].scalar
+        return scalar == 0 ? [] : [scalar]
+    }
+
+    init(cells: [Cell], isWrapped: Bool = false) {
+        self.cells = ContiguousArray(cells)
+        self.isWrapped = isWrapped
+    }
+}
+
 @Suite struct SelectionTests {
     @Test func wordsKeepPathsAndURLsWhole() {
         let t = screen("ls ~/code/death-race (https://x.io/a?b=1) \"q\"")
@@ -70,6 +86,21 @@ private func point(_ line: UInt64, _ column: Int, _ boundary: Int? = nil) -> Sel
         let t = screen("ab 中文字 cd")
         // From the right half of 文.
         #expect(WordRules.word(in: t.row(0), at: 6) == 3...8)
+    }
+
+    /// A row holding half a wide character and not the other half. The engine does not make
+    /// one — the security review found the one sequence that did, and it is fixed — but these
+    /// cells also arrive as a `RowSnapshot` decoded from whatever `legendsd` sent, and a
+    /// double click on a cell is a question the app asks on its main thread. So the answer
+    /// has to be a range rather than a trap, whoever wrote the cells.
+    @Test func aHalfCharacterWithNoOtherHalfStillDescribesARange() {
+        let tail = Cell(scalar: 0, width: .spacerTail, styleID: 0, protected: false, link: 0)
+        let x = Cell(scalar: UInt32(UnicodeScalar("x").value), width: .narrow, styleID: 0, protected: false, link: 0)
+        let lone = ForgedLine(cells: [tail, x, x])
+        #expect(WordRules.word(in: lone, at: 0) == 0...0, "the orphan is its own word")
+        // And in the middle of a row, where there is somewhere to step to.
+        let middle = ForgedLine(cells: [x, tail, x])
+        #expect(WordRules.word(in: middle, at: 1) == 0...2)
     }
 
     @Test func characterSelectionsRunBetweenBoundaries() {

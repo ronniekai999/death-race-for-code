@@ -95,9 +95,14 @@ extension Terminal {
             }
             if width == 2 && s.cursor.x == s.rightLimit && s.columns > 1 {
                 if modes.autowrap {
-                    // Too wide for the last column: leave a spacer head and wrap.
+                    // Too wide for the last column: leave a spacer head and wrap. Both
+                    // boundaries of the cell being overwritten are split, because with a
+                    // right margin there is a column after it: a wide character whose head
+                    // stands here would otherwise leave its tail outside the margins with
+                    // nothing to its left.
                     let row = s.active[s.cursor.y]
                     s.splitWideCharacter(in: row, at: s.cursor.x)
+                    s.splitWideCharacter(in: row, at: s.cursor.x + 1)
                     s.clearCell(row, s.cursor.x)
                     row.cells[s.cursor.x].width = .spacerHead
                     s.touch(row)
@@ -175,9 +180,12 @@ extension Terminal {
 
         if width == 2 && s.cursor.x == s.rightLimit {
             if modes.autowrap && s.columns > 1 {
-                // Too wide for the last column: leave a spacer head and wrap.
+                // Too wide for the last column: leave a spacer head and wrap. Split both
+                // boundaries, as `printRepeated` does and for the same reason: a right margin
+                // means there is a column after this one to orphan a tail in.
                 let row = s.active[s.cursor.y]
                 s.splitWideCharacter(in: row, at: s.cursor.x)
+                s.splitWideCharacter(in: row, at: s.cursor.x + 1)
                 s.clearCell(row, s.cursor.x)
                 row.cells[s.cursor.x].width = .spacerHead
                 s.touch(row)

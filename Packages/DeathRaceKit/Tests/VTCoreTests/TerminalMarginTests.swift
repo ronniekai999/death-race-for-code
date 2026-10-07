@@ -613,3 +613,99 @@ import Testing
         #expect(t.lines[1] == " XY")
     }
 }
+
+/// What the security review found, and the invariant it swept for: every `.spacerTail` on the
+/// screen has a `.wide` cell to its left. A tail with nothing to its left is not a cosmetic
+/// problem — the app's double-click asks `WordRules.word` for the word at that cell, and a
+/// half character with no other half makes it describe a range that runs backwards.
+@Suite struct TerminalOrphanTailTests {
+    /// Printing a wide character that the right margin refuses overwrites the cell the cursor
+    /// is on. If a wide character already stood there, its tail is one column further right —
+    /// outside the margins, where nothing else on the margin paths looks.
+    @Test func aWideCharacterRefusedByTheRightMarginTakesTheOldTailWithIt() {
+        let t = makeTerminal()
+        t.feed("\u{1B}[1;8H\u{4F60}")  // 你 across columns 8 and 9
+        t.feed("\u{1B}[?69h\u{1B}[1;8s")  // the right margin lands on 你's head
+        t.feed("\u{1B}[1;8H\u{4F60}")  // no room for a second one: a spacer head and a wrap
+        let row = t.row(0)
+        #expect(row.cells[7].width == .spacerHead, "the refused character leaves its head behind")
+        #expect(row.cells[8].width != .spacerTail, "and takes the old character's tail with it")
+        #expect(orphanTails(t).isEmpty)
+    }
+
+    /// REP has its own copy of the rule, in `printRepeated`'s bulk loop rather than in
+    /// `printScalar`, so it has to be reached its own way: an odd starting column leaves one
+    /// column before the margin after three repetitions, and the fourth does not fit.
+    @Test func repSpillsOntoTheMarginWithItsOwnCopyOfTheRule() {
+        let t = makeTerminal()
+        t.feed("\u{1B}[1;8H\u{4F60}")  // the tail to orphan, on column 9
+        t.feed("\u{1B}[?69h\u{1B}[1;8s")
+        t.feed("\u{1B}[1;2H\u{4F60}\u{1B}[3b")  // 你 at 2-3, then three more: 4-5, 6-7, and 8 refuses
+        #expect(orphanTails(t).isEmpty)
+    }
+
+    /// The whole chain the review's fuzzer walked: once a tail is orphaned inside the margins,
+    /// turning the margins off and deleting the columns to its left slides it to column 0,
+    /// where nothing can be to its left at all.
+    @Test func noSequenceSlidesAnOrphanedTailToTheFirstColumn() {
+        let t = makeTerminal()
+        t.feed("\u{1B}[1;8H\u{4F60}")
+        t.feed("\u{1B}[?69h\u{1B}[1;8s")
+        t.feed("\u{1B}[1;8H\u{4F60}")
+        t.feed("\u{1B}[?69l\u{1B}[1;1H\u{1B}[8P")  // margins off, DCH slides it left
+        #expect(orphanTails(t).isEmpty)
+        t.feed("\u{1B}[1;2Hx")
+        #expect(orphanTails(t).isEmpty)
+    }
+
+    /// Every cell on the active screen whose left neighbour does not make it a tail.
+    private func orphanTails(_ t: Terminal) -> [[Int]] {
+        var found: [[Int]] = []
+        for y in 0..<t.rows {
+            let cells = t.row(y).cells
+            for x in cells.indices where cells[x].width == .spacerTail {
+                if x == 0 || cells[x - 1].width != .wide { found.append([x, y]) }
+            }
+        }
+        return found
+    }
+}
+
+/// The second thing the security review found: a report has to stay inside the grammar it is
+/// written in, whatever the cursor is doing.
+@Suite struct TerminalCursorReportTests {
+    /// The addressing paths clamp into the margins; `restoreCursor` deliberately does not,
+    /// because a cursor outside them is legal and DECBI and DECFI are defined in terms of one.
+    /// So a save taken before the margins existed can be restored to the left of them with
+    /// origin mode still on, and the subtraction alone answered `CSI 1;-3R` — digits are all a
+    /// CSI parameter can hold, so that is a reply no program can read.
+    @Test func cprNeverReportsAColumnLeftOfTheCoordinateSpace() {
+        let t = makeTerminal()
+        t.feed("\u{1B}[?6h\u{1B}7\u{1B}[?69h\u{1B}[5;10s\u{1B}8\u{1B}[6n")
+        #expect(t.takeReplyString() == "\u{1B}[1;1R")
+        #expect(t.cursorPosition == [0, 0], "and the cursor is still where DECRC put it")
+    }
+
+    @Test func decxcprReportsTheSameWay() {
+        let t = makeTerminal()
+        t.feed("\u{1B}[?6h\u{1B}7\u{1B}[?69h\u{1B}[5;10s\u{1B}8\u{1B}[?6n")
+        #expect(t.takeReplyString() == "\u{1B}[?1;1R")
+    }
+
+    /// The row half has the same shape through DECSTBM and has had since origin mode existed,
+    /// so it is fixed with the column half rather than left one token away from it.
+    @Test func cprNeverReportsARowAboveTheCoordinateSpace() {
+        let t = makeTerminal()
+        t.feed("\u{1B}[?6h\u{1B}7\u{1B}[3;4r\u{1B}8\u{1B}[6n")
+        #expect(t.takeReplyString() == "\u{1B}[1;1R")
+    }
+
+    /// And the ordinary case is untouched: inside the margins the report still counts from
+    /// them, which is what makes a program's own column come back unchanged.
+    @Test func theReportStillCountsFromTheMarginsWhereItShould() {
+        let t = makeTerminal()
+        t.feed("\u{1B}[?69h\u{1B}[3;8s\u{1B}[?6h\u{1B}[1;2H\u{1B}[6n")
+        #expect(t.takeReplyString() == "\u{1B}[1;2R", "the column the program asked for")
+        #expect(t.cursorPosition == [3, 0], "which is column 4 on the screen")
+    }
+}

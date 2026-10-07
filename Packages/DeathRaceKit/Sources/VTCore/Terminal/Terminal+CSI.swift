@@ -143,14 +143,8 @@ extension Terminal {
         case (0, 0, 0x6E):  // DSR
             switch p[0] {
             case 5: reply("\u{1B}[0n")
-            case 6:
-                // In origin mode the cursor is reported where the program would address it:
-                // relative to both margins. That is what makes esctest's HPA_IgnoresOriginMode
-                // and VPA_IgnoresOriginMode pass while HPA and VPA count from the margins like
-                // every other absolute move — the report undoes the addressing, so a program
-                // that sets a column and reads it back gets the number it asked for.
-                let row = s.cursor.y - (modes.origin ? s.scrollTop : 0) + 1
-                let column = s.cursor.x - (modes.origin ? s.scrollLeft : 0) + 1
+            case 6:  // CPR
+                let (row, column) = reportedCursor()
                 reply("\u{1B}[\(row);\(column)R")
             default: break
             }
@@ -267,6 +261,26 @@ extension Terminal {
             modes.origin
             ? min(max(s.scrollTop + row, s.scrollTop), s.scrollBottom) : min(max(row, 0), s.rows - 1)
         s.cursor.pendingWrap = false
+    }
+
+    /// The cursor as CPR and DECXCPR report it: 1-based, and in origin mode counted from the
+    /// margins, so a program that addresses a column and reads it back gets the number it
+    /// asked for. That is what makes esctest's `HPA_IgnoresOriginMode` and
+    /// `VPA_IgnoresOriginMode` pass while HPA and VPA count from the margins like every other
+    /// absolute move: the report undoes the addressing.
+    ///
+    /// The floor is not decoration. The addressing paths all clamp into the margins, but
+    /// `restoreCursor` does not and should not — a cursor outside them is legal, and DECBI and
+    /// DECFI are defined in terms of one. So `ESC [?6h ESC 7`, margins, `ESC 8` leaves the
+    /// cursor left of the left margin with origin mode on, and the subtraction alone answered
+    /// `CSI 1;-3R`. A CSI parameter is digits, so that is not a reply a program can read at
+    /// all: a strict parser resynchronises mid-stream and swallows whatever follows. A report
+    /// never leaves the coordinate space it is written in.
+    func reportedCursor() -> (row: Int, column: Int) {
+        let s = screen
+        let row = s.cursor.y - (modes.origin ? s.scrollTop : 0)
+        let column = s.cursor.x - (modes.origin ? s.scrollLeft : 0)
+        return (max(row, 0) + 1, max(column, 0) + 1)
     }
 
     /// CUP and HVP: 0-based, relative to both margins in origin mode and clamped to them.
@@ -498,8 +512,7 @@ extension Terminal {
         let s = screen
         switch p[0] {
         case 6:  // DECXCPR; no page number, since we answer DA2 as a VT220
-            let row = s.cursor.y - (modes.origin ? s.scrollTop : 0) + 1
-            let column = s.cursor.x - (modes.origin ? s.scrollLeft : 0) + 1
+            let (row, column) = reportedCursor()
             reply("\u{1B}[?\(row);\(column)R")
         case 15: reply("\u{1B}[?13n")  // no printer
         case 25: reply("\u{1B}[?20n")  // user-defined keys unlocked

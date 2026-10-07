@@ -136,7 +136,7 @@ extension WindowTests {
         let delivered = try #require(notifier.delivered.first)
         #expect(delivered.notice.title == "swift build")
         #expect(delivered.notice.body == "Finished in 10m 00s", delivered.notice.body)
-        #expect(delivered.paneID == UInt64(first.id.value), "a tap has to find the pane it was about")
+        #expect(delivered.paneID == UInt64(clamping: first.id.rawValue), "a tap has to find the pane it was about")
     }
 
     /// And one you could not have seen does, even in the tab in front: the roadmap's own case

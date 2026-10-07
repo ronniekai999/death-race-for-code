@@ -124,14 +124,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     /// *different* one than the caller's — here there is no caller's window, and the app itself
     /// is usually not even in front, which is how the notification came to be shown at all.
     private func focusPane(withID id: UInt64) {
-        guard
-            let owner = windows.first(where: { window in
-                window.panes.keys.contains { UInt64($0.value) == id }
-            }), let pane = owner.panes.keys.first(where: { UInt64($0.value) == id })
-        else { return }
-        NSApp.activate()
-        owner.window?.makeKeyAndOrderFront(nil)
-        owner.focus(pane: pane)
+        for window in windows {
+            guard let pane = window.panes.keys.first(where: { UInt64(clamping: $0.rawValue) == id }) else {
+                continue
+            }
+            NSApp.activate()
+            window.window?.makeKeyAndOrderFront(nil)
+            window.focus(pane: pane)
+            return
+        }
     }
 
     /// A click on the Dock icon with no windows open opens one.

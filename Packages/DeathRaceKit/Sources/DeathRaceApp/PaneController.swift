@@ -652,7 +652,7 @@ final class PaneController {
                 command: command.text, milliseconds: command.durationMilliseconds, exitCode: command.exitCode,
                 wasWatched: isWatched?() ?? false, programNotified: saidSoItself),
             thresholdSeconds: UInt32(clamping: config.ringRingThresholdSeconds))
-        if let notice { notifier.deliver(notice, paneID: UInt64(id.value)) }
+        if let notice { notifier.deliver(notice, paneID: UInt64(clamping: id.rawValue)) }
     }
 
     /// Whether this pane is the one being looked at, asked of the window rather than guessed.

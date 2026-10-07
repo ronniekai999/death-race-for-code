@@ -26,8 +26,9 @@ final class RingRingNotifier: NSObject, Notifier, UNUserNotificationCenterDelega
     /// system drops them, which is the same outcome as checking and cheaper than queueing.
     private var allowed = true
 
-    /// The key a notification carries so a tap can find its pane again.
-    private static let paneKey = "pane"
+    /// The key a notification carries so a tap can find its pane again. `nonisolated` because
+    /// the delegate methods below are, and they are the only readers.
+    nonisolated private static let paneKey = "pane"
 
     init(focus: @escaping @MainActor (UInt64) -> Void) {
         self.focus = focus
@@ -68,7 +69,11 @@ final class RingRingNotifier: NSObject, Notifier, UNUserNotificationCenterDelega
     // MARK: - A tap
 
     /// Brings the pane the command ran in forward, which is the only thing a tap could mean.
-    func userNotificationCenter(
+    ///
+    /// `nonisolated` because `UNUserNotificationCenterDelegate` is: the protocol makes no
+    /// isolation promise, so a main-actor method cannot satisfy it. The work hops to the main
+    /// actor itself, which is where `focus` has to run.
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
@@ -82,7 +87,7 @@ final class RingRingNotifier: NSObject, Notifier, UNUserNotificationCenterDelega
     /// Shown even while Death Race is frontmost, because "frontmost" is not "watching this
     /// pane": the decision already refused every command you could see finish, so one that got
     /// this far is about a pane in another tab or another window.
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {

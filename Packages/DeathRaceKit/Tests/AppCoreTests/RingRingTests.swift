@@ -90,6 +90,10 @@ import Testing
 
     // MARK: - The seam
 
+    /// `@MainActor` because `Notifier` is: delivery happens where `PaneController` decides it,
+    /// and making the seam say so is what gets the real conformer past Swift 6's isolation
+    /// checking — which this test target now type-checks on Linux rather than only on macOS.
+    @MainActor
     @Test func theFakeRecordsWhatItWasAskedToDeliver() {
         let notifier = FakeNotifier()
         #expect(!notifier.askedForAuthorization)

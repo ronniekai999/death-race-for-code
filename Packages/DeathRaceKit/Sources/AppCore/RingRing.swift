@@ -78,7 +78,15 @@ public enum RingRing {
 /// decision, and the thing that cannot be tested here is the one call into the system. A fake
 /// records what it was asked to deliver, so the app's wiring is covered by the window tests
 /// without any notification ever being posted.
-public protocol Notifier: AnyObject, Sendable {
+///
+/// `@MainActor` because that is where it is called from and where it has to run: the real one
+/// talks to `UNUserNotificationCenter` and keeps whether it has asked yet, and the decision that
+/// reaches it is made in `PaneController`, which is main-actor isolated too. A nonisolated
+/// protocol would make the one real conformer illegal — a main-actor class cannot satisfy
+/// nonisolated requirements — and buy nothing, because nothing delivers a notice off the main
+/// thread.
+@MainActor
+public protocol Notifier: AnyObject {
     /// Asks for permission once, if it has not been asked for yet.
     func requestAuthorization()
     /// Delivers `notice`; `paneID` comes back to whoever handles a tap, so it can focus the
@@ -88,7 +96,8 @@ public protocol Notifier: AnyObject, Sendable {
 
 /// A `Notifier` that posts nothing and remembers everything, for tests and for a build that
 /// cannot ask (a bare `swift run` has no bundle to ask from).
-public final class FakeNotifier: Notifier, @unchecked Sendable {
+@MainActor
+public final class FakeNotifier: Notifier {
     public private(set) var askedForAuthorization = false
     public private(set) var delivered: [(notice: RingRing.Notice, paneID: UInt64)] = []
 

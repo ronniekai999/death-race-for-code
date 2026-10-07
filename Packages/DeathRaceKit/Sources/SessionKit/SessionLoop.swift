@@ -177,6 +177,9 @@ final class SessionLoop {
             reply.resume(returning: TextExtractor.text(in: range) { terminal.line($0) })
         case .foregroundProcess(let reply):
             reply.resume(returning: pty.foregroundProcess())
+        case .promptSpan(let line, let generation, let reply):
+            guard generation == terminal.generation else { return reply.resume(returning: nil) }
+            reply.resume(returning: terminal.promptSpan(at: line))
         }
     }
 

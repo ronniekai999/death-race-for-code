@@ -67,12 +67,7 @@ public enum Blocks {
         // and the best this can do for the second.
         guard let first = starts.first else { return [] }
 
-        // The cursor is placed in the active area, so the viewport's own scroll has to be added
-        // back to find the line it is on — the same sum `updateCursor` makes. Deliberately not
-        // clamped to the viewport: scrolled back through history the cursor's line is below the
-        // last one in view, and clamping it would hand "current" to whatever row happened to be
-        // at the bottom of the screen.
-        let cursorLine = top &+ UInt64(max(mirror.cursor.y + mirror.viewportOffset, 0))
+        let cursorLine = Self.cursorLine(in: mirror)
 
         var bounds: [ClosedRange<UInt64>] = []
         if first > top { bounds.append(top...(first - 1)) }
@@ -95,5 +90,60 @@ public enum Blocks {
             if let command = mirror.line(line)?.command { found = command }
         }
         return found
+    }
+}
+
+extension Blocks {
+
+    /// The line the cursor is on.
+    ///
+    /// The cursor is placed in the active area, so the viewport's own scroll has to be added
+    /// back — the same sum `updateCursor` makes. Deliberately not clamped to the viewport:
+    /// scrolled back through history the cursor's line is below the last one in view, and
+    /// clamping it would hand "the block you are in" to whatever row happened to be at the
+    /// bottom of the screen.
+    ///
+    /// Shared rather than written twice because both callers depend on it agreeing: the band is
+    /// drawn around this line, and ⌘⇧A asks the engine about it.
+    public static func cursorLine(in mirror: MirrorGrid) -> UInt64 {
+        mirror.viewportTopLine &+ UInt64(max(mirror.cursor.y + mirror.viewportOffset, 0))
+    }
+
+    /// How far to scroll to put `line` at the top of the viewport, in `scroll(by:)`'s own sign:
+    /// positive goes back into history, negative toward the output.
+    ///
+    /// This is why jumping between prompts needs no absolute scroll, which the phase's plan had
+    /// budgeted for. The engine answers with a line number, the view already knows which line is
+    /// at the top, and the difference is the relative scroll the session has always taken.
+    public static func scroll(toPut line: UInt64, atTopOf mirror: MirrorGrid) -> Int {
+        let top = mirror.viewportTopLine
+        if line == top { return 0 }
+        // Clamped rather than wrapped: a line number from another process could be anything, and
+        // a wrap would scroll hard the other way.
+        if line < top { return Int(clamping: top - line) }
+        return -Int(clamping: line - top)
+    }
+
+    /// Every line of `span`, selected as triple-clicking each of them would — so copying it gives
+    /// the command and its output and nothing else.
+    ///
+    /// Line granularity rather than a character range on purpose: a block is bounded to lines,
+    /// because `PromptMarks` records no column and a short command's prompt, command and output
+    /// share one row. `mirror.line` is the same closure the mouse path passes, so a line the
+    /// mirror no longer holds is handled the way it already is — the caller scrolls first.
+    public static func selection(of span: PromptSpan, in mirror: MirrorGrid) -> Selection {
+        // Only the block's own rows are visible to the unit walk. `.line` granularity follows
+        // `isWrapped` outward in *both* directions, so a block whose last output line happened
+        // to fill the width would swallow the next command's prompt row, and a prompt row that
+        // is itself a continuation would reach back into the block above. Hiding the neighbours
+        // stops the walk at the block's edges, which is what "nothing of the next one" means.
+        let read: (UInt64) -> (any TextLine)? = { span.lines.contains($0) ? mirror.line($0) : nil }
+        var selection = Selection(
+            at: Selection.Point(line: span.lines.lowerBound, column: 0, boundary: 0), granularity: .line,
+            rectangular: false, columns: mirror.columns, line: read)
+        selection.extend(
+            to: Selection.Point(line: span.lines.upperBound, column: 0, boundary: 0), columns: mirror.columns,
+            line: read)
+        return selection
     }
 }

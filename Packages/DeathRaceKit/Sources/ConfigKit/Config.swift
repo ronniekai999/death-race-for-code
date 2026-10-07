@@ -75,6 +75,17 @@ public struct Config: Sendable, Equatable {
     public var conversations = true
     /// A command faster than this gets no badge. One that failed gets one however fast it was.
     public var fastThresholdMilliseconds = 1_000
+    /// Whether personal bests are kept between runs, in `~/.deathrace/bests.json`. Off, the
+    /// 999 flash only compares within one run of the app.
+    public var bestsOnDisk = true
+    /// A command that takes at least this long is worth a notification when you were not
+    /// watching it. Its own number, not `fast-threshold-milliseconds`: a notification for
+    /// everything over a second is spam.
+    public var ringRingThresholdSeconds = 30
+    /// Whether a program's own `OSC 9` notification is passed on. On, as it is in iTerm2, kitty
+    /// and WezTerm — but the text comes off bytes this project treats as hostile, so there has
+    /// to be a way to say no.
+    public var programNotifications = true
     /// Read what each host runs from its /etc/os-release, at most weekly.
     public var readHostOS = true
 

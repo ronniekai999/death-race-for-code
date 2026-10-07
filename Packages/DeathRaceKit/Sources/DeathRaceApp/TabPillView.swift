@@ -16,6 +16,9 @@ struct PillState: Equatable {
     var failed: Bool
     /// Armed and Dangerous: typing in one of the tab's panes goes to several.
     var armed = false
+    /// What a program in the tab reported about its own progress (OSC 9;4), for the fill along
+    /// the bottom of the pill. Nil for a tab with nothing to say about it, which is most.
+    var progress: TabProgress? = nil
 }
 
 /// The tab pills, left to right, then the + pill. Pills shrink when the row is full; those
@@ -259,6 +262,15 @@ final class TabPillView: NSView {
         if state.failed { text += ", ended" } else if state.rang { text += ", rang the bell" }
         if state.isBusy && !state.isActive { text += ", has new output" }
         if state.armed { text += ", Armed and Dangerous" }
+        if let progress = state.progress {
+            if progress.failed {
+                text += ", reported a problem"
+            } else if let fraction = progress.fraction {
+                text += ", \(Int((fraction * 100).rounded())) percent"
+            } else {
+                text += ", working"
+            }
+        }
         return text
     }
 
@@ -282,6 +294,28 @@ final class TabPillView: NSView {
             colors.line.nsColor.setStroke()
             shape.lineWidth = 1
             shape.stroke()
+        }
+        // The progress fill: a 3 pt bar along the bottom, clipped to the pill so it keeps the
+        // rounded ends. Under the title rather than behind it, because a half-tinted pill is
+        // hard to read and this has to be legible at a glance from across a tab row.
+        if let progress = state.progress {
+            NSGraphicsContext.saveGraphicsState()
+            shape.addClip()
+            let height = 3.0
+            // A program working without saying how far fills the whole bar; there is nothing
+            // honest to draw as a fraction, and an empty bar would read as "nothing happening".
+            let width = bounds.width * (progress.fraction ?? 1)
+            // `bounds.height - height`, not 0: this view is flipped (`isFlipped` above), so y
+            // grows downward and y = 0 is the top edge. At 0 the fill landed on top of the
+            // pill, clipped to a sliver by the capsule, which is not what it is for.
+            let bar = NSRect(x: 0, y: bounds.height - height, width: width, height: height)
+            if progress.failed {
+                colors.danger.nsColor.setFill()
+                bar.fill()
+            } else if let gradient = NSGradient(colors: colors.gradient.map(\.nsColor)) {
+                gradient.draw(in: NSBezierPath(rect: bar), angle: 0)
+            }
+            NSGraphicsContext.restoreGraphicsState()
         }
         var x = Self.padding
         if leadingMark {

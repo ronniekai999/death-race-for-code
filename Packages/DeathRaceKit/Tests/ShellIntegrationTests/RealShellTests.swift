@@ -304,6 +304,13 @@ import VTCore
     /// `HISTCONTROL=ignorespace` — half of the `ignoreboth` most distributions ship — keeps a
     /// line that starts with a space out of the history. Reading the newest entry anyway put
     /// the *previous* command's text on this one, which is worse than a short answer.
+    ///
+    /// **And a short answer is now no answer at all.** This test used to assert the text was
+    /// `"echo two"`, which looked right — it is not the earlier command — and in doing so
+    /// locked in a privacy failure: that is the hidden line, with its leading space eaten by
+    /// `$BASH_COMMAND`, so `CommandBests.isPrivate` saw an ordinary command and wrote it to
+    /// `bests.json` and into notification banners. A line the user asked to hide now reports
+    /// no text, and the two tests below say what that costs and what it protects.
     @Test func bashDoesNotPutAnEarlierCommandsTextOnThisOne() throws {
         let bash = try #require(TestShells.path("bash"), TestShells.missing("bash"))
         let directory = try #require(ShellIntegration.directory())
@@ -318,7 +325,54 @@ import VTCore
         #expect(rig.run("echo one", awaiting: ShellRig.commandEnd))
         #expect(rig.run(" echo two", awaiting: ShellRig.commandEnd))
         let text = try #require(rig.commands().last?.text)
-        #expect(text == "echo two", "the hidden line was recorded as the command before it")
+        #expect(text != "echo one", "the hidden line was recorded as the command before it")
+        #expect(text.isEmpty, "a line the shell was asked to hide must report no text: \(text)")
+    }
+
+    /// The record still arrives for a hidden line — the mark, the duration and the exit code —
+    /// so the badge and the rail work. It is only the text that is withheld, and withholding it
+    /// is what makes every consumer refuse the line: `CommandBests.record` guards on an empty
+    /// command, Ring Ring names it "A command", and "Save Last Command to Wishing Well" has
+    /// nothing to save.
+    @Test func bashStillTimesAHiddenCommand() throws {
+        let bash = try #require(TestShells.path("bash"), TestShells.missing("bash"))
+        let directory = try #require(ShellIntegration.directory())
+        let rc = """
+            PS1='$ '
+            HISTCONTROL=ignorespace
+            \(ShellIntegration.bashLine(directory: directory))
+            """
+        let rig = try ShellRig(shell: .bash, executable: bash, rc: rc)
+        #expect(rig.waitForFirstPrompt())
+
+        #expect(rig.run(" false", awaiting: ShellRig.commandEnd))
+        let command = try #require(rig.commands().last)
+        #expect(command.text.isEmpty, "the text is the only thing withheld: \(command.text)")
+        #expect(command.exitCode == 1, "the exit code still arrives")
+        #expect(command.durationMilliseconds != nil, "and so does the duration")
+    }
+
+    /// Without `ignorespace` a space-prefixed line *is* in the history, and its leading space
+    /// has to survive being read back out of it — the convention is the only signal
+    /// `CommandBests.isPrivate` has.
+    ///
+    /// It did not: `history` prints `%5d%c %s`, and the separator was matched as
+    /// `[[:space:]]+`, which is greedy and ate the typed space along with it.
+    @Test func bashKeepsTheLeadingSpaceItReadsFromHistory() throws {
+        let bash = try #require(TestShells.path("bash"), TestShells.missing("bash"))
+        let directory = try #require(ShellIntegration.directory())
+        let rc = """
+            PS1='$ '
+            HISTCONTROL=
+            \(ShellIntegration.bashLine(directory: directory))
+            """
+        let rig = try ShellRig(shell: .bash, executable: bash, rc: rc)
+        #expect(rig.waitForFirstPrompt())
+
+        #expect(rig.run(" echo hidden", awaiting: ShellRig.commandEnd))
+        let text = try #require(rig.commands().last?.text)
+        #expect(text == " echo hidden", "the leading space was eaten: [\(text)]")
+        #expect(CommandBests.isPrivate(text), "which is the whole point of keeping it")
     }
 
     /// `$EPOCHREALTIME` follows `LC_NUMERIC`, so in a German or French locale its decimal

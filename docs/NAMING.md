@@ -46,5 +46,34 @@ word, because nothing in it is going; a tunnel, an ssh pane or a transfer still 
 is the opposite and says so: closing a pane, a tab or a window ends its shell, and the
 question is "Goodbye & Good Riddance?" as it always was.
 
+Conversations tells you how long a command took, and only when that is worth a sentence. A
+duration carries its unit and loses precision as it grows, because nobody reads the tenths of an
+hour: `4ms` under a second, `12.4s` to one decimal under a minute, then `10m 00s` and `2h 05m`
+with the smaller field padded. Over the threshold, or failed, a command earns words: "Fast 12.4s
+✓", "Fast 12.4s · 3.1s faster than your best ✓", "Fast 4ms · exited with status 2 ✗" — the
+clauses joined by a middle dot, the second one lower-case because it is not first, and the ✓ or
+✗ always there, since `docs/DESIGN.md` does not let a colour arrive without a word or a glyph.
+**Only a win is said.** "4.0s slower than your best" is a thing nobody asked to be told.
+
+Ring Ring names the command and says what became of it: "swift build" over "Finished in 10m
+00s", or "Exited with status 2 after 4ms". A command whose text never arrived is "A command"
+rather than an empty banner. The status bar's health count appears only when the panes disagree
+— "2 of 3 healthy" — because "1 of 1 healthy" is a sentence about nothing.
+
+**A command hidden from the shell's history is hidden everywhere.** A leading space keeps it out
+of `~/.zsh_history`, and it also keeps it out of the bests file, out of any notification, and off
+the screen — a banner sits where anyone nearby can read it. The help for `bests-on-disk` says
+where the file is, so it can be deleted.
+
+Under bash that promise is kept by **reporting no command text at all**, not by passing the space
+along: `$BASH_COMMAND` is rebuilt from the parsed command and has no leading whitespace, so a
+line the shell was asked to hide would have arrived looking ordinary. The mark, the duration and
+the exit code still come, so the rail and the badge work; it is only the words that are withheld,
+and an unnamed command reads as "A command".
+
+A notification a **program** asked for is shown under the pane's name rather than as Death Race's
+own: those words came off the same stream as everything else on screen, and a banner that
+appears while you are looking elsewhere should say plainly whose voice it is.
+
 Never quote lyrics, use slang, or add emoji to interface copy. Use sentence case, and give
 every number a unit.

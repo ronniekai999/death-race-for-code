@@ -109,6 +109,40 @@ in all eight themes without a screen recording permission, and CI keeps them as 
 - The SwiftUI windows (Settings, Hear Me Calling) are left out. Their text doesn't survive
   being drawn this way, so they are reviewed on the Mac.
 
+## Conversations
+
+A command and its output, marked on the ordinary grid rather than boxed into a card.
+
+| Part | How |
+| --- | --- |
+| the rail | one filled bar, `cell.underlineThickness` wide, down the whole block at column 0 |
+| the band | the terminal's background mixed toward `surface`, on the block holding the cursor only |
+| the badge | right-aligned gradient text on the command's own line, for the ones worth a word |
+| the pill's fill | a 3 pt bar along the bottom of a tab pill, clipped to its shape |
+
+**The rail is neutral on success and `danger` only on a failure.** A fast successful command
+gets no badge, so a cyan rail would be colour with no word beside it, which the rules above
+forbid; and a failure always has a badge, so the ✗ is always there when the danger colour is.
+The rail says "this is a command", and how it went is said where there are words.
+
+**The band marks the block you are in, and nothing else.** One band reads as "here"; twenty read
+as stripes. It is mixed into the background cell by cell, keeping each cell's own top byte, so
+the starfield survives underneath it — a constant write would have put out every star it covered,
+and a hand-packed byte would have made a tinted cell starry.
+
+**A badge appears only when there is something to say:** over
+`fast-threshold-milliseconds` (1000 by default), or on any failure however quick. A new personal
+best draws its text through the five-stop gradient and flashes once, on the event — nothing
+animates at idle. The words are `docs/NAMING.md`'s.
+
+**The pill's fill is under the title, not behind it.** A half-tinted pill is hard to read, and
+this has to be legible at a glance from across a tab row. It takes the gradient, or `danger`
+when the program reported trouble, and a program working without saying how far fills the whole
+bar rather than none of it — an empty bar reads as nothing happening.
+
+With `conversations = false` there is no rail, no band, no badge and nothing to click: the
+terminal is byte-for-byte what it was, which is also what keeps the existing frame goldens valid.
+
 ## Lucid Dreams
 
 The quick terminal drops out of the notch and settles just below the menu bar.

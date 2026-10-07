@@ -26,6 +26,7 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
     private enum Waiter {
         case text(CheckedContinuation<String?, Never>)
         case foreground(CheckedContinuation<ForegroundProcess?, Never>)
+        case promptSpan(CheckedContinuation<PromptSpan?, Never>)
 
         /// Answers, with nothing if the reply was not the kind expected — which a connection
         /// that has gone counts as.
@@ -36,6 +37,9 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
             case (.foreground(let continuation), .foreground(_, let process)):
                 continuation.resume(returning: process)
             case (.foreground(let continuation), _): continuation.resume(returning: nil)
+            case (.promptSpan(let continuation), .promptSpan(_, let span)):
+                continuation.resume(returning: span)
+            case (.promptSpan(let continuation), _): continuation.resume(returning: nil)
             }
         }
     }
@@ -166,6 +170,12 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
     public func foregroundProcess() async -> ForegroundProcess? {
         await withCheckedContinuation { continuation in
             ask(.foreground(continuation)) { .queryForeground(request: $0) }
+        }
+    }
+
+    public func promptSpan(at line: UInt64, generation: UInt64) async -> PromptSpan? {
+        await withCheckedContinuation { continuation in
+            ask(.promptSpan(continuation)) { .queryPrompt(request: $0, line: line, generation: generation) }
         }
     }
 
@@ -320,7 +330,7 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
         case .status(let status):
             state.withLock { $0.status = status }
             onUpdate()
-        case .text(let request, _), .foreground(let request, _):
+        case .text(let request, _), .foreground(let request, _), .promptSpan(let request, _):
             let waiter = state.withLock { state -> Waiter? in
                 guard state.issued.remove(request) != nil else { return nil }
                 return state.waiters.removeValue(forKey: request)

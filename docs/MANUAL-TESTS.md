@@ -4,8 +4,93 @@ What CI cannot check, because it needs a real Mac, a real GPU, a keyboard, input
 your eyes. Run it with a debug build (`CONFIG=debug make run`) before closing a phase, and
 note the macOS build (`sw_vers`) with the results.
 
-Phase 7's checks come first; Phase 6's, Phase 5's, Phase 4's, Phase 3's and Phase 2's follow,
-and still apply.
+Phase 8's checks come first; Phase 7's, Phase 6's, Phase 5's, Phase 4's, Phase 3's and Phase
+2's follow, and still apply.
+
+## Phase 8 exit criteria
+
+Phase 8 is done when all of these hold on the M5. The roadmap left this phase's criteria blank,
+so these are the ones the work was built against.
+
+1. **Every command is marked, in all three shells, and nothing else breaks.** In zsh, bash and
+   fish, each command gets a rail and the right pass/fail mark, and `vim`, `tmux` and `htop`
+   still draw correctly — **with no rail inside the alternate screen**. macOS's `/bin/bash` is
+   3.2 and has no `$EPOCHREALTIME`: it gets marks, the command line and exit codes, and no
+   duration. That is the documented limit, not a bug.
+2. **A second run is faster, and says so.** Run the same command twice, the second time
+   quicker: it reads "Fast Xs · Ys faster than your best" and the text flashes the gradient. A
+   slower run says nothing about the best and does not flash.
+3. **The record survives being killed.** With a long build running, `kill -9` the app and
+   relaunch. The finished command's rail **and** its badge are both there — which is what
+   keeping `CommandRecord` on the row, in delta format 4, buys.
+4. **Ring Ring fires for what you did not watch, and not for what you did.** With Death Race
+   hidden, a command over `ring-ring-threshold-seconds` (30) names itself and its duration, and
+   a tap brings its pane forward. A command you watched finish in the front tab says nothing.
+   One that sent its own `OSC 9` is not second-guessed.
+5. **Walking and selecting.** ⌘↑ and ⌘↓ walk prompts, including back into scrollback and after
+   a reattach, where the app has seen no history of its own. ⌘⇧A and a click on a block's rail
+   select the command and its output and **nothing of the next one**; ⌘C then gives exactly
+   that. "Save Last Command to Wishing Well" saves the command, not the selection.
+6. **A tab pill fills and clears.** A progress-reporting command (`OSC 9;4`, e.g. a recent
+   `curl` or a script that emits it) fills its pill as it goes and clears it when done — cleared
+   means empty, not a bar sitting at zero.
+7. **Idle still costs nothing.** With blocks on screen and a badge showing: 0 frames and ≤ 0.5
+   wakeups a second, and `rebuiltRows` stays 0 while only a badge moves.
+8. **Off, and someone else's, both behave.** With `conversations = false` the terminal is
+   exactly as it was. With Ghostty's or iTerm2's integration installed instead of ours, rails
+   and exit codes still appear — durations do not, because `dur=` is ours.
+
+## Conversations
+
+- [ ] A command whose output scrolls past a screen keeps one rail down the whole block.
+- [ ] A prompt with no command yet shows a rail and no badge.
+- [ ] A command that began above the screen reaches the top edge without a false start.
+- [ ] The band follows the cursor's block as you run commands, and only one block has it.
+- [ ] Scrolled back into history, the band is absent rather than on whatever row is in view.
+- [ ] The starfield is still visible inside a band (a theme with stars, a block over a short
+      line's empty tail).
+- [ ] A click a few points right of the rail starts an ordinary selection, not a block one.
+- [ ] With no shell integration at all, a click on the first pixel of column 0 starts a
+      selection rather than doing nothing.
+- [ ] Triple-click still selects a line, and ⌥-drag still selects a rectangle.
+- [ ] `--render-chrome` output carries rails, bands and badges in all eight themes.
+
+## Fast
+
+- [ ] A command under the threshold gets no badge; one over it does.
+- [ ] A failure gets a badge however quick it was, with ✗.
+- [ ] The durations read as `docs/NAMING.md` says at each boundary: 999ms, 1.0s, 59.9s, 1m 00s,
+      59m 59s, 1h 00m.
+- [ ] A command typed with a leading space sets no record: run it fast twice and the second
+      says nothing about a best.
+- [ ] `~/.deathrace/bests.json` is `-rw-------`, holds no space-prefixed command, and its
+      records survive a quit and relaunch.
+- [ ] Turning `bests-on-disk` off stops the file being written and leaves the existing one
+      alone; turning it back on writes what this run has learned.
+- [ ] The status bar names the last command, and a click on that run scrolls back to it.
+- [ ] "N of M healthy" appears only when a pane in the tab has failed.
+
+## Ring Ring
+
+- [ ] **Authorization is per-signature.** A signed build (`scripts/bundle.sh` with the Apple
+      Development identity) asks once. An **ad-hoc** build is a different app to the system
+      every time it is built, so it asks again on every rebuild — expected, not a bug.
+- [ ] **A bare `swift run` cannot ask at all**: there is no bundle, so no notification arrives
+      and nothing crashes. The app simply stays quiet.
+- [ ] Declining notifications leaves everything else working; no sheet, no repeated asking.
+- [ ] A notification tapped while the app is hidden brings the right pane forward, in the right
+      window and tab.
+- [ ] A command in a background **window** (not just a background tab) is notified.
+- [ ] A zoomed tab: a command in one of the hidden panes is notified, the zoomed one is not.
+- [ ] Nothing is delivered for a command typed with a leading space.
+
+## Phase 8 handover
+
+- [ ] With a session held by a daemon an **older** build left running, launch this build: the
+      app hands over rather than killing anything, the old daemon keeps its sessions and exits
+      when its last one ends, and new sessions go to the new daemon. (`SessionWire` went to
+      version 2 and `DeltaCodec` to format 4 in this phase, so this is the path those bumps
+      take, and the second time Phase 7's handover has run for real.)
 
 ## Phase 7 exit criteria
 

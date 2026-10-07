@@ -8,9 +8,12 @@ public enum ActionID: String, CaseIterable, Sendable {
     case newWindow, newTab, newHost, openWRLD, openMaze, toggleLucidDreams, splitRight, splitDown,
         armedAndDangerous, closePane, closeTab, closeWindow
     // Edit
-    case copy, paste, selectAll, saveSelectionToWishingWell, clearToStart, clearScrollback
-    // View
-    case hearMeCalling, toggleSidebar, bigger, smaller, actualSize, zoomPane, equalizePanes
+    case copy, paste, selectAll, selectCommand, saveSelectionToWishingWell, saveCommandToWishingWell,
+        clearToStart, clearScrollback
+    // View. `previousPrompt`/`nextPrompt` walk between commands, which only the engine can
+    // answer for, because the mirror holds just the viewport.
+    case hearMeCalling, toggleSidebar, previousPrompt, nextPrompt, bigger, smaller, actualSize, zoomPane,
+        equalizePanes
     // Window
     case minimize, zoomWindow, showPreviousTab, showNextTab, moveTabToNewWindow
     case previousPane, nextPane, focusPaneLeft, focusPaneRight, focusPaneUp, focusPaneDown
@@ -237,8 +240,15 @@ public enum ActionCatalog {
         Action(.paste, "Paste", "Paste", .edit, KeyShortcut(.character("v")), inPalette: false),
         Action(.selectAll, "Select All", "Select all", .edit, KeyShortcut(.character("a")), inPalette: false),
         Action(
+            .selectCommand, "Select Command and Output", "Select the command and its output", .edit,
+            KeyShortcut(.character("a"), [.command, .shift]),
+            keywords: ["block", "conversations", "copy command"]),
+        Action(
             .saveSelectionToWishingWell, "Save Selection to Wishing Well…", "Save selection to Wishing Well", .edit,
             keywords: ["snippet", "save command", "wishing well"]),
+        Action(
+            .saveCommandToWishingWell, "Save Last Command to Wishing Well…", "Save the last command run", .edit,
+            keywords: ["snippet", "wishing well", "conversations"]),
         Action(
             .clearToStart, "Clear to Start", "Clear to start", .edit, KeyShortcut(.character("k")),
             keywords: ["clear screen", "reset", "cls"]),
@@ -253,6 +263,12 @@ public enum ActionCatalog {
         Action(
             .toggleSidebar, "WRLD Sidebar", "Show or hide the WRLD sidebar", .view,
             KeyShortcut(.character("s"), [.command, .control]), keywords: ["hosts", "legends", "side bar"]),
+        Action(
+            .previousPrompt, "Previous Prompt", "Jump to the previous prompt", .view, KeyShortcut(.up),
+            keywords: ["command", "block", "conversations", "back"]),
+        Action(
+            .nextPrompt, "Next Prompt", "Jump to the next prompt", .view, KeyShortcut(.down),
+            keywords: ["command", "block", "conversations", "forward"]),
         Action(
             .bigger, "Bigger", "Make text bigger", .view, KeyShortcut(.character("+")),
             alternates: [KeyShortcut(.character("="))], keywords: ["font size", "zoom in"]),

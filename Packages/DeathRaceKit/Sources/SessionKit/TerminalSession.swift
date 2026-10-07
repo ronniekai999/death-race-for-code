@@ -50,6 +50,13 @@ public protocol TerminalSession: AnyObject, Sendable {
     /// Clear to Start (⌘K) or Clear Scrollback (⌥⌘K).
     func clear(_ kind: Terminal.ClearKind)
     func text(in range: TextRegion, generation: UInt64) async -> String?
+    /// The block around `line`: its bounds, its command, and the prompts either side of it.
+    ///
+    /// Asked of the session rather than worked out from the mirror because the mirror holds
+    /// only the viewport — a prompt that has scrolled out of view is not there to be found, and
+    /// after a reattach the app has seen no history at all. Nil when the screen is no longer the
+    /// one of `generation`, on the alternate screen, or when no prompt is within reach.
+    func promptSpan(at line: UInt64, generation: UInt64) async -> PromptSpan?
 }
 
 /// What a pane needs on top of the screen: which session this is, who is in the foreground,

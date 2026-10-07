@@ -25,6 +25,9 @@ public enum StreamRequest: Sendable, Equatable {
     case clear(Terminal.ClearKind)
     case queryText(request: UInt32, region: TextRegion, generation: UInt64)
     case queryForeground(request: UInt32)
+    /// Where is the block around this line. The engine owns the scrollback, so it is the
+    /// only thing that can answer for a prompt the viewport no longer holds.
+    case queryPrompt(request: UInt32, line: UInt64, generation: UInt64)
     /// The client has applied the delta at `version`, so the daemon may take the next one.
     case ack(version: UInt64)
     case close
@@ -42,6 +45,7 @@ public enum StreamRequest: Sendable, Equatable {
         case clear = 0x28
         case queryText = 0x29
         case queryForeground = 0x2A
+        case queryPrompt = 0x2E
         case ack = 0x2B
         case close = 0x2C
         case detach = 0x2D
@@ -96,6 +100,11 @@ public enum StreamRequest: Sendable, Equatable {
         case .queryForeground(let request):
             w.u8(Tag.queryForeground.rawValue)
             w.u32(request)
+        case .queryPrompt(let request, let line, let generation):
+            w.u8(Tag.queryPrompt.rawValue)
+            w.u32(request)
+            w.u64(line)
+            w.u64(generation)
         case .ack(let version):
             w.u8(Tag.ack.rawValue)
             w.u64(version)
@@ -143,6 +152,8 @@ public enum StreamRequest: Sendable, Equatable {
         case .queryText:
             message = .queryText(request: try r.u32(), region: try r.region(), generation: try r.u64())
         case .queryForeground: message = .queryForeground(request: try r.u32())
+        case .queryPrompt:
+            message = .queryPrompt(request: try r.u32(), line: try r.u64(), generation: try r.u64())
         case .ack: message = .ack(version: try r.u64())
         case .close: message = .close
         case .detach: message = .detach
@@ -162,6 +173,7 @@ public enum StreamReply: Sendable, Equatable {
     case status(Session.Status)
     case text(request: UInt32, String?)
     case foreground(request: UInt32, ForegroundProcess?)
+    case promptSpan(request: UInt32, PromptSpan?)
 
     private enum Tag: UInt8 {
         case attached = 0xA0
@@ -170,6 +182,7 @@ public enum StreamReply: Sendable, Equatable {
         case status = 0xA3
         case text = 0xA4
         case foreground = 0xA5
+        case promptSpan = 0xA6
     }
 
     public var lane: FrameWriter.Lane {
@@ -201,6 +214,10 @@ public enum StreamReply: Sendable, Equatable {
             w.u8(Tag.foreground.rawValue)
             w.u32(request)
             w.foreground(process)
+        case .promptSpan(let request, let span):
+            w.u8(Tag.promptSpan.rawValue)
+            w.u32(request)
+            w.promptSpan(span)
         }
         return w.bytes
     }
@@ -225,6 +242,8 @@ public enum StreamReply: Sendable, Equatable {
             message = .text(request: request, text)
         case .foreground:
             message = .foreground(request: try r.u32(), try r.foreground())
+        case .promptSpan:
+            message = .promptSpan(request: try r.u32(), try r.promptSpan())
         }
         guard r.isAtEnd else { throw .invalid("trailing bytes") }
         return message

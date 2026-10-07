@@ -232,6 +232,12 @@ final class SessionBridge {
             } reply: {
                 .text(request: request, $0)
             }
+        case .queryPrompt(let request, let line, let generation):
+            ask(request) {
+                await session.promptSpan(at: line, generation: generation)
+            } reply: {
+                .promptSpan(request: request, $0)
+            }
         case .queryForeground(let request):
             ask(request) {
                 await session.foregroundProcess()

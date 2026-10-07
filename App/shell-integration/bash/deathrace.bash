@@ -56,18 +56,32 @@ if [ -n "${BASH_VERSION-}" ] && [[ $- == *i* ]]; then
     __deathrace_typed() {
       local entry=
       entry=$(HISTTIMEFORMAT= builtin history 1 2>/dev/null)
-      if [[ $entry =~ ^[[:space:]]*([0-9]+)\*?[[:space:]]+ ]] &&
+      # The separator is matched exactly, not as `[[:space:]]+`: history prints `%5d%c %s`, so
+      # after the number come the modified flag and one space, and a greedy class ate the
+      # *typed* leading space along with them. That space is the oldest privacy convention
+      # there is, and `CommandBests.isPrivate` is the thing reading it, so losing it here wrote
+      # commands to bests.json and into notification banners that the user had asked to hide.
+      if [[ $entry =~ ^[[:space:]]*([0-9]+)(\*|[[:space:]])[[:space:]] ]] &&
         [ "${BASH_REMATCH[1]}" != "$__deathrace_history" ]; then
         __deathrace_history=${BASH_REMATCH[1]}
         __deathrace_command=${entry#"${BASH_REMATCH[0]}"}
+      elif [[ $HISTCONTROL == *ignorespace* || $HISTCONTROL == *ignoreboth* ]]; then
+        # The history number did not advance and this shell is set to keep space-prefixed lines
+        # out of history, so that is very likely what this line is. $BASH_COMMAND would answer
+        # — and answer *without* the leading space, because it is rebuilt from the parsed
+        # command — so the one signal that says "do not record this" would be gone and the line
+        # would be kept and named anyway. Reporting no text at all is the honest answer: the
+        # mark, the duration and the exit code still arrive, and an empty command is already
+        # refused by `CommandBests.record`, named "A command" by Ring Ring, and left unsaveable
+        # by "Save Last Command to Wishing Well".
+        __deathrace_command=
       else
-        # The newest entry is not this command, so it is not ours to read: HISTCONTROL's
-        # `ignorespace` keeps a line that starts with a space out of the history — and reading
+        # The newest entry is not this command and nothing was asked to be hidden, so what is
+        # left is `ignoredups` (you repeated a command exactly: same text, so the only loss is
+        # the tail of a compound line) or `set +o history` (nothing goes in at all). Reading
         # the entry anyway would put the *previous* command's text on this one, which is worse
-        # than a short answer — and `set +o history` keeps everything out. $BASH_COMMAND is
-        # less, being one simple command with its aliases already expanded, but it is at least
-        # about the line you just typed. (`ignoredups` lands here too, when you repeat a
-        # command exactly: same text, so the only loss is the tail of a compound line.)
+        # than a short answer. $BASH_COMMAND is less — one simple command, aliases already
+        # expanded, and no leading whitespace — but it is at least about the line just typed.
         __deathrace_command=$BASH_COMMAND
       fi
     }

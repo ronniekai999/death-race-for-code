@@ -15,11 +15,38 @@ extension TerminalSurfaceView {
         return selection.range
     }
 
+    /// Whether `x`, in this view's points, is on a block's rail — the few pixels of chrome down
+    /// the left edge of each command.
+    ///
+    /// The rail is drawn in the `Frame` rather than as a view, so there is nothing to hit-test
+    /// against; this is the same arithmetic `FrameBuilder` draws it with, which is why the
+    /// thickness comes from `cell.underlineThickness` in both places.
+    func isOnRail(x: Double) -> Bool {
+        guard blockColors != nil else { return false }
+        let width = Double(cell.underlineThickness) / cell.scale
+        return x >= grid.left - width && x <= grid.left + width
+    }
+
     /// Starts a selection, or with Shift extends the one there is.
     func beginSelection(with event: NSEvent) {
-        guard let mirror = model?.mirror, let point = selectionPoint(at: convert(event.locationInWindow, from: nil))
-        else { return }
+        let location = convert(event.locationInWindow, from: nil)
+        guard let mirror = model?.mirror, let point = selectionPoint(at: location) else { return }
         let flags = event.modifierFlags
+        // A click on the rail selects the whole command it belongs to. Offered to the app rather
+        // than decided here: which rows are one command is a question about shell integration,
+        // and `TerminalUI` has no business knowing the answer. Plain clicks only — a Shift-click
+        // is extending a selection, and an Option-drag is a rectangle.
+        //
+        // And only where a rail is actually drawn. The hit zone is a point or two wide, so a
+        // terminal with no integration would otherwise swallow every click on the first pixel
+        // of column 0 and do nothing with it.
+        if let onRailClick, event.clickCount == 1, flags.isDisjoint(with: [.shift, .option]),
+            isOnRail(x: Double(location.x)),
+            Blocks.runs(in: mirror).contains(where: { $0.lines.contains(point.line) })
+        {
+            onRailClick(point.line)
+            return
+        }
         if flags.contains(.shift), event.clickCount == 1, selectionRange != nil {
             extendSelection(to: point)
             return
@@ -60,6 +87,20 @@ extension TerminalSurfaceView {
     func endSelection() {
         stopAutoscroll()
         if copyOnSelect, let range = selectionRange { copyText(in: range) }
+    }
+
+    /// Puts `selection` on the screen, as a drag would have. `generation` is the screen it was
+    /// worked out against: a different one and it is dropped, because the line numbers in it
+    /// would point at other text.
+    ///
+    /// Public because the app decides what a block is — which rows belong to a command is a
+    /// question about shell integration, and `TerminalUI` has no business knowing the answer.
+    public func select(_ selection: Selection, generation: UInt64) {
+        guard let mirror = model?.mirror, mirror.generation == generation else { return }
+        self.selection = selection
+        selectionGeneration = generation
+        if copyOnSelect, let range = selectionRange { copyText(in: range) }
+        redraw()
     }
 
     /// Forgets the selection (typing, a new screen).

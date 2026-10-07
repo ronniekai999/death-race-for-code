@@ -83,10 +83,8 @@ extension WindowTests {
             return (surface.model?.mirror.viewportTopLine ?? 0) > line
         }
         let pushed = try #require(surface.model?.mirror.viewportTopLine)
-        #expect(
-            pushed > line,
-            "the command never left the screen: top \(pushed), command on line \(line), "
-                + "\(surface.model?.mirror.lines.count ?? 0) rows in view")
+        let rows = surface.model?.mirror.lines.count ?? 0
+        #expect(pushed > line, "top \(pushed), command on line \(line), \(rows) rows in view")
 
         controller.root.statusBar.onTap?(.lastCommand)
         // Drained on each turn of the loop, standing in for the display link that drains every

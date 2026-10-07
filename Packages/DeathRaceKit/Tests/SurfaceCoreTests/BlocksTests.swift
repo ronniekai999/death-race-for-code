@@ -158,3 +158,102 @@ import VTCore
         #expect(screen.runs.first?.command?.durationMilliseconds == 3_000)
     }
 }
+
+/// The two decisions the macOS half needs made for it: how far to scroll to reach a prompt, and
+/// what a block's selection covers. Both portable, so both gated here rather than on a Mac.
+@Suite("Jumping and selecting") struct BlockJumpTests {
+
+    private struct Screen {
+        let session: ReplaySession
+        let model: SurfaceModel
+
+        init(columns: Int = 12, rows: Int = 4) {
+            session = ReplaySession(Terminal.Configuration(columns: columns, rows: rows))
+            model = SurfaceModel(session: session)
+        }
+
+        @discardableResult
+        func feed(_ text: String) -> SurfaceModel.Update {
+            session.feed(text)
+            return model.drain()
+        }
+    }
+
+    private static func command(_ text: String) -> String {
+        "\u{1B}]133;A\u{7}$ \(text)\u{1B}]133;B\u{7}\u{1B}]633;E;\(text)\u{7}\u{1B}]133;C\u{7}"
+            + "\u{1B}]133;D;0;dur=100\u{7}"
+    }
+
+    // MARK: - The scroll a jump asks for
+
+    /// `scroll(by:)` is relative, and that is all a jump needs: the engine says which line, the
+    /// view knows which line is at the top, and the difference is the scroll.
+    @Test func aJumpBackAsksToGoIntoHistory() {
+        let screen = Screen(rows: 4)
+        for index in 0..<8 {
+            screen.feed(Self.command("c\(index)"))
+            if index < 7 { screen.feed("\r\n") }
+        }
+        let mirror = screen.model.mirror
+        #expect(mirror.viewportTopLine == 4, "four rows of an eight-line screen")
+        // Positive is back into history, which is `TerminalSession.scroll(by:)`'s own sign.
+        #expect(Blocks.scroll(toPut: 0, atTopOf: mirror) == 4)
+        #expect(Blocks.scroll(toPut: 2, atTopOf: mirror) == 2)
+        // Forward, toward the output, is negative.
+        #expect(Blocks.scroll(toPut: 6, atTopOf: mirror) == -2)
+    }
+
+    /// A target already at the top scrolls nothing — so ⌘↑ on the first prompt in view does not
+    /// twitch the screen.
+    @Test func aTargetAlreadyAtTheTopScrollsNothing() {
+        let screen = Screen(rows: 4)
+        screen.feed(Self.command("ls"))
+        #expect(Blocks.scroll(toPut: screen.model.mirror.viewportTopLine, atTopOf: screen.model.mirror) == 0)
+    }
+
+    /// A line number crosses a process boundary, so it could be anything. Clamped rather than
+    /// wrapped: a wrap would scroll hard the opposite way.
+    @Test func anAbsurdLineIsClampedNotWrapped() {
+        let screen = Screen(rows: 4)
+        screen.feed(Self.command("ls"))
+        let mirror = screen.model.mirror
+        #expect(Blocks.scroll(toPut: .max, atTopOf: mirror) < 0, "forward, however far")
+        #expect(Blocks.scroll(toPut: 0, atTopOf: mirror) >= 0, "back, however far")
+    }
+
+    // MARK: - What a block's selection covers
+
+    /// The command and its output, and nothing of the block after it.
+    @Test func aBlocksSelectionCoversItsLinesAndNoMore() throws {
+        let screen = Screen(rows: 4)
+        screen.feed(Self.command("make") + "\r\nfirst\r\nsecond\r\n" + Self.command("ls"))
+        let mirror = screen.model.mirror
+        let runs = Blocks.runs(in: mirror)
+        let first = try #require(runs.first { $0.command?.text == "make" })
+        let span = PromptSpan(lines: first.lines, command: first.command)
+
+        let selection = Blocks.selection(of: span, in: mirror)
+        let range = try #require(selection.range, "a block's selection covers lines, so it is never empty")
+        #expect(range.start.line == first.lines.lowerBound)
+        #expect(range.end.line == first.lines.upperBound)
+        #expect(!range.isRectangular, "a block is lines, not a column of them")
+
+        let text = TextExtractor.text(in: range) { mirror.line($0) }
+        #expect(text.contains("make"), "the command itself")
+        #expect(text.contains("first") && text.contains("second"), "its output")
+        #expect(!text.contains("ls"), "and nothing of the next block")
+    }
+
+    /// A block of one line is still a selection, which is the common case: prompt, command and
+    /// output all on one row.
+    @Test func aOneLineBlockSelectsThatLine() throws {
+        let screen = Screen(rows: 4)
+        screen.feed(Self.command("ls") + "\r\n" + Self.command("pwd"))
+        let mirror = screen.model.mirror
+        let selection = Blocks.selection(of: PromptSpan(lines: 0...0), in: mirror)
+        let range = try #require(selection.range)
+        #expect(range.start.line == 0 && range.end.line == 0)
+        let text = TextExtractor.text(in: range) { mirror.line($0) }
+        #expect(text.contains("ls") && !text.contains("pwd"))
+    }
+}

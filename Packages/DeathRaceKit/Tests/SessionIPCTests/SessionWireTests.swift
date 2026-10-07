@@ -77,6 +77,8 @@ private func everyStreamRequest() -> [StreamRequest] {
         .clear(.scrollback),
         .queryText(request: 3, region: sampleRegion, generation: 77),
         .queryForeground(request: 4),
+        .queryPrompt(request: 5, line: 0, generation: 0),
+        .queryPrompt(request: 5, line: .max, generation: .max),
         .ack(version: .max),
         .close,
         .detach,
@@ -97,6 +99,17 @@ private func everyStreamReply() -> [StreamReply] {
         .foreground(request: 4, process),
         .foreground(request: 4, ForegroundProcess(pid: 1, name: "sh", workingDirectory: nil, isShell: true)),
         .foreground(request: 4, nil),
+        .promptSpan(
+            request: 5,
+            PromptSpan(
+                lines: 10...12,
+                command: CommandRecord(text: "swift build", durationMilliseconds: 12_400, exitCode: 0),
+                previousPrompt: 4, nextPrompt: 13)),
+        // The newest block: nothing below it, and a command still running.
+        .promptSpan(request: 5, PromptSpan(lines: 7...7, command: nil, previousPrompt: 6, nextPrompt: nil)),
+        // The oldest kept, alone on the screen.
+        .promptSpan(request: 5, PromptSpan(lines: 0...0)),
+        .promptSpan(request: 5, nil),
     ]
 }
 
@@ -288,6 +301,46 @@ struct SessionWireDefenceTests {
         }
     }
 
+    /// A span's line numbers come from another process, and the app turns them into a region to
+    /// read and a selection to draw. The same reasoning as a forged region: an upper bound of
+    /// `UInt64.max` would make reading the block a walk the session never returns from.
+    @Test("a prompt span that could not have come off a screen is refused")
+    func aForgedPromptSpan() {
+        func reply(lower: UInt64, upper: UInt64, previous: UInt64? = nil, next: UInt64? = nil) -> [UInt8] {
+            var w = ByteWriter()
+            w.u8(0xA6)
+            w.u32(1)
+            w.bool(true)
+            w.u64(lower)
+            w.u64(upper)
+            w.command(nil)
+            w.optionalU64(previous)
+            w.optionalU64(next)
+            return w.bytes
+        }
+        #expect(throws: SessionWire.Fault.self) { _ = try StreamReply.decode(reply(lower: 0, upper: .max)) }
+        #expect(throws: SessionWire.Fault.self) {
+            _ = try StreamReply.decode(reply(lower: 0, upper: UInt64(SessionWire.longestRegionLines)))
+        }
+        // Backwards is not a span.
+        #expect(throws: SessionWire.Fault.self) { _ = try StreamReply.decode(reply(lower: 10, upper: 1)) }
+        // A neighbour on the wrong side of the span would send ⌘↑ the wrong way for ever.
+        #expect(throws: SessionWire.Fault.self) {
+            _ = try StreamReply.decode(reply(lower: 10, upper: 12, previous: 11))
+        }
+        #expect(throws: SessionWire.Fault.self) {
+            _ = try StreamReply.decode(reply(lower: 10, upper: 12, next: 12))
+        }
+        // One line short of the cap is still a span, however silly, and neighbours outside it
+        // are the whole point.
+        #expect(throws: Never.self) {
+            _ = try StreamReply.decode(reply(lower: 0, upper: UInt64(SessionWire.longestRegionLines) - 1))
+        }
+        #expect(throws: Never.self) {
+            _ = try StreamReply.decode(reply(lower: 10, upper: 12, previous: 9, next: 13))
+        }
+    }
+
     @Test("a terminal no screen could be is refused")
     func impossibleSizes() {
         func resize(_ columns: UInt32, _ rows: UInt32) -> [UInt8] {
@@ -431,16 +484,21 @@ struct PreambleTests {
         }
     }
 
-    /// There is one version today. The test exists so that adding a second has to be a
-    /// deliberate change here, with the compatibility it implies thought about.
+    /// This build speaks one version. The test exists so that changing that has to be a
+    /// deliberate change here, with the compatibility it implies thought about — and it has now
+    /// caught both of Phase 8's bumps.
     ///
-    /// The screen format is pinned for the same reason, and it did its job: Phase 8 moved it
-    /// from 3 to 4 to carry a command's text, duration and exit code on the row, and had to
-    /// come here to say so. What that bump means for a daemon an older build left running is
-    /// `HandOverTests`, which exists because this was the change that made that path live.
+    /// The screen format went from 3 to 4 in M1, to carry a command's text, duration and exit
+    /// code on the row. The stream went from 1 to 2 in M4, for `queryPrompt`: jumping between
+    /// prompts and selecting a block both need an answer only the engine can give, because the
+    /// mirror holds just the viewport. Both were bumps rather than negotiated extras for the
+    /// same reason — an older peer that does not know a message silently drops it, and
+    /// `RemoteSession.ask` resumes a waiter with nothing only when the connection has gone, so
+    /// the continuation would wait for ever. What a bump means for a daemon an older build left
+    /// running is `HandOverTests`: it is told to hand over and keeps its sessions.
     @Test("this build speaks exactly one version")
     func whatWeSpeak() {
-        #expect(SessionWire.versions == 1...1)
+        #expect(SessionWire.versions == 2...2)
         #expect(DeltaCodec.formatVersion == 4)
     }
 }

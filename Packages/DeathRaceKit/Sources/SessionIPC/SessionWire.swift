@@ -22,7 +22,13 @@ public enum SessionWire {
     /// There is one version today, and the no-overlap path is built and tested anyway: an app
     /// update meeting the daemon an older one left running is the single failure that could
     /// cost someone their sessions, and it is not the kind of path to write once it bites.
-    public static let versions: ClosedRange<UInt16> = 1...1
+    /// Version 2 added `queryPrompt`, which jumping between prompts and selecting a block both
+    /// need. It is a bump rather than a negotiated extra, deliberately: an older daemon would
+    /// not know the tag, and `RemoteSession.ask` resumes a waiter with nothing only when there
+    /// is no connection — so a silently dropped request would leave a continuation waiting for
+    /// ever. An `.incompatible` daemon is told to hand over instead, which keeps its sessions
+    /// and is the path M1's delta v4 bump already exercised for real.
+    public static let versions: ClosedRange<UInt16> = 2...2
 
     /// A spawn carries a whole environment, which on a developer's Mac is not small.
     public static let largestControlFrame = 256 * 1024
@@ -232,6 +238,23 @@ extension ByteWriter {
         bool(f.isShell)
     }
 
+    /// A `PromptSpan`'s own fields; the command rides through `ByteWriter.command(_:)`, so the
+    /// text cap and the control-character rule are the engine's, not a second copy of them.
+    mutating func promptSpan(_ s: PromptSpan?) {
+        bool(s != nil)
+        guard let s else { return }
+        u64(s.lines.lowerBound)
+        u64(s.lines.upperBound)
+        command(s.command)
+        optionalU64(s.previousPrompt)
+        optionalU64(s.nextPrompt)
+    }
+
+    mutating func optionalU64(_ v: UInt64?) {
+        bool(v != nil)
+        if let v { u64(v) }
+    }
+
     mutating func session(_ d: SessionDescription) {
         u64(d.id.value)
         status(d.status)
@@ -341,6 +364,32 @@ extension ByteReader {
         return TextRegion(
             TextPoint(line: startLine, column: startColumn), TextPoint(line: endLine, column: endColumn),
             rectangular: rectangular)
+    }
+
+    /// A span's line numbers come from another process, and the app turns them into a
+    /// `Selection` and a region to read. The same reasoning as `region()`: an upper bound of
+    /// `UInt64.max` would make reading the block a walk the session never comes back from, so
+    /// the span is bounded here rather than wherever it is eventually used.
+    mutating func promptSpan() throws(SessionWire.Fault) -> PromptSpan? {
+        guard try bool() else { return nil }
+        let lower = try u64()
+        let upper = try u64()
+        guard upper >= lower, upper - lower < UInt64(SessionWire.longestRegionLines) else {
+            throw .invalid("a prompt span covering more lines than there can be")
+        }
+        let command = try command()
+        let previous = try optionalU64()
+        let next = try optionalU64()
+        // A neighbour outside the span is the point of it, but one on the wrong side of it is
+        // a peer making things up, and ⌘↑ would scroll the wrong way for ever.
+        if let previous { guard previous < lower else { throw .invalid("a previous prompt below the span") } }
+        if let next { guard next > upper else { throw .invalid("a next prompt inside the span") } }
+        return PromptSpan(lines: lower...upper, command: command, previousPrompt: previous, nextPrompt: next)
+    }
+
+    mutating func optionalU64() throws(SessionWire.Fault) -> UInt64? {
+        guard try bool() else { return nil }
+        return try u64()
     }
 
     mutating func foreground() throws(SessionWire.Fault) -> ForegroundProcess? {

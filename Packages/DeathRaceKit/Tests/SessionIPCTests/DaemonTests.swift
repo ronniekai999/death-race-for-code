@@ -94,6 +94,60 @@ struct DaemonTests {
         #expect(back.allSatisfy { !$0.contains("echoed=false") }, "a shell was no longer live: \(back)")
     }
 
+    /// The question M4 exists for, asked across the process boundary.
+    ///
+    /// What makes it worth a two-process test is the assertion in the middle: the line being
+    /// asked about is **not in the mirror** — `line(_:)` returns nil for it — because the mirror
+    /// holds only the viewport. So the app could not have worked this out for itself however
+    /// clever it was, and the daemon, which owns the scrollback, could. That is the whole
+    /// argument for adding a message to the wire, and this is where it is tested rather than
+    /// asserted in a comment.
+    @Test("a prompt that has scrolled out of the viewport is still found, by the daemon")
+    func aPromptInTheDaemonsScrollback() async throws {
+        let rig = try DaemonRig()
+        defer { rig.finish() }
+
+        let host = try rig.host()
+        let session = try host.start(
+            testShell(), configuration: Terminal.Configuration(columns: 40, rows: 6), metadata: [],
+            onUpdate: {})
+        var mirror = MirrorGrid()
+        #expect(wait(on: session, &mirror) { $0.generation != nil })
+
+        // One typed line that makes the shell emit six marked blocks, which is more than a
+        // six-row screen can hold: the earliest leave the viewport for the scrollback. The
+        // marks come from `printf`'s output, not from the echo of the line — the echo carries
+        // literal backslashes, which is not an escape sequence.
+        let marks =
+            "\\033]133;A\\007$ cmd%s\\033]133;B\\007\\033]633;E;cmd%s\\007"
+            + "\\033]133;C\\007ran cmd%s\\033]133;D;0;dur=100\\007\\n"
+        session.send(Array("for i in 1 2 3 4 5 6; do printf '\(marks)' $i $i $i; done\n".utf8))
+        #expect(
+            wait(on: session, &mirror) { text($0).contains("ran cmd6") },
+            "the shell never got there; log: \(rig.log)")
+        #expect(wait(on: session, &mirror) { $0.viewportTopLine > 0 }, "the screen never scrolled")
+
+        // The line immediately above the viewport: gone from the app's copy, still the
+        // daemon's.
+        let asked = mirror.viewportTopLine - 1
+        #expect(mirror.line(asked) == nil, "the mirror still had it, so this proves nothing")
+
+        let generation = try #require(mirror.generation)
+        let span = try #require(
+            await session.promptSpan(at: asked, generation: generation),
+            "the daemon could not answer for a line it holds")
+        let command = try #require(span.command?.text, "the span came back with no command")
+        #expect(command.hasPrefix("cmd"), "it found some other block: \(command)")
+        #expect(span.lines.contains(asked), "the span does not cover the line it was asked about")
+        #expect(span.nextPrompt.map { $0 > span.lines.upperBound } ?? true)
+
+        // A generation that is not the screen's is refused rather than answered against other
+        // text, as `text(in:generation:)` is.
+        #expect(await session.promptSpan(at: asked, generation: generation &+ 1) == nil)
+
+        session.close()
+    }
+
     /// Letting go has two meanings and they must not be confused: a pane closing ends the
     /// shell, the app quitting leaves it running.
     @Test("detaching leaves the shell and closing ends it")

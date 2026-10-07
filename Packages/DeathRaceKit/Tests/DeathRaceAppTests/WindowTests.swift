@@ -43,6 +43,9 @@ final class FakeSession: PaneSession, @unchecked Sendable {
     func text(in range: TextRegion, generation: UInt64) async -> String? {
         await replay.text(in: range, generation: generation)
     }
+    func promptSpan(at line: UInt64, generation: UInt64) async -> PromptSpan? {
+        await replay.promptSpan(at: line, generation: generation)
+    }
     func foregroundProcess() async -> ForegroundProcess? { closed ? nil : foreground }
     func close() { closed = true }
     func detach() {

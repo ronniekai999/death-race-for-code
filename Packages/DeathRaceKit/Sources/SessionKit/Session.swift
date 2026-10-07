@@ -160,6 +160,15 @@ public final class Session: Sendable {
         }
     }
 
+    /// The block around `line`, read on the session thread so it reaches into the scrollback the
+    /// app does not have. Nil on a generation mismatch, as `text(in:generation:)` is: the line
+    /// numbers would point at other text.
+    public func promptSpan(at line: UInt64, generation: UInt64) async -> PromptSpan? {
+        await withCheckedContinuation { continuation in
+            channel.send(.query(.promptSpan(line: line, generation: generation, continuation)))
+        }
+    }
+
     // MARK: - Results
 
     /// The waiting delta, if any. Taking it tells the session the app has it.
@@ -202,12 +211,14 @@ final class SessionChannel: Sendable {
     enum Query: Sendable {
         case text(TextRegion, generation: UInt64, CheckedContinuation<String?, Never>)
         case foregroundProcess(CheckedContinuation<ForegroundProcess?, Never>)
+        case promptSpan(line: UInt64, generation: UInt64, CheckedContinuation<PromptSpan?, Never>)
 
         /// Answers nil: there is no session to ask.
         func cancel() {
             switch self {
             case .text(_, _, let reply): reply.resume(returning: nil)
             case .foregroundProcess(let reply): reply.resume(returning: nil)
+            case .promptSpan(_, _, let reply): reply.resume(returning: nil)
             }
         }
     }

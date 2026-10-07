@@ -97,3 +97,39 @@ public enum Blocks {
         return found
     }
 }
+
+extension Blocks {
+
+    /// How far to scroll to put `line` at the top of the viewport, in `scroll(by:)`'s own sign:
+    /// positive goes back into history, negative toward the output.
+    ///
+    /// This is why jumping between prompts needs no absolute scroll, which the phase's plan had
+    /// budgeted for. The engine answers with a line number, the view already knows which line is
+    /// at the top, and the difference is the relative scroll the session has always taken.
+    public static func scroll(toPut line: UInt64, atTopOf mirror: MirrorGrid) -> Int {
+        let top = mirror.viewportTopLine
+        if line == top { return 0 }
+        // Clamped rather than wrapped: a line number from another process could be anything, and
+        // a wrap would scroll hard the other way.
+        if line < top { return Int(clamping: top - line) }
+        return -Int(clamping: line - top)
+    }
+
+    /// Every line of `span`, selected as triple-clicking each of them would — so copying it gives
+    /// the command and its output and nothing else.
+    ///
+    /// Line granularity rather than a character range on purpose: a block is bounded to lines,
+    /// because `PromptMarks` records no column and a short command's prompt, command and output
+    /// share one row. `mirror.line` is the same closure the mouse path passes, so a line the
+    /// mirror no longer holds is handled the way it already is — the caller scrolls first.
+    public static func selection(of span: PromptSpan, in mirror: MirrorGrid) -> Selection {
+        let read: (UInt64) -> (any TextLine)? = { mirror.line($0) }
+        var selection = Selection(
+            at: Selection.Point(line: span.lines.lowerBound, column: 0, boundary: 0), granularity: .line,
+            rectangular: false, columns: mirror.columns, line: read)
+        selection.extend(
+            to: Selection.Point(line: span.lines.upperBound, column: 0, boundary: 0), columns: mirror.columns,
+            line: read)
+        return selection
+    }
+}

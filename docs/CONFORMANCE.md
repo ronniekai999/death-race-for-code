@@ -24,18 +24,28 @@ known bugs; with it, our deliberate refusals count as failures and DECNCSM count
 
 | | Tests |
 | --- | ---: |
-| Pass | 466 |
-| Marked by esctest as known xterm bugs | 33 |
-| Fail: features scheduled for later | 5 |
+| Pass | 469 |
+| Marked by esctest as known xterm bugs | 35 |
+| Fail: features scheduled for later | 0 |
 | Fail: refused by design, or a deliberate difference | 41 |
 | Fail: tests that encode the reference terminal's own environment | 22 |
 
-That is 466 of 507 (92%) of the tests for behavior we mean to have, counting the refusals and
+That is 469 of 510 (92%) of the tests for behavior we mean to have, counting the refusals and
 the unreachable tests as the failures they are. The headline moved from "95% of 378" in the
 other direction than it looks: the 19 window-manipulation tests used to be filed under
 "later", and they are never going to pass, so they are counted here among the refusals.
 
-**Scheduled for later:** ISO protected areas, SPA/EPA (5 tests). That is the whole list.
+**Nothing is scheduled for later any more.** Everything on the roadmap's conformance list is
+in: left and right margins and what rides on them, the rectangular areas, the special colors,
+and ISO protected areas. What is left is the 41 tests we refuse on purpose and the 22 that
+encode the reference terminal's own environment.
+
+**Two of the 35 known xterm bugs are ours by choice.** DECSEL and DECSED spare a cell ISO 6429
+protected as well as one DECSCA did, which esctest files as xterm's own difference from the
+specification, quoting its author: xterm does it "for backward compatibility". A selective
+erase that takes what a program went out of its way to protect is the worse answer to be wrong
+with, so we are wrong the same way. DECSERA, where xterm is strict, is strict here too — an
+asymmetry esctest pins on both sides.
 
 **The 22 unreachable ones are worth naming**, because "later" would be a lie about them:
 
@@ -197,7 +207,8 @@ left and right margins (DECLRMM, DECSLRM, DECIC, DECDC, DECBI, DECFI), rectangul
 (DECCRA, DECERA, DECFRA, DECSERA), tabs, REP, DECALN, full SGR (truecolor, underline styles and color), alternate screen
 1049/47/1047, mouse 1000/1002/1003/1006, focus 1004, bracketed paste 2004, synchronized output
 2026, DECSCUSR, DA/DSR/CPR/DECRQM/DECRQSS/XTVERSION/XTGETTCAP/XTWINOPS 18t, OSC 0/2/4/7/10–12,
-OSC 52 (write only), OSC 5/105 (the special colors, kept and reported), OSC 9;4, OSC 133,
+OSC 52 (write only), OSC 5/105 (the special colors, kept and reported), ISO protected areas
+(SPA/EPA), OSC 9;4, OSC 133,
 OSC 633;E, and the Kitty keyboard protocol.
 
 `OSC 133;D` takes a parameter walk rather than one value: the first bare number is the exit

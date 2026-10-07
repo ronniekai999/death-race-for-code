@@ -31,7 +31,8 @@ extension Terminal {
     func eraseRectangle(_ p: Params, selective: Bool) {
         guard let area = rectangle(p, from: 0) else { return }
         screen.eraseRectangle(
-            rows: area.rows, columns: area.columns, fill: screen.cursor.pen.erasing, selective: selective)
+            rows: area.rows, columns: area.columns, fill: screen.cursor.pen.erasing,
+            sparingProtected: sparesProtected(selective ? .selectiveRectangle : .plain))
     }
 
     /// DECCRA `CSI Pts ; Pls ; Pbs ; Prs ; Pps ; Ptd ; Pld ; Ppd $ v`.

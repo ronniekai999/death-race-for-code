@@ -19,12 +19,17 @@ extension ScreenBuffer {
         }
     }
 
-    /// DECERA and DECSERA: the rectangle erased, the selective form sparing protected cells.
+    /// DECERA and DECSERA: the rectangle erased, sparing protected cells when the terminal says
+    /// this erase does.
     /// The rows keep their prompt marks and command records: a rectangle is a program drawing,
     /// not a screen being replaced, and the text outside it is still about the same command.
-    func eraseRectangle(rows: ClosedRange<Int>, columns: ClosedRange<Int>, fill: Style, selective: Bool) {
+    func eraseRectangle(
+        rows: ClosedRange<Int>, columns: ClosedRange<Int>, fill: Style, sparingProtected: Bool
+    ) {
         for y in rows {
-            erase(row: y, from: columns.lowerBound, to: columns.upperBound + 1, fill: fill, selective: selective)
+            erase(
+                row: y, from: columns.lowerBound, to: columns.upperBound + 1, fill: fill,
+                sparingProtected: sparingProtected)
         }
     }
 

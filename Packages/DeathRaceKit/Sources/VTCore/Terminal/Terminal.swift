@@ -47,6 +47,45 @@ public final class Terminal {
     public internal(set) var isAlternateScreen = false
 
     public internal(set) var modes = TerminalModes()
+    /// Whose protection the cells' protected bit is: DECSCA's, which only the selective erases
+    /// spare, or ISO 6429's from SPA, which only the plain erases spare. One bit on the cell and
+    /// one mode beside it is xterm's model, and esctest pins both halves of it.
+    var protection = Protection.none
+
+    enum Protection {
+        case none
+        /// DECSCA: DECSEL and DECSED leave these cells alone; ED, EL and ECH do not.
+        case dec
+        /// SPA and EPA: ED, EL and ECH leave these cells alone; DECSEL and DECSED do not.
+        case iso
+    }
+
+    /// The erases, by what they do with a protected cell.
+    enum Erase {
+        /// ED, EL, ECH and DECERA.
+        case plain
+        /// DECSEL and DECSED.
+        case selective
+        /// DECSERA.
+        case selectiveRectangle
+    }
+
+    /// Whether an erase leaves the cells somebody protected alone. One bit marks the cell and
+    /// `protection` says who marked it; what each erase then does is a table xterm's own author
+    /// settled and esctest pins every row of:
+    ///
+    /// - ED, EL and ECH spare what ISO 6429's SPA protected, and not what DECSCA did.
+    /// - DECSEL and DECSED spare either, which xterm does "for backward compatibility" — the
+    ///   reason esctest gives for filing it as xterm's own difference from the specification.
+    /// - DECSERA spares only DECSCA's, which is DEC's rule for it, and is how xterm behaves
+    ///   even while its DECSEL does not.
+    func sparesProtected(_ erase: Erase) -> Bool {
+        switch erase {
+        case .plain: protection == .iso
+        case .selective: protection != .none
+        case .selectiveRectangle: protection == .dec
+        }
+    }
     /// The colors in use: the base palette (`configuration.palette`, the app's theme) with
     /// what programs changed on top.
     public internal(set) var palette: Palette

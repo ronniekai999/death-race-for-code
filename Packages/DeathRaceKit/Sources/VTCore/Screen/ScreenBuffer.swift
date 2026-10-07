@@ -385,8 +385,9 @@ final class ScreenBuffer {
 
     // MARK: - Cells
 
-    /// Blanks columns `[from, to)` of row `y` in `fill`. With `selective`, protected cells
-    /// survive (DECSED / DECSEL).
+    /// Blanks columns `[from, to)` of row `y` in `fill`. With `sparingProtected`, the cells
+    /// somebody protected survive; which erases do that is the terminal's to decide, because it
+    /// depends on whether the protection came from DECSCA or from ISO 6429's SPA.
     /// `forgetting` means the whole screen is being replaced, not redrawn, so the row's prompt
     /// marks and command record go with its text.
     ///
@@ -397,7 +398,8 @@ final class ScreenBuffer {
     /// command that had just finished, every time, because the shell writes `OSC 133;D` on
     /// exactly that row just before the prompt redraws it.
     func erase(
-        row y: Int, from start: Int, to end: Int, fill: Style, selective: Bool = false, forgetting: Bool = false
+        row y: Int, from start: Int, to end: Int, fill: Style, sparingProtected: Bool = false,
+        forgetting: Bool = false
     ) {
         let row = active[y]
         let lower = max(0, start)
@@ -407,12 +409,13 @@ final class ScreenBuffer {
         splitWideCharacter(in: row, at: upper)
         let blank = Cell.blank(styleID: row.styleID(for: fill))
         if !row.graphemes.isEmpty {
-            for x in lower..<upper where row.cells[x].hasGrapheme && !(selective && row.cells[x].isProtected) {
+            for x in lower..<upper where row.cells[x].hasGrapheme {
+                guard !(sparingProtected && row.cells[x].isProtected) else { continue }
                 row.graphemes[x] = nil
             }
         }
         row.cells.withUnsafeMutableBufferPointer { cells in
-            if selective {
+            if sparingProtected {
                 for x in lower..<upper where !cells[x].isProtected { cells[x] = blank }
             } else {
                 UnsafeMutableBufferPointer(rebasing: cells[lower..<upper]).update(repeating: blank)
@@ -423,7 +426,7 @@ final class ScreenBuffer {
         // the text. Without it, ED 2, RIS, the 1049 clear and DECALN all left prompt marks and
         // command records on rows they had just blanked, and a block model built from those
         // marks would draw a rail around nothing.
-        if forgetting, !selective {
+        if forgetting, !sparingProtected {
             row.promptMarks = []
             row.command = nil
         }

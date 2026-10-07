@@ -43,7 +43,9 @@ extension Terminal {
         case (0x3F, 0, 0x4B): eraseInLine(Int(p[0]), selective: true)  // DECSEL
         case (0, 0, 0x58):  // ECH
             let n = Int(p.value(at: 0, default: 1))
-            s.erase(row: s.cursor.y, from: s.cursor.x, to: s.cursor.x + n, fill: s.cursor.pen.erasing)
+            s.erase(
+                row: s.cursor.y, from: s.cursor.x, to: s.cursor.x + n, fill: s.cursor.pen.erasing,
+                sparingProtected: sparesProtected(.plain))
             s.cursor.pendingWrap = false
         case (0, 0, 0x40):  // ICH
             s.insertBlanks(Int(p.value(at: 0, default: 1)), row: s.cursor.y, at: s.cursor.x, fill: s.cursor.pen.erasing)
@@ -124,6 +126,7 @@ extension Terminal {
         case (0, 1, 0x71) where csi.intermediates.isOnly(0x20):  // DECSCUSR
             setCursorStyle(Int(p[0]))
         case (0, 1, 0x71) where csi.intermediates.isOnly(0x22):  // DECSCA
+            protection = .dec
             s.cursor.protected = p[0] == 1
 
         // MARK: Style
@@ -343,23 +346,24 @@ extension Terminal {
     func eraseInDisplay(_ mode: Int, selective: Bool) {
         let s = screen
         let fill = s.cursor.pen.erasing
+        let sparing = sparesProtected(selective ? .selective : .plain)
         switch mode {
         // A row erased end to end has nothing left for its marks to be about, so it forgets
         // them; the cursor's own row keeps them, because erasing part of it is how a prompt
         // redraws itself — `\r` then erase-to-end — and that row is the one carrying the mark.
         case 0:
-            s.erase(row: s.cursor.y, from: s.cursor.x, to: s.columns, fill: fill, selective: selective)
+            s.erase(row: s.cursor.y, from: s.cursor.x, to: s.columns, fill: fill, sparingProtected: sparing)
             for y in (s.cursor.y + 1)..<max(s.cursor.y + 1, s.rows) {
-                s.erase(row: y, from: 0, to: s.columns, fill: fill, selective: selective, forgetting: true)
+                s.erase(row: y, from: 0, to: s.columns, fill: fill, sparingProtected: sparing, forgetting: true)
             }
         case 1:
             for y in 0..<s.cursor.y {
-                s.erase(row: y, from: 0, to: s.columns, fill: fill, selective: selective, forgetting: true)
+                s.erase(row: y, from: 0, to: s.columns, fill: fill, sparingProtected: sparing, forgetting: true)
             }
-            s.erase(row: s.cursor.y, from: 0, to: s.cursor.x + 1, fill: fill, selective: selective)
+            s.erase(row: s.cursor.y, from: 0, to: s.cursor.x + 1, fill: fill, sparingProtected: sparing)
         case 2:
             for y in 0..<s.rows {
-                s.erase(row: y, from: 0, to: s.columns, fill: fill, selective: selective, forgetting: true)
+                s.erase(row: y, from: 0, to: s.columns, fill: fill, sparingProtected: sparing, forgetting: true)
             }
         case 3:
             if !selective { s.clearScrollback() }
@@ -372,10 +376,11 @@ extension Terminal {
     func eraseInLine(_ mode: Int, selective: Bool) {
         let s = screen
         let fill = s.cursor.pen.erasing
+        let sparing = sparesProtected(selective ? .selective : .plain)
         switch mode {
-        case 0: s.erase(row: s.cursor.y, from: s.cursor.x, to: s.columns, fill: fill, selective: selective)
-        case 1: s.erase(row: s.cursor.y, from: 0, to: s.cursor.x + 1, fill: fill, selective: selective)
-        case 2: s.erase(row: s.cursor.y, from: 0, to: s.columns, fill: fill, selective: selective)
+        case 0: s.erase(row: s.cursor.y, from: s.cursor.x, to: s.columns, fill: fill, sparingProtected: sparing)
+        case 1: s.erase(row: s.cursor.y, from: 0, to: s.cursor.x + 1, fill: fill, sparingProtected: sparing)
+        case 2: s.erase(row: s.cursor.y, from: 0, to: s.columns, fill: fill, sparingProtected: sparing)
         default: break
         }
         s.cursor.pendingWrap = false

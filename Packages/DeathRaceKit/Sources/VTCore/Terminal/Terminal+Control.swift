@@ -60,6 +60,10 @@ extension Terminal {
         case 0x45:  // ESC E: NEL
             index()
             carriageReturn()
+        case 0x56:  // ESC V: SPA, start of a protected area
+            protection = .iso
+            s.cursor.protected = true
+        case 0x57: s.cursor.protected = false  // ESC W: EPA, end of one
         case 0x36: backIndex()  // ESC 6: DECBI
         case 0x39: forwardIndex()  // ESC 9: DECFI
         case 0x48: s.tabStops[s.cursor.x] = true  // ESC H: HTS
@@ -146,6 +150,7 @@ extension Terminal {
         currentLink = nil
         savedPrivateModes.removeAll()
         inertModes.removeAll()
+        protection = .none
         allowsColumnSwitch = false
         keepsScreenOnColumnSwitch = false
         emit(.colorsChanged)
@@ -165,6 +170,7 @@ extension Terminal {
         modes.reverseWraparoundExtended = false
         // DEC STD 070 has DECSTR reset left/right mode as well as the margins themselves.
         modes.leftRightMargins = false
+        protection = .none
         s.resetMargins()
         s.cursor.pen = .default
         s.cursor.protected = false

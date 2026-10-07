@@ -162,7 +162,17 @@ before anything is allocated, and invalid scalars, colors and tags are rejected.
   a `ScreenDelta`, and a row never needs more distinct styles than it has cells, so the
   16-bit index cannot overflow and compaction is one pass over one row. The extra scalars of
   multi-scalar characters live in a per-row side table. Scrolling and scroll regions move row
-  references; nothing is copied, and retired rows are recycled.
+  references; nothing is copied, and retired rows are recycled — except between left and right
+  margins, where part of every line has to stay where it is, so the cells *between* the margins
+  move from row to row instead, and nothing reaches scrollback, because a line that only partly
+  moved is not a line that left the screen. One predicate chooses the path, and it is the
+  margins' own width rather than the mode: they can only be narrower than the screen while
+  DECLRMM is on, since turning that off puts them back.
+- **One protected bit, two claimants.** DECSCA and ISO 6429's SPA mark a cell with the same bit,
+  and `Terminal.protection` records which of them claimed it, because the erases disagree: ED,
+  EL and ECH spare what SPA protected, DECSERA spares what DECSCA did, and DECSEL and DECSED
+  spare either — xterm's table, which esctest pins on every side, including the one where
+  xterm's author chose backward compatibility over the specification.
 - **Damage tracking.** Every row has a stable id and a version from a clock both screens
   share; the session sends rows whose version moved. A `generation` bumps on screen switches,
   resizes and resets, which means "redraw everything".

@@ -27,6 +27,14 @@ treat them as relative. The M5 budget above is checked on the Mac.
 | unicode | CJK, accents, skin tones, ZWJ families, flags | 13 MB/s | 31 MB/s |
 | cursor | full-screen redraws: CUP, SGR, short writes, EL | 12.5 MB/s | 54 MB/s |
 
+**The container is not a constant, and these numbers are not a budget.** Measured again during
+the left-and-right-margin work, on the same image and the same build, ascii ran at 119–129 MB/s
+against the 190–200 above, while sgr, unicode and cursor landed within a few percent of theirs.
+Nothing in the engine accounts for that, so read the absolute figures as this container on the
+day it was written. What is worth comparing is two runs an hour apart on one machine, which is
+how the margin work was checked for a regression — three runs each way, no regression, and the
+difference between the two sides smaller than the difference between runs on one side.
+
 Against SwiftTerm, the engine most Swift terminals embed (`make vtdiff`: the same workloads,
 both engines, release builds, same container):
 

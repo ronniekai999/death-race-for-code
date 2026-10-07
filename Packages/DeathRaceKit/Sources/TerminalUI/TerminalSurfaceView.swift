@@ -488,7 +488,7 @@ public final class TerminalSurfaceView: NSView {
         commandBuffer.waitUntilScheduled()
         drawable.present()
         updateCursor()
-        updateBadges()
+        updateBadges(runs: blockRuns)
         CATransaction.commit()
         needsFrame = !frame.isComplete
         frameStats.frameDrawn(milliseconds: (CACurrentMediaTime() - started) * 1000)
@@ -733,8 +733,16 @@ public final class TerminalSurfaceView: NSView {
     /// a badge placed outside it shears against scrolling text. Placed on every frame drawn
     /// rather than when the view scrolls, for the same reason the cursor is: scrolling always
     /// draws, so there is no second signal to listen for.
-    func updateBadges() {
-        guard self.layer != nil, let makeBadge, let model, !blockRuns.isEmpty else { return hideBadges() }
+    ///
+    /// The runs arrive as an argument rather than being read from `blockRuns`, because a
+    /// picture is not the presented frame. A frame passes the runs it has just drawn, so a
+    /// badge can never shear against it; `drawBadges(in:)` passes the screen as it is now, the
+    /// same mirror `snapshot(using:)` builds its own frame from. Reading the cache there drew
+    /// nothing at all until a frame had been presented — and a pane that is never on screen
+    /// never presents one, which is every pane on a CI runner and in `--render-chrome`. The
+    /// cursor was always right about this: it "follows the screen as it is now".
+    func updateBadges(runs: [BlockRun]) {
+        guard self.layer != nil, let makeBadge, let model, !runs.isEmpty else { return hideBadges() }
         // `CGFloat(…)` spelled out: AppKit's scale is a CGFloat and ours is a Double, and
         // although the two are the same thing on this platform, `??` will not bridge them.
         let scale = window?.backingScaleFactor ?? CGFloat(cell.scale)
@@ -747,7 +755,7 @@ public final class TerminalSurfaceView: NSView {
         let top = model.mirror.viewportTopLine
         let right = grid.left + Double(grid.columns) * cell.pointWidth
         var placed = 0
-        for run in blockRuns {
+        for run in runs {
             guard placed < Self.badgeLimit else { break }
             guard let command = run.command, !command.isEmpty else { continue }
             // The prompt's own line. A block whose prompt is above the screen has nowhere to
@@ -817,7 +825,7 @@ public final class TerminalSurfaceView: NSView {
     /// `drawCursor(in:)` draws the cursor: `OffscreenRenderer` only ever draws the `Frame`, and
     /// a badge is a layer, so a picture of a pane has to be told about it.
     public func drawBadges(in context: CGContext) {
-        updateBadges()
+        updateBadges(runs: model.map { Blocks.runs(in: $0.mirror) } ?? [])
         for badge in badgeLayers where !badge.isHidden {
             guard let contents = badge.contents, CFGetTypeID(contents as CFTypeRef) == CGImage.typeID else {
                 continue

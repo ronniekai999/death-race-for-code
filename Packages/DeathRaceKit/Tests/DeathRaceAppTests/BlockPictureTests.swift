@@ -1,5 +1,6 @@
 import AppKit
 import ConfigKit
+import ScreenProtocol
 import SurfaceCore
 import TerminalUI
 import Testing
@@ -53,6 +54,18 @@ extension WindowTests {
             width: CGFloat(right - left + 1) / scale, height: CGFloat(bottom - top + 1) / scale)
     }
 
+    /// What the badge path saw, for a failure message. A badge needs a run, a run with a
+    /// command, and a picture for it; which of those is missing says where to look, so a
+    /// failure on CI — the only place these run — costs one round rather than three.
+    private func badgeState(of surface: TerminalSurfaceView) -> String {
+        guard let mirror = surface.model?.mirror else { return "the session had sent no screen" }
+        let runs = Blocks.runs(in: mirror)
+        return "grid \(surface.grid.columns)x\(surface.grid.rows), \(mirror.lines.count) lines,"
+            + " top \(mirror.viewportTopLine), \(runs.count) run(s),"
+            + " \(runs.compactMap(\.command).count) with a command,"
+            + " makeBadge \(surface.makeBadge == nil ? "nil" : "set")"
+    }
+
     /// The window's own points for a viewport row, so a badge can be checked against the line
     /// it is about rather than against a number.
     private func rowRect(of surface: TerminalSurfaceView, row: Int) -> CGRect {
@@ -104,7 +117,8 @@ extension WindowTests {
         surface.sessionDidUpdate()
 
         await eventually(within: 5) { drawnBadges(of: surface, in: window) != nil }
-        let drawn = try #require(drawnBadges(of: surface, in: window), "no badge was drawn")
+        let drawn = try #require(
+            drawnBadges(of: surface, in: window), "no badge was drawn: \(badgeState(of: surface))")
         let row = rowRect(of: surface, row: 0)
         // On the command's own line, within a pixel of it, and at the right-hand end.
         let pixel = 1 / window.backingScaleFactor
@@ -145,7 +159,7 @@ extension WindowTests {
         session.replay.feed("\r\n\u{1B}]133;A\u{7}$ ")
         surface.sessionDidUpdate()
         await eventually(within: 5) { drawnBadges(of: surface, in: window) != nil }
-        #expect(drawnBadges(of: surface, in: window) != nil)
+        #expect(drawnBadges(of: surface, in: window) != nil, "no badge was drawn: \(badgeState(of: surface))")
     }
 
     /// A badge is pinned to its command's line, so it has to move with the screen — which is
@@ -159,18 +173,37 @@ extension WindowTests {
         let session = try #require(pane.session as? FakeSession)
         let surface = pane.surface
 
+        // Fill the screen first, so the command lands on the last row. A window is 100x30 by
+        // default: with room to spare below it one more line scrolls nothing, and a badge that
+        // never had to move proves nothing. Exactly one row of slack is what is wanted — pushed
+        // off the top the command's prompt is gone from view and gets no badge by design.
+        session.replay.feed(String(repeating: "filler\r\n", count: max(surface.grid.rows - 1, 1)))
         session.replay.feed(transcript("swift build", exit: 0, milliseconds: 12_400))
-        session.replay.feed("\r\n\u{1B}]133;A\u{7}$ ")
         surface.sessionDidUpdate()
         await eventually(within: 5) { drawnBadges(of: surface, in: window) != nil }
-        let before = try #require(drawnBadges(of: surface, in: window))
+        let before = try #require(
+            drawnBadges(of: surface, in: window), "no badge was drawn: \(badgeState(of: surface))")
+        let topBefore = try #require(surface.model?.mirror.viewportTopLine)
 
-        // One more line of output pushes everything up by a row.
+        // One more line of output pushes the screen up by a row, the command's line with it.
         session.replay.feed("\r\nanother line")
         surface.sessionDidUpdate()
+        await eventually(within: 5) { (surface.model?.mirror.viewportTopLine ?? topBefore) > topBefore }
+        // The premise, asserted rather than assumed: without a scroll there is nothing to follow.
+        let topAfter = try #require(surface.model?.mirror.viewportTopLine)
+        #expect(topAfter > topBefore, "the screen never scrolled: \(badgeState(of: surface))")
+
         await eventually(within: 5) { drawnBadges(of: surface, in: window).map { $0.minY != before.minY } ?? false }
-        let after = try #require(drawnBadges(of: surface, in: window))
-        #expect(after.minY != before.minY, "the badge stayed where it was while its command moved")
+        let after = try #require(
+            drawnBadges(of: surface, in: window), "the badge went away: \(badgeState(of: surface))")
+        // It moved by the one row the screen scrolled. Checked as a distance, not a direction,
+        // so it does not depend on which way the window's y runs.
+        let pixel = 1 / window.backingScaleFactor
+        let moved = abs(after.minY - before.minY)
+        let rowHeight = CGFloat(surface.cell.pointHeight)
+        #expect(
+            abs(moved - rowHeight) <= pixel,
+            "the badge moved \(moved) pt for a one-row scroll of \(rowHeight) pt")
     }
 
     /// With Conversations off there are no layers over the grid at all.

@@ -139,16 +139,35 @@ private func started(_ server: FakeSFTPServer) async throws -> SFTPClient {
         await client.shutDown()
     }
 
-    /// SFTP has no unsolicited server packets, and ids are 1, 2, 3 …, so a server can answer
-    /// ahead of us. Taking such a reply would let it report an upload's `WRITE` as written
-    /// when it threw the bytes away, and let it stream replies into an unbounded dictionary.
+    /// SFTP has no unsolicited server packets, so a reply carrying an id we never issued is a
+    /// server making things up — and an unbounded one, since it can stream them into
+    /// `earlyReplies`. The session fails instead of holding any of it.
+    ///
+    /// What this cannot be is a test that the client sees through a forged id it *has* issued.
+    /// Ids run 1, 2, 3 …, so a server can answer a request it knows is coming, and a `STATUS`
+    /// bearing an issued id is indistinguishable from a legitimate reply — the client is right
+    /// to take it, and `earlyReplies` exists precisely so that a reply landing while its
+    /// request is still in `send` is not dropped (`aReplyThatArrivesDuringSendIsNotLost`, and
+    /// the 70 KB upload that hung for good without it). The defence against a lying server is
+    /// that it is the server you authenticated to, not id bookkeeping. This test used to forge
+    /// `id: 1` and so passed or failed on whether the read loop drained the forgery before
+    /// `mkdir` put 1 in `issued` — green here, red on a loaded CI runner.
+    ///
+    /// Which error surfaces is deliberately not pinned: refusing the forgery also closes the
+    /// transport, so a `send` that had already begun comes back `transportClosed` rather than
+    /// `invalid`. Asserting one of them would be the same kind of flake in a smaller window.
+    /// What is asserted is the thing that matters — it throws, and it keeps throwing.
     @Test func aReplyToARequestThatWasNeverSentFailsTheSession() async throws {
         let server = FakeSFTPServer(answersAheadOfRequests: true)
         let client = SFTPClient(transport: server)
         try await client.start()
         let finished = await Finished.within(10) {
-            // The server's forged STATUS(id: 1, ok) must not be mistaken for this reply.
+            // The forged id is `UInt32.max`, which this session never issues, so the read loop
+            // must refuse it whichever side of `mkdir`'s own send it lands on.
             await #expect(throws: (any Error).self) { try await client.mkdir("/anything") }
+            // And the failure sticks: `sessionError` is set once and every later request reads
+            // it, so a session that made things up is not one you keep using.
+            await #expect(throws: (any Error).self) { try await client.stat("/home/user") }
         }
         #expect(finished, "the request never came back")
         await client.shutDown()

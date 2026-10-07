@@ -21,9 +21,18 @@ actor FakeSFTPServer: SFTPTransport {
     /// the request is still suspended there — what a real transport does, where the reader is
     /// a thread of its own.
     private let answersDuringSend: Bool
-    /// Answers `id: 1` before any request exists, then drops the real one — a server trying to
-    /// have a request report an outcome it chose.
+    /// Answers an id the client cannot have issued, before any request exists, then drops the
+    /// real one — a server making replies up.
+    ///
+    /// The id is deliberately not 1. Forging the id the client is about to use tests nothing:
+    /// once `request` has put that id in `issued`, a `STATUS` carrying it is exactly what a
+    /// legitimate reply looks like, and the client is right to take it — which made the test
+    /// that did so pass or fail on whether the read loop drained the forgery before the next
+    /// call registered its id. `UInt32.max` is never issued in any interleaving, because ids
+    /// run 1, 2, 3 …, so the rule under test holds either way round.
     private let answersAheadOfRequests: Bool
+    /// An id `nextRequestID` cannot reach in a test that makes a handful of requests.
+    private static let forgedReplyID: UInt32 = .max
     /// Never sends the `EOF` that ends a `READDIR` loop.
     private let neverEndsReaddir: Bool
     private var readdirBatches = 0
@@ -49,9 +58,10 @@ actor FakeSFTPServer: SFTPTransport {
         let packet = try SFTPPacket.decode(frame: frame)
         if case .initialize = packet, answersAheadOfRequests {
             enqueue(SFTPPacket.version(version: SFTP.version).encode())
-            // The first request the client makes will be id 1, and here is its answer, before
-            // it has been asked for. The real request below is then dropped.
-            enqueue(SFTPPacket.status(id: 1, code: SFTP.Status.ok, message: "").encode())
+            // A reply to a request that was never made, and never will be. The real request
+            // below is then dropped, so the only way the client comes back is by refusing it.
+            enqueue(
+                SFTPPacket.status(id: Self.forgedReplyID, code: SFTP.Status.ok, message: "").encode())
             return
         }
         if answersAheadOfRequests { return }

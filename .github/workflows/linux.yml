@@ -54,9 +54,11 @@ jobs:
           scripts/ci-sshd.sh > /tmp/sshd-env
           . /tmp/sshd-env
           swift test --package-path Packages/DeathRaceKit --skip-build
+      # Bounded, as the macOS job's diagnostics step is: unbounded, a run's whole sshd log is
+      # hundreds of connection lines that bury the test output above it past any log tail.
       - name: What sshd saw
         if: failure()
-        run: cat /tmp/sshd-wrld.log || true
+        run: tail -200 /tmp/sshd-wrld.log || true
       - name: Lint
         run: make lint
       - name: vthost smoke test

@@ -671,6 +671,19 @@ seam depends on the answer.
   rendered as an artifact for review. Pixel goldens, which need a real GPU's antialiasing,
   run on a Mac with `make test-render`.
 
+  And **no pane there is ever on screen**, so no pane ever presents a frame. A view draws only
+  while `isSeen` — in a window, not hidden, occlusion `.visible` — and a window on a runner
+  with no display satisfies none of it; the log fills with `CAMetalLayer ignoring invalid
+  setDrawableSize width=0.000000 height=0.000000` as the layout pass retries a size the layer
+  keeps refusing. So the paths that run on CI are the picture paths, `snapshot(using:)` and the
+  `drawCursor(in:)`-shaped hand-draws beside it, and **anything a layer needs must be derivable
+  from the mirror**, never from state a presented frame leaves behind. Phase 8 M3 got this
+  wrong: the badge read the block runs the last frame had cached, so the three badge picture
+  tests failed while the cursor one — which reads the mirror directly — passed on the same
+  window with the same helper. The badge's runs are an argument now, the frame passing the ones
+  it drew and a picture passing the screen as it is. Left as it was, the theme pictures and the
+  render goldens would have carried rails and bands with no badges at all.
+
 ## Roadmap
 
 | Phase | What |

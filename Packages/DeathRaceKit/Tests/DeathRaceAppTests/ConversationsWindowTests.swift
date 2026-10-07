@@ -71,10 +71,22 @@ extension WindowTests {
         let line = try #require(pane.lastCommandLine)
 
         // Pushed off the top, so coming back to it is a real move rather than a no-op.
-        session.replay.feed(String(repeating: "filler\r\n", count: surface.grid.rows + 10))
-        surface.sessionDidUpdate()
+        //
+        // Awaited rather than read straight after the feed: `sessionDidUpdate` never drains
+        // synchronously, and on CI no pane is ever "seen", so it always takes the 250 ms
+        // hidden-drain timer. Reading immediately saw the mirror as it was before the filler.
+        // A fixed count rather than `grid.rows`, too, so the test does not depend on how tall
+        // the view happened to lay out.
+        session.replay.feed(String(repeating: "filler\r\n", count: 80))
+        await eventually {
+            surface.sessionDidUpdate()
+            return (surface.model?.mirror.viewportTopLine ?? 0) > line
+        }
         let pushed = try #require(surface.model?.mirror.viewportTopLine)
-        #expect(pushed > line, "the command never left the screen, so a scroll would prove nothing")
+        #expect(
+            pushed > line,
+            "the command never left the screen: top \(pushed), command on line \(line), "
+                + "\(surface.model?.mirror.lines.count ?? 0) rows in view")
 
         controller.root.statusBar.onTap?(.lastCommand)
         // Drained on each turn of the loop, standing in for the display link that drains every

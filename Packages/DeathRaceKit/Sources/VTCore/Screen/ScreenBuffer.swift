@@ -457,6 +457,17 @@ final class ScreenBuffer {
         touch(row)
     }
 
+    /// DECIC: blank columns pushed in at `x` in every row of the scroll region, the rows
+    /// outside it left alone. What passes the right margin is dropped rather than wrapping.
+    func insertColumns(_ count: Int, at x: Int, fill: Style) {
+        for y in scrollTop...scrollBottom { insertBlanks(count, row: y, at: x, fill: fill) }
+    }
+
+    /// DECDC: columns pulled out at `x` in every row of the scroll region.
+    func deleteColumns(_ count: Int, at x: Int, fill: Style) {
+        for y in scrollTop...scrollBottom { deleteCells(count, row: y, at: x, fill: fill) }
+    }
+
     /// ICH and DCH between the margins: the shift runs from the cursor to the right margin
     /// and leaves every cell beyond it alone, so what passes the margin is dropped rather
     /// than pushing the rest of the line along. A cursor outside the margins shifts nothing.

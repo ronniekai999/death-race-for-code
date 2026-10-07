@@ -24,7 +24,7 @@ extension Terminal {
         case (0, 0, 0x48), (0, 0, 0x66):  // CUP, HVP
             setCursorPosition(row: Int(p.value(at: 0, default: 1)) - 1, column: Int(p.value(at: 1, default: 1)) - 1)
         case (0, 0, 0x64):  // VPA
-            setCursorPosition(row: Int(p.value(at: 0, default: 1)) - 1, column: s.cursor.x)
+            setCursorRow(Int(p.value(at: 0, default: 1)) - 1)
         case (0, 0, 0x49):  // CHT; no line has more tab stops than columns
             for _ in 0..<min(Int(p.value(at: 0, default: 1)), s.columns) {
                 s.cursor.x = s.nextTabStop(after: s.cursor.x)
@@ -96,6 +96,10 @@ extension Terminal {
             let left = Int(p.value(at: 0, default: 1))
             let right = Int(p[1])
             setLeftRightMargins(left: left - 1, right: (right > left ? right : s.columns) - 1)
+        case (0, 1, 0x7D) where csi.intermediates.isOnly(0x27):  // DECIC
+            insertColumns(Int(p.value(at: 0, default: 1)))
+        case (0, 1, 0x7E) where csi.intermediates.isOnly(0x27):  // DECDC
+            deleteColumns(Int(p.value(at: 0, default: 1)))
         case (0, 0, 0x73) where p.isEmpty: saveCursor()  // SCOSC
         case (0, 0, 0x75) where p.isEmpty: restoreCursor()  // SCORC
 
@@ -136,8 +140,12 @@ extension Terminal {
             switch p[0] {
             case 5: reply("\u{1B}[0n")
             case 6:
+                // In origin mode the cursor is reported where the program would address it:
+                // relative to both margins, which is also why HPA and VPA read as "ignoring"
+                // origin mode when all they do is address the page the same way.
                 let row = s.cursor.y - (modes.origin ? s.scrollTop : 0) + 1
-                reply("\u{1B}[\(row);\(s.cursor.x + 1)R")
+                let column = s.cursor.x - (modes.origin ? s.scrollLeft : 0) + 1
+                reply("\u{1B}[\(row);\(column)R")
             default: break
             }
         case (0x3F, 0, 0x6E):  // DSR, DEC form
@@ -225,22 +233,31 @@ extension Terminal {
         }
     }
 
+    /// CHA and HPA: 0-based, and in origin mode counted from the left margin and clamped to
+    /// the right one. The relative moves (CUF, CUB, HPR) are not addressing and ignore origin
+    /// mode, which is what esctest's `HPR_IgnoresOriginMode` pins.
     func setCursorColumn(_ x: Int) {
         let s = screen
-        s.cursor.x = min(max(x, 0), s.columns - 1)
+        s.cursor.x =
+            modes.origin
+            ? min(max(s.scrollLeft + x, s.scrollLeft), s.scrollRight) : min(max(x, 0), s.columns - 1)
         s.cursor.pendingWrap = false
     }
 
-    /// CUP: 0-based, relative to the scroll region in origin mode and clamped to it.
-    func setCursorPosition(row: Int, column: Int) {
+    /// VPA: the row alone, so the column is left where it is rather than being read as an
+    /// origin-relative one and shifted by the left margin.
+    func setCursorRow(_ row: Int) {
         let s = screen
-        if modes.origin {
-            s.cursor.y = min(max(s.scrollTop + row, s.scrollTop), s.scrollBottom)
-        } else {
-            s.cursor.y = min(max(row, 0), s.rows - 1)
-        }
-        s.cursor.x = min(max(column, 0), s.columns - 1)
+        s.cursor.y =
+            modes.origin
+            ? min(max(s.scrollTop + row, s.scrollTop), s.scrollBottom) : min(max(row, 0), s.rows - 1)
         s.cursor.pendingWrap = false
+    }
+
+    /// CUP and HVP: 0-based, relative to both margins in origin mode and clamped to them.
+    func setCursorPosition(row: Int, column: Int) {
+        setCursorRow(row)
+        setCursorColumn(column)
     }
 
     func setScrollRegion(top: Int, bottom: Int) {
@@ -263,6 +280,54 @@ extension Terminal {
         s.scrollLeft = left
         s.scrollRight = right
         setCursorPosition(row: 0, column: 0)
+    }
+
+    /// DECIC and DECDC: columns pushed into or pulled out of every row of the scroll region
+    /// at the cursor's own column, which is why they belong with the margins. A cursor outside
+    /// either region moves nothing, as for IL and DL.
+    func insertColumns(_ count: Int) {
+        guard let s = screenForColumnEdit else { return }
+        s.insertColumns(max(count, 1), at: s.cursor.x, fill: s.cursor.pen.erasing)
+        s.cursor.pendingWrap = false
+    }
+
+    func deleteColumns(_ count: Int) {
+        guard let s = screenForColumnEdit else { return }
+        s.deleteColumns(max(count, 1), at: s.cursor.x, fill: s.cursor.pen.erasing)
+        s.cursor.pendingWrap = false
+    }
+
+    private var screenForColumnEdit: ScreenBuffer? {
+        let s = screen
+        guard s.cursor.y >= s.scrollTop, s.cursor.y <= s.scrollBottom, s.cursorIsBetweenMargins else { return nil }
+        return s
+    }
+
+    /// DECBI: one column left, or — standing on the left margin — a blank column pushed in
+    /// beside the cursor in every row of the region, which moves the text right instead of the
+    /// cursor left. At the screen's own left edge there is nowhere to go.
+    func backIndex() {
+        let s = screen
+        s.cursor.pendingWrap = false
+        if s.cursor.x == s.scrollLeft {
+            guard s.cursor.y >= s.scrollTop, s.cursor.y <= s.scrollBottom else { return }
+            s.insertColumns(1, at: s.scrollLeft, fill: s.cursor.pen.erasing)
+        } else if s.cursor.x > 0 {
+            s.cursor.x -= 1
+        }
+    }
+
+    /// DECFI: the same the other way. DEC STD 070 lets both move a cursor that is outside the
+    /// margins, and esctest pins that.
+    func forwardIndex() {
+        let s = screen
+        s.cursor.pendingWrap = false
+        if s.cursor.x == s.scrollRight {
+            guard s.cursor.y >= s.scrollTop, s.cursor.y <= s.scrollBottom else { return }
+            s.deleteColumns(1, at: s.scrollLeft, fill: s.cursor.pen.erasing)
+        } else if s.cursor.x < s.columns - 1 {
+            s.cursor.x += 1
+        }
     }
 
     // MARK: - Erasing
@@ -414,7 +479,8 @@ extension Terminal {
         switch p[0] {
         case 6:  // DECXCPR; no page number, since we answer DA2 as a VT220
             let row = s.cursor.y - (modes.origin ? s.scrollTop : 0) + 1
-            reply("\u{1B}[?\(row);\(s.cursor.x + 1)R")
+            let column = s.cursor.x - (modes.origin ? s.scrollLeft : 0) + 1
+            reply("\u{1B}[?\(row);\(column)R")
         case 15: reply("\u{1B}[?13n")  // no printer
         case 25: reply("\u{1B}[?20n")  // user-defined keys unlocked
         case 26: reply("\u{1B}[?27;1n")  // North American keyboard
@@ -522,10 +588,11 @@ extension Terminal {
         let s = screen
         let id = p[0]
         let originRow = modes.origin ? s.scrollTop : 0
+        let originColumn = modes.origin ? s.scrollLeft : 0
         let top = originRow + Int(p.value(at: 2, default: 1)) - 1
-        let left = Int(p.value(at: 3, default: 1)) - 1
+        let left = originColumn + Int(p.value(at: 3, default: 1)) - 1
         let bottom = min(originRow + Int(p.value(at: 4, default: UInt16(clamping: s.rows))) - 1, s.rows - 1)
-        let right = min(Int(p.value(at: 5, default: UInt16(clamping: s.columns))) - 1, s.columns - 1)
+        let right = min(originColumn + Int(p.value(at: 5, default: UInt16(clamping: s.columns))) - 1, s.columns - 1)
         var sum: UInt32 = 0
         if top <= bottom && left <= right {
             for y in max(top, 0)...bottom {

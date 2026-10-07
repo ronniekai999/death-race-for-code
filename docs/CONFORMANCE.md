@@ -24,24 +24,27 @@ known bugs; with it, our deliberate refusals count as failures and DECNCSM count
 
 | | Tests |
 | --- | ---: |
-| Pass | 404 |
+| Pass | 431 |
 | Marked by esctest as known xterm bugs | 33 |
-| Fail: features scheduled for later | 89 |
+| Fail: features scheduled for later | 62 |
 | Fail: refused by design, or a deliberate difference | 41 |
 
-That is 404 of 445 (91%) of the tests for behavior we mean to have, counting the refusals as
+That is 431 of 472 (91%) of the tests for behavior we mean to have, counting the refusals as
 the failures they are. The headline moved from "95% of 378" in the other direction than it
 looks: the 19 window-manipulation tests used to be filed under "later", and they are never
 going to pass, so they are counted here among the refusals instead.
 
 **Scheduled for later:** colors — OSC 4/5/104/105/106 and the CIE, TekHVC and RGBi color
-specifications (33 tests); rectangle operations, DECCRA, DECERA, DECFRA, DECSERA (24);
-DECIC, DECDC, DECBI and DECFI (20); origin mode against a left margin (7); ISO protected
-areas, SPA/EPA (5).
+specifications (33 tests); rectangle operations, DECCRA, DECERA, DECFRA, DECSERA (24); ISO
+protected areas, SPA/EPA (5).
 
-**Left and right margins (DECSLRM) are in**, which is what moved the number: 47 of those
-tests passed with the margins themselves and the reports, and another 44 once movement,
-scrolling, printing and the editing sequences were bounded by them.
+**Left and right margins are in**, which is what moved the number, and 74 tests came with
+them: the margins and their reports (3), then movement, scrolling, printing and the editing
+sequences bounded by them (44), then what is defined in terms of them — origin mode's
+horizontal half, DECIC, DECDC, DECBI and DECFI (27). Origin mode is the pair of rules
+together: addressing counts from the margins' own corner and the cursor is reported back in
+the same coordinates, which is why esctest has HPA and VPA "ignoring" origin mode while they
+do nothing of the kind.
 
 **Refusals and deliberate differences:**
 
@@ -168,7 +171,7 @@ with the swift.org toolchain on a Mac).
 ## v1 scope
 
 C0 and ESC (with the DEC line-drawing charset), CSI cursor/erase/insert/delete, scroll regions,
-left and right margins (DECLRMM and DECSLRM), tabs, REP, DECALN, full SGR (truecolor, underline styles and color), alternate screen
+left and right margins (DECLRMM, DECSLRM, DECIC, DECDC, DECBI, DECFI), tabs, REP, DECALN, full SGR (truecolor, underline styles and color), alternate screen
 1049/47/1047, mouse 1000/1002/1003/1006, focus 1004, bracketed paste 2004, synchronized output
 2026, DECSCUSR, DA/DSR/CPR/DECRQM/DECRQSS/XTVERSION/XTGETTCAP/XTWINOPS 18t, OSC 0/2/4/7/10–12,
 OSC 52 (write only), OSC 9;4, OSC 133, OSC 633;E, and the Kitty keyboard protocol.

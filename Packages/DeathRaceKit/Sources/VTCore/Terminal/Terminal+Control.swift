@@ -60,6 +60,8 @@ extension Terminal {
         case 0x45:  // ESC E: NEL
             index()
             carriageReturn()
+        case 0x36: backIndex()  // ESC 6: DECBI
+        case 0x39: forwardIndex()  // ESC 9: DECFI
         case 0x48: s.tabStops[s.cursor.x] = true  // ESC H: HTS
         case 0x4D: reverseIndex()  // ESC M: RI
         case 0x4E: s.cursor.charsets.singleShift = 2  // ESC N: SS2

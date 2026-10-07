@@ -384,3 +384,138 @@ import Testing
         #expect(t.row(1).cells[4].width == .narrow, "so no spacer is left behind outside the margin")
     }
 }
+
+/// What rides on the margins: the column-editing sequences, which are defined in terms of
+/// them, and origin mode's horizontal half.
+@Suite struct TerminalColumnEditTests {
+    /// The same five rows esctest's own fixtures use, with the scroll region over rows 2...4.
+    func fiveByFive(_ setup: String) -> Terminal {
+        let t = makeTerminal(columns: 5, rows: 5)
+        for (row, line) in ["abcde", "fghij", "klmno", "pqrst", "uvwxy"].enumerated() {
+            t.feed("\u{1B}[\(row + 1);1H" + line)
+        }
+        t.feed(setup)
+        return t
+    }
+
+    @Test func decicPushesColumnsIntoEveryRowOfTheRegion() {
+        let t = fiveByFive("\u{1B}[2;4r\u{1B}[2;2H")
+        t.feed("\u{1B}[2'}")
+        #expect(t.lines == ["abcde", "f  gh", "k  lm", "p  qr", "uvwxy"])
+    }
+
+    @Test func decdcPullsColumnsOutOfEveryRowOfTheRegion() {
+        let t = fiveByFive("\u{1B}[2;4r\u{1B}[2;2H")
+        t.feed("\u{1B}[2'~")
+        #expect(t.lines == ["abcde", "fij", "kno", "pst", "uvwxy"])
+    }
+
+    @Test func columnEditingDoesNothingWhenTheCursorIsOutsideTheMargins() {
+        for sequence in ["\u{1B}['}", "\u{1B}['~"] {
+            let t = fiveByFive("\u{1B}[?69h\u{1B}[2;4s\u{1B}[2;1H")
+            t.feed(sequence)
+            #expect(
+                t.lines == ["abcde", "fghij", "klmno", "pqrst", "uvwxy"],
+                "\(sequence.debugDescription) moved cells")
+        }
+    }
+
+    @Test func columnEditingDoesNothingWhenTheCursorIsOutsideTheScrollRegion() {
+        let t = fiveByFive("\u{1B}[2;4r\u{1B}[1;2H")
+        t.feed("\u{1B}['}")
+        #expect(t.lines == ["abcde", "fghij", "klmno", "pqrst", "uvwxy"])
+    }
+
+    @Test func decbiMovesLeftUntilTheLeftMarginAndThenScrolls() {
+        let t = fiveByFive("\u{1B}[?69h\u{1B}[2;4s\u{1B}[2;4r\u{1B}[2;3H")
+        t.feed("\u{1B}6")
+        #expect(t.cursorPosition == [1, 1], "inside the margins it is one column left")
+        t.feed("\u{1B}6")
+        #expect(t.cursorPosition == [1, 1], "on the left margin the cursor stays")
+        #expect(t.lines == ["abcde", "f ghj", "k lmo", "p qrt", "uvwxy"], "and the text moves instead")
+    }
+
+    @Test func decfiMovesRightUntilTheRightMarginAndThenScrolls() {
+        let t = fiveByFive("\u{1B}[?69h\u{1B}[2;4s\u{1B}[2;4r\u{1B}[2;4H")
+        t.feed("\u{1B}9")
+        #expect(t.cursorPosition == [3, 1], "on the right margin the cursor stays")
+        #expect(t.lines == ["abcde", "fhi j", "kmn o", "prs t", "uvwxy"])
+        t.feed("\u{1B}[2;5H\u{1B}9")
+        #expect(t.cursorPosition == [4, 1], "and at the screen's own edge there is nowhere to go")
+    }
+
+    @Test func backIndexingOutsideTheMarginsStillMovesTheCursor() {
+        let t = fiveByFive("\u{1B}[?69h\u{1B}[3;5s\u{1B}[2;2H")
+        t.feed("\u{1B}6")
+        #expect(t.cursorPosition == [0, 1], "DEC STD 070 lets it move outside the margins")
+        t.feed("\u{1B}6")
+        #expect(t.cursorPosition == [0, 1], "but the screen's own edge is the end of it")
+        #expect(t.lines == ["abcde", "fghij", "klmno", "pqrst", "uvwxy"], "and nothing scrolled")
+    }
+
+    @Test func backIndexingAtTheScreensOwnEdgeHasNowhereToGo() {
+        let t = fiveByFive("\u{1B}[?69h\u{1B}[2;4s\u{1B}[2;1H")
+        t.feed("\u{1B}6")
+        #expect(t.cursorPosition == [0, 1])
+        #expect(t.lines == ["abcde", "fghij", "klmno", "pqrst", "uvwxy"], "nothing scrolled")
+    }
+
+    /// Origin mode's horizontal half. The region here is rows 6...11 and columns 5...10, which
+    /// is esctest's own setup.
+    func withOrigin() -> Terminal {
+        let t = makeTerminal(columns: 20, rows: 12)
+        t.feed("\u{1B}[6;11r\u{1B}[?69h\u{1B}[5;10s\u{1B}[?6h")
+        return t
+    }
+
+    @Test func addressingCountsFromTheMarginsInOriginMode() {
+        let t = withOrigin()
+        t.feed("\u{1B}[1;1H")
+        #expect(t.cursorPosition == [4, 5], "the origin is the margins' own corner")
+        t.feed("\u{1B}[3;2H")
+        #expect(t.cursorPosition == [5, 7])
+        t.feed("\u{1B}[99;99H")
+        #expect(t.cursorPosition == [9, 10], "and addressing is clamped to the margins")
+        t.feed("\u{1B}[1G")
+        #expect(t.cursorPosition == [4, 10], "CHA counts from the left margin too")
+    }
+
+    @Test func theRelativeMovesIgnoreOriginMode() {
+        let t = withOrigin()
+        t.feed("\u{1B}[2;2H\u{1B}[2a")
+        #expect(t.cursorPosition == [7, 6], "HPR moves by two columns wherever the origin is")
+        t.feed("\u{1B}[2;2H\u{1B}[2e")
+        #expect(t.cursorPosition == [5, 8], "and VPR by two rows")
+    }
+
+    @Test func rowAddressingLeavesTheColumnAloneInOriginMode() {
+        let t = withOrigin()
+        t.feed("\u{1B}[3;2H\u{1B}[5d")
+        #expect(t.cursorPosition == [5, 9], "VPA must not read the column as an origin-relative one")
+    }
+
+    /// The other half of origin mode: a program that addresses the page relative to the margins
+    /// is told where the cursor is in the same coordinates, which is why HPA and VPA read as
+    /// "ignoring" origin mode in esctest while doing nothing of the kind.
+    @Test func theCursorIsReportedFromTheMarginsInOriginMode() {
+        let t = withOrigin()
+        t.feed("\u{1B}[3;2H")
+        _ = t.takeReplies()
+        t.feed("\u{1B}[6n")
+        #expect(t.takeReplyString() == "\u{1B}[3;2R")
+        t.feed("\u{1B}[?6n")
+        #expect(t.takeReplyString() == "\u{1B}[?3;2R")
+        // Turning the mode off homes the cursor, as xterm does, so the reading that follows
+        // addresses the screen again first.
+        t.feed("\u{1B}[?6l\u{1B}[6;8H\u{1B}[6n")
+        #expect(t.takeReplyString() == "\u{1B}[6;8R", "and from the screen's own corner once it is off")
+    }
+
+    @Test func aChecksumRectangleCountsFromTheMarginsInOriginMode() {
+        let t = makeTerminal(columns: 20, rows: 12) { $0.answersChecksumRequests = true }
+        t.feed("\u{1B}[6;5HX\u{1B}[6;11r\u{1B}[?69h\u{1B}[5;10s\u{1B}[?6h")
+        _ = t.takeReplies()
+        t.feed("\u{1B}[1;0;1;1;1;1*y")
+        #expect(t.takeReplyString() == "\u{1B}P1!~0058\u{1B}\\", "the rectangle's own corner is the origin")
+    }
+}

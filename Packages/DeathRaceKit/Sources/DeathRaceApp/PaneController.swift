@@ -409,10 +409,14 @@ final class PaneController {
                 // that makes standing down right. Dropping them meant a program that notified
                 // got no notification at all.
                 programNotified = true
-                guard let notifier else { continue }
+                guard let notifier, config.programNotifications else { continue }
+                // `CommandRecord.cleaned` here rather than in `RingRing`: it is VTCore's one
+                // rule for text that came off the stream — controls out, length bounded — and
+                // AppCore cannot see VTCore, which is the same boundary that makes `FastLabel`
+                // take plain values. `RingRing` then does the part specific to a banner.
                 let spoken = RingRing.notice(
-                    fromProgram: title, body: body, in: programName ?? shellName,
-                    wasWatched: isWatched?() ?? false)
+                    fromProgram: CommandRecord.cleaned(title), body: CommandRecord.cleaned(body),
+                    in: programName ?? shellName, wasWatched: isWatched?() ?? false)
                 if let spoken { notifier.deliver(spoken, paneID: UInt64(clamping: id.rawValue)) }
             case .promptMark(.commandEnd, let rowID):
                 // The record is on the row, not in the event: the mark carries only the exit

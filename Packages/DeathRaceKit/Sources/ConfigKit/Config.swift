@@ -82,6 +82,10 @@ public struct Config: Sendable, Equatable {
     /// watching it. Its own number, not `fast-threshold-milliseconds`: a notification for
     /// everything over a second is spam.
     public var ringRingThresholdSeconds = 30
+    /// Whether a program's own `OSC 9` notification is passed on. On, as it is in iTerm2, kitty
+    /// and WezTerm — but the text comes off bytes this project treats as hostile, so there has
+    /// to be a way to say no.
+    public var programNotifications = true
     /// Read what each host runs from its /etc/os-release, at most weekly.
     public var readHostOS = true
 

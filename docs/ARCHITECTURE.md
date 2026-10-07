@@ -671,7 +671,23 @@ the window tests can vary which tab is in front — the one half of it CI can pr
 **Personal bests are kept, with the obvious caution.** `~/.deathrace/bests.json`, 0600 in a 0700
 folder through `AtomicFile`, capped, and stored as an array so the eviction order survives a
 reload. `bests-on-disk` turns it off, and a command hidden from the shell's history by a leading
-space is never recorded, never notified and never put on screen. The honest comparison is that
+space is never recorded, never notified and never put on screen.
+
+**That rule cannot be carried by the space itself, which is what the security review found.**
+bash loses it both ways: `$BASH_COMMAND` is rebuilt from the parsed command, so the space is
+gone, and the history path's separator was matched with a greedy `[[:space:]]+` that ate the
+typed space along with it. So a line the user had deliberately hidden reached `isPrivate`
+looking ordinary and was written to `bests.json` and named in a banner — the exact exposure the
+rule exists to prevent, firing when nobody was watching the pane. The separator is matched
+exactly now, and where bash cannot tell us the line at all the integration **sends no command
+text**, which every consumer already refuses. The lesson is the general one: a privacy signal
+carried in-band, in text three layers rewrite, is not a signal.
+
+**A program's own notification is shown under the pane's name, not the app's.** `OSC 9` text is
+attacker-influenceable like everything else on the stream, and delivered as a banner's *title*
+it would read as Death Race's own voice — while the watched rule means it arrives precisely when
+nothing is on screen to attribute it to. It is bounded, stripped of the bidi controls that
+reorder what the eye reads, and `program-notifications` turns it off. The honest comparison is that
 your shell already keeps every command line in `~/.zsh_history` at the same mode, so this is a
 second copy rather than a new exposure — and the help says where it is so it can be deleted.
 

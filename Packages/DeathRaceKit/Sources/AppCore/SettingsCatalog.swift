@@ -150,6 +150,7 @@ public enum SettingsCatalog {
                             "fast-threshold-milliseconds", "Show a command's time when it is over",
                             .number(range: 0...60_000, step: 250, unit: "ms")),
                         Setting("bests-on-disk", "Remember personal bests between runs", .toggle),
+                        Setting("program-notifications", "Pass on notifications programs ask for", .toggle),
                         Setting(
                             "ring-ring-threshold-seconds", "Tell me when a command takes over",
                             .number(range: 1...3_600, step: 5, unit: "s")),

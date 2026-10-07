@@ -233,6 +233,17 @@ public enum ConfigSchema {
                 config.ringRingThresholdSeconds = Int(try Value.number(value, in: 1...86_400))
             },
             write: { String($0.ringRingThresholdSeconds) }),
+        ConfigKey(
+            "program-notifications", .sessions,
+            help: [
+                "Pass on a notification a program asks for itself, as iTerm2 and kitty do. It is",
+                "shown under the pane's name, because the words came from the program rather than",
+                "from Death Race. Turn it off and only Death Race's own notices arrive.",
+            ],
+            read: { value, config throws(ConfigValueError) in
+                config.programNotifications = try Value.bool(value)
+            },
+            write: { String($0.programNotifications) }),
     ]
 
     private static let colors: [ConfigKey] = [

@@ -65,5 +65,15 @@ of `~/.zsh_history`, and it also keeps it out of the bests file, out of any noti
 the screen — a banner sits where anyone nearby can read it. The help for `bests-on-disk` says
 where the file is, so it can be deleted.
 
+Under bash that promise is kept by **reporting no command text at all**, not by passing the space
+along: `$BASH_COMMAND` is rebuilt from the parsed command and has no leading whitespace, so a
+line the shell was asked to hide would have arrived looking ordinary. The mark, the duration and
+the exit code still come, so the rail and the badge work; it is only the words that are withheld,
+and an unnamed command reads as "A command".
+
+A notification a **program** asked for is shown under the pane's name rather than as Death Race's
+own: those words came off the same stream as everything else on screen, and a banner that
+appears while you are looking elsewhere should say plainly whose voice it is.
+
 Never quote lyrics, use slang, or add emoji to interface copy. Use sentence case, and give
 every number a unit.

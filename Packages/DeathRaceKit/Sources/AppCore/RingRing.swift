@@ -83,10 +83,52 @@ public enum RingRing {
     /// by whatever the pane is running, since "" is not a notification anyone can read.
     public static func notice(fromProgram title: String, body: String, in pane: String, wasWatched: Bool) -> Notice? {
         guard !wasWatched else { return nil }
-        let text = body.trimmingWhitespace
-        guard !text.isEmpty else { return nil }
-        let name = title.trimmingWhitespace
-        return Notice(title: name.isEmpty ? (pane.isEmpty ? "A program" : pane) : name, body: text)
+        let said = banner(title).isEmpty ? banner(body) : "\(banner(title)) — \(banner(body))"
+        guard !said.isEmpty else { return nil }
+        // **The title is the pane, never the program.** These words came off a stream of bytes
+        // the project's own threat model calls hostile: a compromised host, a tailed log, a
+        // piped HTTP response. Delivered as the title they would read as the app's own voice,
+        // and the watched rule means they arrive precisely when there is nothing on screen to
+        // attribute them to — so a banner could say "Death Race for Code / your key could not
+        // be verified, run this" and look exactly like a banner the app wrote. Under the pane's
+        // own name they are plainly a program talking.
+        return Notice(title: pane.isEmpty ? "A program" : banner(pane), body: said)
+    }
+
+    /// Text a program supplied, made fit for a banner: bounded, and with the formatting scalars
+    /// that reorder what the eye reads taken out.
+    ///
+    /// Controls, DEL and C1 are already gone before this — `CommandRecord.cleaned` does that at
+    /// the app's boundary, where VTCore is in scope, and it is deliberately not repeated here
+    /// (`AppCore` cannot see VTCore, which is the same boundary that makes `FastLabel` take
+    /// plain values). What is left to do is the part specific to a line someone reads and acts
+    /// on: the bidi overrides and isolates, which can make a command or a URL render in an
+    /// order it was not written in — the Trojan Source trick — and a length a notification can
+    /// actually show.
+    static func banner(_ text: String) -> String {
+        var out = String.UnicodeScalarView()
+        var kept = 0
+        for scalar in text.unicodeScalars where !isReordering(scalar) {
+            guard kept < bannerLimit else { break }
+            out.append(scalar)
+            kept += 1
+        }
+        return String(out).trimmingWhitespace
+    }
+
+    /// Enough for a banner macOS will show; past this it is truncated anyway.
+    static let bannerLimit = 256
+
+    /// The bidi controls that change reading order, and nothing else. **Not** every format
+    /// scalar: U+200D is the zero-width joiner, which every multi-part emoji needs, so taking
+    /// the whole category would mangle ordinary text to no purpose.
+    private static func isReordering(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x200E, 0x200F: true  // LRM, RLM
+        case 0x202A...0x202E: true  // LRE, RLE, PDF, LRO, RLO
+        case 0x2066...0x2069: true  // LRI, RLI, FSI, PDI
+        default: false
+        }
     }
 }
 

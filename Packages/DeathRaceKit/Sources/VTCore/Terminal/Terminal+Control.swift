@@ -118,8 +118,7 @@ extension Terminal {
             pendingCommandText = nil
             s.cursor = Cursor()
             s.savedCursor = nil
-            s.scrollTop = 0
-            s.scrollBottom = s.rows - 1
+            s.resetMargins()
             s.tabStops = ScreenBuffer.defaultTabStops(columns: s.columns)
         }
         modes = TerminalModes()
@@ -153,8 +152,9 @@ extension Terminal {
         modes.applicationKeypad = false
         modes.reverseWraparound = false
         modes.reverseWraparoundExtended = false
-        s.scrollTop = 0
-        s.scrollBottom = s.rows - 1
+        // DEC STD 070 has DECSTR reset left/right mode as well as the margins themselves.
+        modes.leftRightMargins = false
+        s.resetMargins()
         s.cursor.pen = .default
         s.cursor.protected = false
         s.cursor.charsets = CharsetState()
@@ -167,8 +167,7 @@ extension Terminal {
     /// DECALN: fills the screen with E, resets the margins and homes the cursor.
     func screenAlignmentTest() {
         let s = screen
-        s.scrollTop = 0
-        s.scrollBottom = s.rows - 1
+        s.resetMargins()
         for y in 0..<s.rows {
             let row = s.active[y]
             row.graphemes.removeAll()

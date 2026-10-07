@@ -55,6 +55,10 @@ public struct TerminalModes: Sendable, Equatable {
     public var applicationKeypad = false
     /// DECBKM (67): the Backspace key sends BS instead of DEL.
     public var backarrowSendsBackspace = false
+    /// DECLRMM (69): the left and right margins bound printing, scrolling and the cursor.
+    /// `Terminal.setPrivateMode` is what sets it, because turning it off also puts the
+    /// margins back, which this struct cannot reach.
+    public var leftRightMargins = false
     public var mouseTracking = MouseTracking.none
     public var mouseEncoding = MouseEncoding.x10
     /// 1004
@@ -123,6 +127,7 @@ public struct TerminalModes: Sendable, Equatable {
         case 1045: reverseWraparoundExtended
         case 66: applicationKeypad
         case 67: backarrowSendsBackspace
+        case 69: leftRightMargins
         case 1000: mouseTracking == .normal
         case 1002: mouseTracking == .buttonEvent
         case 1003: mouseTracking == .anyEvent

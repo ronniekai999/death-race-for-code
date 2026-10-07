@@ -250,6 +250,10 @@ public final class Terminal {
 
     public var scrollRegion: ClosedRange<Int> { screen.scrollTop...screen.scrollBottom }
 
+    /// The left and right margins (DECSLRM), inclusive. They bound nothing unless
+    /// `modes.leftRightMargins` is on, and turning that off puts them back to the full width.
+    public var columnMargins: ClosedRange<Int> { screen.scrollLeft...screen.scrollRight }
+
     public var kittyKeyboardFlags: UInt8 {
         (isAlternateScreen ? kittyFlagsAlternate : kittyFlagsPrimary).last ?? 0
     }

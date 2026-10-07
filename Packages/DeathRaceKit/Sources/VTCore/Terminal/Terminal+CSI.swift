@@ -89,6 +89,13 @@ extension Terminal {
             for i in 0..<p.count {
                 if let on = savedPrivateModes[p[i]] { setPrivateMode(p[i], on) }
             }
+        // DECSLRM and SCOSC are the same sequence; mode 69 is how xterm tells them apart, and
+        // a program that asked for margins gets margins. Omitting the right margin, or giving
+        // one no further right than the left, means the right edge of the screen.
+        case (0, 0, 0x73) where modes.leftRightMargins:  // DECSLRM
+            let left = Int(p.value(at: 0, default: 1))
+            let right = Int(p[1])
+            setLeftRightMargins(left: left - 1, right: (right > left ? right : s.columns) - 1)
         case (0, 0, 0x73) where p.isEmpty: saveCursor()  // SCOSC
         case (0, 0, 0x75) where p.isEmpty: restoreCursor()  // SCORC
 
@@ -243,6 +250,18 @@ extension Terminal {
         setCursorPosition(row: 0, column: 0)
     }
 
+    /// DECSLRM: 0-based and inclusive, clamped to the screen, and like DECSTBM it homes the
+    /// cursor and leaves a region of fewer than two columns alone.
+    func setLeftRightMargins(left: Int, right: Int) {
+        let s = screen
+        let left = max(left, 0)
+        let right = min(right, s.columns - 1)
+        guard left < right else { return }
+        s.scrollLeft = left
+        s.scrollRight = right
+        setCursorPosition(row: 0, column: 0)
+    }
+
     // MARK: - Erasing
 
     func eraseInDisplay(_ mode: Int, selective: Bool) {
@@ -320,6 +339,11 @@ extension Terminal {
         case 6:
             modes.origin = on
             setCursorPosition(row: 0, column: 0)
+        case 69:
+            // Turning the mode off puts the margins back, as xterm does, so a program cannot
+            // leave margins behind that nothing is honouring.
+            modes.leftRightMargins = on
+            if !on { screen.resetLeftRightMargins() }
         default:
             if !modes.setDEC(mode, on) { setInert(mode, dec: true, on) }
         }
@@ -333,8 +357,7 @@ extension Terminal {
         guard allowsColumnSwitch else { return }
         if !keepsScreenOnColumnSwitch { eraseInDisplay(2, selective: false) }
         let s = screen
-        s.scrollTop = 0
-        s.scrollBottom = s.rows - 1
+        s.resetMargins()
         setCursorPosition(row: 0, column: 0)
     }
 

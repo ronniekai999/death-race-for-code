@@ -342,6 +342,7 @@ extension Terminal {
             }
             answer = "\(base + (cursorBlinks == false ? 1 : 0)) q"
         case "r": answer = "\(s.scrollTop + 1);\(s.scrollBottom + 1)r"
+        case "s": answer = "\(s.scrollLeft + 1);\(s.scrollRight + 1)s"
         case "\"q": answer = "\(s.cursor.protected ? 1 : 0)\"q"
         case "\"p": answer = "62;1\"p"
         case "*x": answer = "0*x"  // DECSACE: attribute changes run as a stream

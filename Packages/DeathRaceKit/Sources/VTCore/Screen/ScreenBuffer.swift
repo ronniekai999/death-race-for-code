@@ -106,6 +106,11 @@ final class ScreenBuffer {
     /// The scroll region (DECSTBM), inclusive.
     var scrollTop = 0
     var scrollBottom: Int
+    /// The left and right margins (DECSLRM), inclusive. The buffer only keeps them: they
+    /// bound printing, scrolling and the cursor while DECLRMM (mode 69) is on, and the mode
+    /// is the terminal's.
+    var scrollLeft = 0
+    var scrollRight: Int
     var tabStops: [Bool]
 
     private var spareRows: [Row] = []
@@ -118,6 +123,7 @@ final class ScreenBuffer {
         self.scrollbackLimitBytes = scrollbackLimitBytes
         self.clock = clock
         self.scrollBottom = self.rows - 1
+        self.scrollRight = self.columns - 1
         self.tabStops = ScreenBuffer.defaultTabStops(columns: self.columns)
         self.active = []
         for _ in 0..<self.rows { active.append(makeRow(fill: .default)) }
@@ -159,6 +165,21 @@ final class ScreenBuffer {
     }
 
     var isFullScreenRegion: Bool { scrollTop == 0 && scrollBottom == rows - 1 }
+
+    /// Both regions back to the whole screen, which is what RIS, DECSTR, DECALN, DECCOLM and
+    /// a resize all leave behind.
+    func resetMargins() {
+        scrollTop = 0
+        scrollBottom = rows - 1
+        resetLeftRightMargins()
+    }
+
+    /// Only the left and right margins: turning DECLRMM off puts these back and leaves the
+    /// scroll region, which is not its business, alone.
+    func resetLeftRightMargins() {
+        scrollLeft = 0
+        scrollRight = columns - 1
+    }
 
     // MARK: - Scrolling
 
@@ -414,8 +435,7 @@ final class ScreenBuffer {
         }
         rows = newRows
         columns = newColumns
-        scrollTop = 0
-        scrollBottom = newRows - 1
+        resetMargins()
         cursor.x = min(cursor.x, newColumns - 1)
         cursor.y = min(max(cursor.y, 0), newRows - 1)
         cursor.pendingWrap = false
@@ -429,7 +449,6 @@ final class ScreenBuffer {
         active = newActive
         for row in active { touch(row) }
         replaceScrollback(with: newScrollback)
-        scrollTop = 0
-        scrollBottom = rows - 1
+        resetMargins()
     }
 }

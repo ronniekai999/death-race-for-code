@@ -5,7 +5,7 @@ How we know `VTCore` behaves like a terminal. Every check runs on Linux in CI.
 | Check | What it proves | Status |
 | --- | --- | --- |
 | Unit tests | each sequence and edge case we implement | parser, terminal, reflow, input, deltas, sessions |
-| esctest | xterm-compatible behavior, through `vthost` answering its queries | 358 pass; ratchet in CI |
+| esctest | xterm-compatible behavior, through `vthost` answering its queries | 469 pass, every failure named; ratchet in CI |
 | vttest | the classic VT100/VT220 screens, each checked against what vttest says it should show | 10 suites, 139 screens |
 | libFuzzer | no crashes or hangs on arbitrary input; deltas replay to the same screen | 1 min per PR, 30 min weekly |
 | SwiftTerm differential | every corpus screen through SwiftTerm too; each divergence reviewed | 165 screens, 5 differ, all SwiftTerm's |
@@ -30,10 +30,17 @@ known bugs; with it, our deliberate refusals count as failures and DECNCSM count
 | Fail: refused by design, or a deliberate difference | 41 |
 | Fail: tests that encode the reference terminal's own environment | 22 |
 
-That is 469 of 510 (92%) of the tests for behavior we mean to have, counting the refusals and
-the unreachable tests as the failures they are. The headline moved from "95% of 378" in the
-other direction than it looks: the 19 window-manipulation tests used to be filed under
-"later", and they are never going to pass, so they are counted here among the refusals.
+That is 469 of 532 (88%): every test esctest judges, with the refusals and the unreachable
+tests counted as the failures they are. The other 35 are the set esctest expects xterm itself
+to fail, so a pass there would be a deliberate divergence from the reference — and two of them
+are exactly that, which is said below.
+
+The number reads lower than the "95% of 378" Phase 1 recorded while the engine does more than
+it did then, because that was 95% of the v1 *scope*: the 156 tests filed under "later" were
+left out of the denominator altogether. Nothing is filed under later any more, so nothing is
+left out, and the 19 window-manipulation tests have moved to the refusals they always were. A
+fraction whose denominator shrinks as the engine grows is not worth quoting; this one counts
+every test.
 
 **Nothing is scheduled for later any more.** Everything on the roadmap's conformance list is
 in: left and right margins and what rides on them, the rectangular areas, the special colors,

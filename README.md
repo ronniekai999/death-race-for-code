@@ -9,15 +9,18 @@ L E G E N D S   N E V E R   D I E
 
 ## Status
 
-Phases 1 to 6 are merged and green on both CIs: the engine, the window, the Pit Lane, the
+Phases 1 to 8 are merged and green on both CIs: the engine, the window, the Pit Lane, the
 Termius layer, Lucid Dreams — the quick terminal that drops out of the notch — and Maze, the
-SFTP browser. Phase 7, **Legends Never Die**, is written: the daemon and both ends of its wire
+SFTP browser. Phase 7, **Legends Never Die**, is in: the daemon and both ends of its wire
 are tested on Linux as two real processes, including the `kill -9` criterion, and the app's
 half waits for the hands-on pass in [docs/MANUAL-TESTS.md](docs/MANUAL-TESTS.md). Phase 8,
-**Conversations, Fast and Ring Ring**, is written too: our own shell integration for zsh, bash
+**Conversations, Fast and Ring Ring**, is in too: our own shell integration for zsh, bash
 and fish, a rail and a band and a duration beside each command, personal bests that outlive a
 launch, jump-to-prompt and whole-block selection, progress in a tab's pill, and a word when a
-long command finishes while you are looking elsewhere.
+long command finishes while you are looking elsewhere. The engine has since taken the
+roadmap's own conformance list — left and right margins and everything defined in terms of
+them, the rectangular areas, the special colours and ISO protected areas — so nothing on that
+list is scheduled for later.
 
 - **WRLD, your hosts:** kept in `wrld.json` next to the settings file, which never holds a
   secret. Hosts in your `~/.ssh/config` join with one click and keep using that file, which
@@ -59,11 +62,14 @@ Phase 2 put the engine on screen: Metal drawing, the keyboard, input methods and
 protocol, the mouse, selection and the clipboard, Secure Keyboard Entry, and an idle
 window that draws no frames. Its Mac checks are in the same file.
 
-Phase 1 built the engine. It covers the v1 scope and passes 95% of xterm's conformance suite
-on that scope (esctest, ratcheted in CI). It reflows on resize, handles Unicode 18 graphemes,
-encodes keys for the Kitty keyboard protocol, passes vttest's classic screens, and replays
-recorded vim, nvim, tmux, htop, fzf and nano sessions to their golden screens. It runs one
-thread per shell that publishes screen deltas, and it survives libFuzzer. See
+Phase 1 built the engine. It passes 469 of the 532 esctest tests that judge a terminal against
+xterm — 88%, ratcheted in CI — and every one of the 63 it does not is named in
+[docs/CONFORMANCE.md](docs/CONFORMANCE.md): 41 behaviours it refuses on purpose, like letting a
+program resize your window, and 22 tests that encode the reference terminal's own display. It
+reflows on resize, handles Unicode 18 graphemes, encodes keys for the Kitty keyboard protocol,
+passes vttest's classic screens, and replays recorded vim, nvim, tmux, htop, fzf and nano
+sessions to their golden screens. It runs one thread per shell that publishes screen deltas,
+and it survives libFuzzer. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the roadmap and
 [docs/CONFORMANCE.md](docs/CONFORMANCE.md) for what is checked and how.
 

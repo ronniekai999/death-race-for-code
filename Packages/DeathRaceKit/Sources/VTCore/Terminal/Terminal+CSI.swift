@@ -56,14 +56,14 @@ extension Terminal {
         case (0, 0, 0x4C):  // IL
             if s.cursor.y >= s.scrollTop && s.cursor.y <= s.scrollBottom && s.cursorIsBetweenMargins {
                 s.insertLines(Int(p.value(at: 0, default: 1)), at: s.cursor.y, fill: s.cursor.pen.erasing)
-                s.cursor.x = 0
-                s.cursor.pendingWrap = false
+                // The line's home position, which is the left margin — and has to be, or the
+                // cursor would land outside the margins these two now require to act at all.
+                carriageReturn()
             }
         case (0, 0, 0x4D):  // DL
             if s.cursor.y >= s.scrollTop && s.cursor.y <= s.scrollBottom && s.cursorIsBetweenMargins {
                 s.deleteLines(Int(p.value(at: 0, default: 1)), at: s.cursor.y, fill: s.cursor.pen.erasing)
-                s.cursor.x = 0
-                s.cursor.pendingWrap = false
+                carriageReturn()
             }
         case (0, 0, 0x53):  // SU
             s.scrollUp(Int(p.value(at: 0, default: 1)), fill: s.cursor.pen.erasing)
@@ -92,12 +92,13 @@ extension Terminal {
                 if let on = savedPrivateModes[p[i]] { setPrivateMode(p[i], on) }
             }
         // DECSLRM and SCOSC are the same sequence; mode 69 is how xterm tells them apart, and
-        // a program that asked for margins gets margins. Omitting the right margin, or giving
-        // one no further right than the left, means the right edge of the screen.
+        // a program that asked for margins gets margins. An omitted right margin means the
+        // screen's last column; a pair that is inside out is ignored rather than guessed at,
+        // which is DEC STD 070's rule and the one DECSTBM already follows.
         case (0, 0, 0x73) where modes.leftRightMargins:  // DECSLRM
-            let left = Int(p.value(at: 0, default: 1))
             let right = Int(p[1])
-            setLeftRightMargins(left: left - 1, right: (right > left ? right : s.columns) - 1)
+            setLeftRightMargins(
+                left: Int(p.value(at: 0, default: 1)) - 1, right: (right == 0 ? s.columns : right) - 1)
         case (0, 1, 0x7D) where csi.intermediates.isOnly(0x27):  // DECIC
             insertColumns(Int(p.value(at: 0, default: 1)))
         case (0, 1, 0x7E) where csi.intermediates.isOnly(0x27):  // DECDC
@@ -144,8 +145,10 @@ extension Terminal {
             case 5: reply("\u{1B}[0n")
             case 6:
                 // In origin mode the cursor is reported where the program would address it:
-                // relative to both margins, which is also why HPA and VPA read as "ignoring"
-                // origin mode when all they do is address the page the same way.
+                // relative to both margins. That is what makes esctest's HPA_IgnoresOriginMode
+                // and VPA_IgnoresOriginMode pass while HPA and VPA count from the margins like
+                // every other absolute move — the report undoes the addressing, so a program
+                // that sets a column and reads it back gets the number it asked for.
                 let row = s.cursor.y - (modes.origin ? s.scrollTop : 0) + 1
                 let column = s.cursor.x - (modes.origin ? s.scrollLeft : 0) + 1
                 reply("\u{1B}[\(row);\(column)R")
@@ -212,9 +215,8 @@ extension Terminal {
         let s = screen
         var n = max(count, 1)
         let extended = modes.reverseWraparoundExtended
-        let left = s.leftLimit
         guard modes.autowrap && (modes.reverseWraparound || extended) else {
-            s.cursor.x = max(left, s.cursor.x - n)
+            s.cursor.x = max(s.leftLimit, s.cursor.x - n)
             s.cursor.pendingWrap = false
             return
         }
@@ -226,7 +228,9 @@ extension Terminal {
         let top = inRegion ? s.scrollTop : 0
         let bottom = inRegion ? s.scrollBottom : s.rows - 1
         while true {
-            let step = min(s.cursor.x - left, n)
+            // Re-read each time round: a wrap can land the cursor inside the margins from
+            // outside them, and then the left margin is its limit rather than column zero.
+            let step = min(s.cursor.x - s.leftLimit, n)
             s.cursor.x -= step
             n -= step
             if n == 0 { break }
@@ -354,16 +358,16 @@ extension Terminal {
         case 0:
             s.erase(row: s.cursor.y, from: s.cursor.x, to: s.columns, fill: fill, sparingProtected: sparing)
             for y in (s.cursor.y + 1)..<max(s.cursor.y + 1, s.rows) {
-                s.erase(row: y, from: 0, to: s.columns, fill: fill, sparingProtected: sparing, forgetting: true)
+                s.erase(row: y, from: 0, to: s.columns, fill: fill, sparingProtected: sparing, forgetting: !selective)
             }
         case 1:
             for y in 0..<s.cursor.y {
-                s.erase(row: y, from: 0, to: s.columns, fill: fill, sparingProtected: sparing, forgetting: true)
+                s.erase(row: y, from: 0, to: s.columns, fill: fill, sparingProtected: sparing, forgetting: !selective)
             }
             s.erase(row: s.cursor.y, from: 0, to: s.cursor.x + 1, fill: fill, sparingProtected: sparing)
         case 2:
             for y in 0..<s.rows {
-                s.erase(row: y, from: 0, to: s.columns, fill: fill, sparingProtected: sparing, forgetting: true)
+                s.erase(row: y, from: 0, to: s.columns, fill: fill, sparingProtected: sparing, forgetting: !selective)
             }
         case 3:
             if !selective { s.clearScrollback() }
@@ -422,9 +426,12 @@ extension Terminal {
             setCursorPosition(row: 0, column: 0)
         case 69:
             // Turning the mode off puts the margins back, as xterm does, so a program cannot
-            // leave margins behind that nothing is honouring.
+            // leave margins behind that nothing is honouring. Both screens, because the mode is
+            // one and the margins are one pair per screen: resetting only the screen in front
+            // leaves the other one bounded with the mode off, and everything below here reads
+            // "narrower than the screen" as "the mode is on".
             modes.leftRightMargins = on
-            if !on { screen.resetLeftRightMargins() }
+            if !on { for s in [primary, alternate] { s.resetLeftRightMargins() } }
         default:
             if !modes.setDEC(mode, on) { setInert(mode, dec: true, on) }
         }

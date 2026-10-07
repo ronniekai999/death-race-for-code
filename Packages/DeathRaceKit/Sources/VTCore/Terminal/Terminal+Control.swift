@@ -114,7 +114,9 @@ extension Terminal {
         }
         s.cursor.x = min(saved.x, s.columns - 1)
         s.cursor.y = min(saved.y, s.rows - 1)
-        s.cursor.pendingWrap = saved.pendingWrap && saved.x == s.columns - 1
+        // The wrap was pending at whatever the right limit was, which is the right margin when
+        // there is one.
+        s.cursor.pendingWrap = saved.pendingWrap && s.cursor.x == s.rightLimit
         s.cursor.pen = saved.pen
         s.cursor.protected = saved.protected
         s.cursor.charsets = saved.charsets
@@ -168,10 +170,13 @@ extension Terminal {
         modes.applicationKeypad = false
         modes.reverseWraparound = false
         modes.reverseWraparoundExtended = false
-        // DEC STD 070 has DECSTR reset left/right mode as well as the margins themselves.
+        // DEC STD 070 has DECSTR reset left/right mode as well as the margins themselves. The
+        // mode is one and the margins are one pair per screen, so both screens' go back: see
+        // the note on mode 69 in `setPrivateMode`.
         modes.leftRightMargins = false
         protection = .none
         s.resetMargins()
+        for other in [primary, alternate] where other !== s { other.resetLeftRightMargins() }
         s.cursor.pen = .default
         s.cursor.protected = false
         s.cursor.charsets = CharsetState()

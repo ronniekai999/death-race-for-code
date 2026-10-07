@@ -273,8 +273,9 @@ extension Terminal {
 
         // VS16 asks for emoji presentation: a narrow base becomes two columns wide when the
         // cursor sits right after it and there is room.
+        let right = s.rightLimit
         if scalar == CharacterWidth.variationSelector16 && modes.graphemeClustering
-            && row.cells[x].width == .narrow && x + 1 < s.columns
+            && row.cells[x].width == .narrow && x + 1 <= right
             && target.y == s.cursor.y && s.cursor.x == x + 1 && !s.cursor.pendingWrap
         {
             row.cells[x].width = .wide
@@ -283,8 +284,8 @@ extension Terminal {
             row.cells[x + 1] = Cell(
                 scalar: 0, width: .spacerTail, styleID: row.cells[x].styleID, protected: row.cells[x].isProtected,
                 link: row.cells[x].linkIndex)
-            if x + 2 >= s.columns {
-                s.cursor.x = s.columns - 1
+            if x + 2 > right {
+                s.cursor.x = right
                 s.cursor.pendingWrap = modes.autowrap
             } else {
                 s.cursor.x = x + 2
@@ -298,9 +299,14 @@ extension Terminal {
     /// Moves to the start of the next line after a character filled the last column,
     /// marking the row as soft-wrapped so reflow can join it again.
     func wrapLine(_ s: ScreenBuffer) {
-        let row = s.active[s.cursor.y]
-        row.isWrapped = true
-        s.touch(row)
+        // Only a wrap at the screen's own edge continues the line. One at a right margin
+        // continues the columns between the margins, and a reflow that joined those two rows
+        // would splice the text outside the margins together with it.
+        if s.cursor.x == s.columns - 1 {
+            let row = s.active[s.cursor.y]
+            row.isWrapped = true
+            s.touch(row)
+        }
         s.cursor.pendingWrap = false
         // The index comes first, so whether it scrolls is decided by the column the character
         // was printed in; the new line then starts at the left margin, wherever that is.

@@ -172,10 +172,14 @@ final class ScreenBuffer {
     /// never sets DECSLRM.
     var isFullWidthMargins: Bool { scrollLeft == 0 && scrollRight == columns - 1 }
 
-    /// The last column printing and tabbing may use: the right margin, unless the cursor is
-    /// already past it, in which case the screen's own edge. The same shape as the bound
-    /// `cursorDown` uses against the scroll region, and it is what xterm does.
-    var rightLimit: Int { cursor.x <= scrollRight ? scrollRight : columns - 1 }
+    /// The last column printing and tabbing may use from a given column: the right margin,
+    /// unless that column is already past it, in which case the screen's own edge. The same
+    /// shape as the bound `cursorDown` uses against the scroll region, and it is what xterm
+    /// does.
+    func rightLimit(from x: Int) -> Int { x <= scrollRight ? scrollRight : columns - 1 }
+
+    /// The cursor's own right limit, which is what every print path asks for.
+    var rightLimit: Int { rightLimit(from: cursor.x) }
 
     /// Where the cursor stops going left: the left margin, unless it is already left of it.
     var leftLimit: Int { cursor.x >= scrollLeft ? scrollLeft : 0 }
@@ -426,7 +430,7 @@ final class ScreenBuffer {
         // the text. Without it, ED 2, RIS, the 1049 clear and DECALN all left prompt marks and
         // command records on rows they had just blanked, and a block model built from those
         // marks would draw a rail around nothing.
-        if forgetting, !sparingProtected {
+        if forgetting {
             row.promptMarks = []
             row.command = nil
         }
@@ -500,7 +504,9 @@ final class ScreenBuffer {
         let source = Array(row.cells[window])
         let graphemes = row.graphemes
         var updated = graphemes
-        for column in window where row.cells[column].hasGrapheme { updated[column] = nil }
+        if !graphemes.isEmpty {
+            for column in window where row.cells[column].hasGrapheme { updated[column] = nil }
+        }
         for (offset, column) in window.enumerated() {
             let from = offset - n * direction
             if from >= 0 && from < source.count {
@@ -510,7 +516,12 @@ final class ScreenBuffer {
                 row.cells[column] = blank
             }
         }
-        row.graphemes = updated
+        if !graphemes.isEmpty { row.graphemes = updated }
+        // A two-column character the shift cut in half loses the half that moved, as it does in
+        // `copyCells`: a head whose tail was pushed past the margin, or a tail whose head was
+        // pulled out from under it, would otherwise be drawn as a character of its own.
+        if row.cells[x].width == .spacerTail { clearCell(row, x) }
+        if row.cells[scrollRight].width == .wide { clearCell(row, scrollRight) }
         touch(row)
     }
 
@@ -551,7 +562,7 @@ final class ScreenBuffer {
     /// Tabs stop at the right margin, as they do on a DEC terminal (ECMA-48 says nothing
     /// about margins), and at the screen's edge for a cursor already past it.
     func nextTabStop(after x: Int) -> Int {
-        let limit = x <= scrollRight ? scrollRight : columns - 1
+        let limit = rightLimit(from: x)
         var column = x + 1
         while column < limit && !tabStops[column] { column += 1 }
         return min(column, limit)

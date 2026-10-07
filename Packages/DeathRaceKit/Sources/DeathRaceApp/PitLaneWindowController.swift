@@ -1218,7 +1218,11 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             let target: UInt64? =
                 back
                 ? (span.lines.lowerBound < from ? span.lines.lowerBound : span.previousPrompt) : span.nextPrompt
-            guard let target, let now = pane.surface.model?.mirror else { return }
+            // The same generation check `selectBlock` makes. Line numbers survive a reflow, so
+            // that much the subtraction can take — but an alternate-screen switch landing in
+            // the await renumbers what is at the top, and a relative scroll against it is an
+            // arbitrary jump. Doing nothing is the right answer to "the screen changed".
+            guard let target, let now = pane.surface.model?.mirror, now.generation == generation else { return }
             let lines = Blocks.scroll(toPut: target, atTopOf: now)
             if lines != 0 { session?.scroll(by: lines) }
         }
@@ -1238,7 +1242,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             // A line the engine has since trimmed out of its scrollback answers nil, and the
             // screen stays where it is rather than jumping somewhere arbitrary.
             guard let span = await session?.promptSpan(at: line, generation: generation),
-                let now = pane.surface.model?.mirror
+                let now = pane.surface.model?.mirror, now.generation == generation
             else { return }
             let lines = Blocks.scroll(toPut: span.lines.lowerBound, atTopOf: now)
             if lines != 0 { session?.scroll(by: lines) }

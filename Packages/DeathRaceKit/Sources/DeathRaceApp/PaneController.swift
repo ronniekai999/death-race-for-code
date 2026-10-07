@@ -403,10 +403,17 @@ final class PaneController {
                     case .paused(let percent): TabProgress(fraction: percent.map { Double($0) / 100 })
                     }
                 onChange?()
-            case .notification:
-                // A program said something itself. Ring Ring stays quiet about the command it
-                // was part of; the flag clears when that command ends.
+            case .notification(let title, let body):
+                // A program said something itself, so Ring Ring stays quiet about the command it
+                // was part of — and passes the program's own words on, which is the only thing
+                // that makes standing down right. Dropping them meant a program that notified
+                // got no notification at all.
                 programNotified = true
+                guard let notifier else { continue }
+                let spoken = RingRing.notice(
+                    fromProgram: title, body: body, in: programName ?? shellName,
+                    wasWatched: isWatched?() ?? false)
+                if let spoken { notifier.deliver(spoken, paneID: UInt64(clamping: id.rawValue)) }
             case .promptMark(.commandEnd, let rowID):
                 // The record is on the row, not in the event: the mark carries only the exit
                 // code, while the duration and the text come from `OSC 633;E` and `dur=`. The
@@ -594,7 +601,11 @@ final class PaneController {
     }
 
     private func badge(for command: CommandRecord, scale: CGFloat) -> CommandBadge? {
-        let best = command.text.isEmpty ? nil : bests?.best(for: command.text)
+        // `bestToBeat`, not `best`: a badge is drawn whenever the row is, which is always after
+        // `finished` recorded this run, so `best` is this run's own time and nothing can beat it.
+        let best =
+            command.text.isEmpty
+            ? nil : bests?.bestToBeat(for: command.text, milliseconds: command.durationMilliseconds)
         guard
             let words = FastLabel.words(
                 milliseconds: command.durationMilliseconds, exitCode: command.exitCode, bestMilliseconds: best,

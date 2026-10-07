@@ -48,11 +48,16 @@ final class BestsService {
         guard command.exitCode == 0, let milliseconds = command.durationMilliseconds, !command.text.isEmpty else {
             return nil
         }
-        let had = bests.count
+        // Compared by value, not by count: at the cap a new command evicts an old one and the
+        // count does not move, so counting meant that once the file held `limit` commands
+        // nothing was ever written again and a restart lost the lot. `CommandBests` is
+        // `Equatable`, so this is exact — it also catches the least-recently-run order moving,
+        // which is what the file's eviction order depends on.
+        let before = bests
         let beaten = bests.record(command: command.text, milliseconds: milliseconds)
-        // Nothing changed when a slower run of a command already known comes in, which is most
-        // of them, and an unchanged file is not worth writing.
-        guard beaten != nil || bests.count != had else { return nil }
+        // A slower run of a command already known changes nothing, which is most of them, and
+        // an unchanged file is not worth writing.
+        guard bests != before else { return nil }
         save(soon: true)
         return beaten
     }

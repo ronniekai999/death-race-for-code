@@ -83,16 +83,25 @@ extension Terminal {
 
         // The next prompt below it bounds the block; without one the block runs to the last line
         // the screen has, which is the one being typed in.
+        //
+        // Bounded by `limit` as the walk above is. One command with a hundred thousand lines of
+        // output made this walk all of them on the session thread, which is the cost the other
+        // bound exists to prevent.
         var next: UInt64?
         var below = start
-        while below < newest {
+        var forward = 0
+        while below < newest, forward < limit {
             below &+= 1
+            forward += 1
             if isPromptStart(below) {
                 next = below
                 break
             }
         }
-        let end = next.map { $0 - 1 } ?? newest
+        // `below` is the last line actually examined: `newest` when the walk ran out of screen,
+        // the bound when it ran out of allowance. Claiming `newest` in the second case would
+        // hand a selection every block below it, none of which was looked at.
+        let end = next.map { $0 - 1 } ?? below
 
         return PromptSpan(
             lines: start...end, command: command(in: start...end), previousPrompt: previous,
@@ -102,12 +111,17 @@ extension Terminal {
     /// The command record in a block: the last one, because the engine takes marks from the
     /// stream by design and cannot tell whose bytes they are — a program that printed a mark of
     /// its own earlier is overruled by the shell's, which always comes after the output.
+    /// Found by walking up from the end rather than down from the start: the answer is the last
+    /// record in the range either way, and the shell's `commandEnd` is on or near the block's
+    /// last row, so this is one lookup where the forward walk was a second pass over every line
+    /// of the output.
     private func command(in lines: ClosedRange<UInt64>) -> CommandRecord? {
-        var found: CommandRecord?
-        for line in lines {
-            if let command = storedRow(line)?.command { found = command }
+        var line = lines.upperBound
+        while true {
+            if let command = storedRow(line)?.command { return command }
+            if line == lines.lowerBound { return nil }
+            line &-= 1
         }
-        return found
     }
 
     private func isPromptStart(_ line: UInt64) -> Bool {

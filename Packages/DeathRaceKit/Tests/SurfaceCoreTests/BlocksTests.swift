@@ -263,6 +263,34 @@ import VTCore
         #expect(!text.contains("ls"), "and nothing of the next block")
     }
 
+    /// Output that wrapped into the next prompt's row. `.line` granularity follows `isWrapped`
+    /// outward, and the block's selection must still stop at the block.
+    ///
+    /// This is the shape that broke the promise, and it took two attempts to write: a row that
+    /// exactly fills the width is *not* wrapped, because the flag is set when a character is
+    /// forced onto the next row rather than when one ends it. Output with no trailing newline
+    /// is what puts a prompt on a continuation row — and the walk down then took that prompt,
+    /// and the command on it, into the previous block's selection.
+    @Test func outputThatWrappedIntoTheNextPromptDoesNotDragItIn() throws {
+        let screen = Screen(columns: 8, rows: 5)
+        // Output longer than the width and with no newline after it, so it wraps and the next
+        // prompt lands on the continuation row. Exactly filling the width is not enough: the
+        // wrap flag is set when a character is forced onto the next row, not when one ends it.
+        screen.feed(Self.command("make") + "\r\n" + String(repeating: "x", count: 12))
+        screen.feed(Self.command("ls"))
+        let mirror = screen.model.mirror
+        let runs = Blocks.runs(in: mirror)
+        let first = try #require(runs.first { $0.command?.text == "make" })
+        let next = try #require(runs.first { $0.command?.text == "ls" })
+
+        let selection = Blocks.selection(of: PromptSpan(lines: first.lines, command: first.command), in: mirror)
+        let range = try #require(selection.range)
+        #expect(range.end.line == first.lines.upperBound, "\(range) against the block \(first.lines)")
+        #expect(range.end.line < next.lines.lowerBound, "it reached into the next command's block")
+        let text = TextExtractor.text(in: range) { mirror.line($0) }
+        #expect(!text.contains("ls"), "and nothing of the next block: \(text)")
+    }
+
     /// A block of one line is still a selection, which is the common case: prompt, command and
     /// output all on one row.
     @Test func aOneLineBlockSelectsThatLine() throws {

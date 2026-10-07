@@ -13,6 +13,11 @@ public struct CommandBests: Sendable, Equatable {
     /// lines, and every one of them would otherwise be held for ever.
     public let limit: Int
     private var times: [String: UInt32] = [:]
+    /// The best each command had *before* the run that currently holds the record. Kept because
+    /// a badge is drawn long after the run it describes: by then `best(for:)` is the run's own
+    /// time, so comparing with it says nothing. Not persisted — a fresh launch has no "before",
+    /// and the first faster run after it makes one.
+    private var earlier: [String: UInt32] = [:]
     /// Least recently recorded first, so the cap drops the command you have not run in longest
     /// rather than an arbitrary one.
     private var order: [String] = []
@@ -36,6 +41,7 @@ public struct CommandBests: Sendable, Equatable {
         if order.count > limit, let oldest = order.first {
             order.removeFirst()
             times[oldest] = nil
+            earlier[oldest] = nil
         }
         guard let previous = times[command] else {
             times[command] = milliseconds
@@ -43,7 +49,22 @@ public struct CommandBests: Sendable, Equatable {
         }
         guard milliseconds < previous else { return nil }
         times[command] = milliseconds
+        earlier[command] = previous
         return previous
+    }
+
+    /// The time a run of `command` taking `milliseconds` should be measured against: the best
+    /// of the *other* runs.
+    ///
+    /// For the run that holds the record that is the best before it, which is the whole reason
+    /// `earlier` is kept. Asking `best(for:)` instead compares a run with itself and can never
+    /// say anything — which is exactly what the badge did, so "faster than your best" and the
+    /// 999 flash were unreachable while the status bar, handed the beaten time directly, said
+    /// the opposite at the same moment. A slower run gets the record itself, which it cannot
+    /// beat, so it stays quiet.
+    public func bestToBeat(for command: String, milliseconds: UInt32?) -> UInt32? {
+        guard let milliseconds, let best = times[command] else { return nil }
+        return milliseconds <= best ? earlier[command] : best
     }
 }
 

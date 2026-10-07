@@ -305,7 +305,10 @@ final class TabPillView: NSView {
             // A program working without saying how far fills the whole bar; there is nothing
             // honest to draw as a fraction, and an empty bar would read as "nothing happening".
             let width = bounds.width * (progress.fraction ?? 1)
-            let bar = NSRect(x: 0, y: 0, width: width, height: height)
+            // `bounds.height - height`, not 0: this view is flipped (`isFlipped` above), so y
+            // grows downward and y = 0 is the top edge. At 0 the fill landed on top of the
+            // pill, clipped to a sliver by the capsule, which is not what it is for.
+            let bar = NSRect(x: 0, y: bounds.height - height, width: width, height: height)
             if progress.failed {
                 colors.danger.nsColor.setFill()
                 bar.fill()

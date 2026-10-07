@@ -70,6 +70,36 @@ public enum RingRing {
         }
         return Notice(title: name, body: "Finished in \(duration)")
     }
+
+    /// What to deliver for a program's own `OSC 9`, or nil for one not worth interrupting for.
+    ///
+    /// Rule 2 above stands down for a program that notified itself — but standing down is only
+    /// right if the program's own words then reach you. They were being dropped: nothing read
+    /// the event's title and body, so a program that notified got no notification at all,
+    /// neither its own nor ours. **Passing it on is what rule 2 always meant.**
+    ///
+    /// The watched rule still applies, because it is about you already having the information
+    /// and that is true whoever wrote the banner. A program with no title of its own is named
+    /// by whatever the pane is running, since "" is not a notification anyone can read.
+    public static func notice(fromProgram title: String, body: String, in pane: String, wasWatched: Bool) -> Notice? {
+        guard !wasWatched else { return nil }
+        let text = body.trimmingWhitespace
+        guard !text.isEmpty else { return nil }
+        let name = title.trimmingWhitespace
+        return Notice(title: name.isEmpty ? (pane.isEmpty ? "A program" : pane) : name, body: text)
+    }
+}
+
+extension String {
+
+    /// Leading and trailing whitespace and newlines gone. A program's own notification text
+    /// arrives as it was printed, often with the newline that ended the escape sequence's line.
+    var trimmingWhitespace: String {
+        var scalars = Substring(self)
+        while let first = scalars.first, first.isWhitespace { scalars = scalars.dropFirst() }
+        while let last = scalars.last, last.isWhitespace { scalars = scalars.dropLast() }
+        return String(scalars)
+    }
 }
 
 /// Delivering a notification, which only macOS can do.

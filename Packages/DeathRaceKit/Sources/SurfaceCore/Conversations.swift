@@ -132,7 +132,12 @@ extension Blocks {
     /// share one row. `mirror.line` is the same closure the mouse path passes, so a line the
     /// mirror no longer holds is handled the way it already is — the caller scrolls first.
     public static func selection(of span: PromptSpan, in mirror: MirrorGrid) -> Selection {
-        let read: (UInt64) -> (any TextLine)? = { mirror.line($0) }
+        // Only the block's own rows are visible to the unit walk. `.line` granularity follows
+        // `isWrapped` outward in *both* directions, so a block whose last output line happened
+        // to fill the width would swallow the next command's prompt row, and a prompt row that
+        // is itself a continuation would reach back into the block above. Hiding the neighbours
+        // stops the walk at the block's edges, which is what "nothing of the next one" means.
+        let read: (UInt64) -> (any TextLine)? = { span.lines.contains($0) ? mirror.line($0) : nil }
         var selection = Selection(
             at: Selection.Point(line: span.lines.lowerBound, column: 0, boundary: 0), granularity: .line,
             rectangular: false, columns: mirror.columns, line: read)

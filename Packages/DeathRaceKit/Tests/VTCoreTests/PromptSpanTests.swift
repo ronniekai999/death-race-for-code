@@ -176,4 +176,29 @@ import Testing
         // doing its job and not an empty screen.
         #expect(screen.promptSpan(at: bottom, limit: 10_000)?.command?.text == "far away")
     }
+
+    /// The walk *down* from a prompt is bounded too, and when it runs out of allowance the span
+    /// stops where it actually looked rather than claiming the rest of the screen.
+    ///
+    /// Claiming it would be the worse bug of the two: a selection would take every block below,
+    /// none of which was examined. One command with a hundred thousand lines of output also made
+    /// this walk all of them on the session thread, twice, which is what the other bound exists
+    /// to prevent.
+    @Test func theWalkDownIsBoundedAndTheSpanStopsWhereItLooked() throws {
+        let screen = terminal(rows: 2)
+        feed(screen, Self.command("first") + "\r\n")
+        feed(screen, String(repeating: "x\r\n", count: 40))
+        feed(screen, Self.command("second") + "\r\n")
+        let first = try #require(screen.promptSpan(at: 0, limit: 10_000))
+        #expect(first.command?.text == "first")
+
+        // With five lines of allowance the block cannot reach the second prompt, so it ends at
+        // the fifth line below its own — not at the bottom of the screen, and not inside the
+        // second command.
+        let bounded = try #require(screen.promptSpan(at: 0, limit: 5))
+        #expect(bounded.lines.lowerBound == first.lines.lowerBound)
+        #expect(bounded.lines.upperBound == first.lines.lowerBound + 5, "\(bounded.lines)")
+        #expect(bounded.lines.upperBound < first.lines.upperBound, "the full block reaches further")
+        #expect(bounded.nextPrompt == nil, "it never got there to see it")
+    }
 }

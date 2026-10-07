@@ -73,15 +73,21 @@ final class RingRingNotifier: NSObject, Notifier, UNUserNotificationCenterDelega
     /// `nonisolated` because `UNUserNotificationCenterDelegate` is: the protocol makes no
     /// isolation promise, so a main-actor method cannot satisfy it. The work hops to the main
     /// actor itself, which is where `focus` has to run.
+    ///
+    /// The completion handler is called here rather than inside that hop. The system's handler
+    /// is not `Sendable`, so carrying it into another isolation domain is "sending" it, which
+    /// Swift 6 refuses — and it does not need to go: it says the delegate has dealt with the
+    /// response, not that the window has finished coming forward. `willPresent` below calls its
+    /// own the same way.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let pane = response.notification.request.content.userInfo[Self.paneKey] as? UInt64
-        Task { @MainActor [weak self] in
-            if let pane { self?.focus(pane) }
-            completionHandler()
+        if let pane {
+            Task { @MainActor [weak self] in self?.focus(pane) }
         }
+        completionHandler()
     }
 
     /// Shown even while Death Race is frontmost, because "frontmost" is not "watching this

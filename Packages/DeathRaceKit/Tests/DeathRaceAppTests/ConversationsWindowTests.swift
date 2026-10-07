@@ -50,7 +50,7 @@ extension WindowTests {
         pane.surface.sessionDidUpdate()
         await eventually { controller.root.statusBar.line.leading.contains { $0.style == .danger } }
         let run = try #require(controller.root.statusBar.line.leading.first { $0.style == .danger })
-        #expect(run.text.contains("exited with status 2"), run.text)
+        #expect(run.text.contains("exited with status 2"), "\(run.text)")
     }
 
     /// A tap on the Fast run brings that command back, which is what `Tap.lastCommand` promises.
@@ -135,7 +135,7 @@ extension WindowTests {
         await eventually { !notifier.delivered.isEmpty }
         let delivered = try #require(notifier.delivered.first)
         #expect(delivered.notice.title == "swift build")
-        #expect(delivered.notice.body == "Finished in 10m 00s", delivered.notice.body)
+        #expect(delivered.notice.body == "Finished in 10m 00s", "\(delivered.notice.body)")
         #expect(delivered.paneID == UInt64(clamping: first.id.rawValue), "a tap has to find the pane it was about")
     }
 
@@ -208,8 +208,8 @@ extension WindowTests {
         await eventually { surface.selectionRange != nil }
         let range = try #require(surface.selectionRange)
         let text = try #require(await surface.selectedText())
-        #expect(text.contains("make"), text)
-        #expect(text.contains("first") && text.contains("second"), text)
+        #expect(text.contains("make"), "\(text)")
+        #expect(text.contains("first") && text.contains("second"), "\(text)")
         #expect(!text.contains("ls"), "it took the next command too: \(text)")
         #expect(range.start.line == line)
     }

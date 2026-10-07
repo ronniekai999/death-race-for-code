@@ -154,6 +154,14 @@ extension Terminal {
             reply("\u{1B}P>|DeathRace \(configuration.version)\u{1B}\\")
         case (0, 0, 0x74):  // XTWINOPS
             windowOperation(p)
+        case (0, 1, 0x76) where csi.intermediates.isOnly(0x24):  // DECCRA
+            copyRectangle(p)
+        case (0, 1, 0x78) where csi.intermediates.isOnly(0x24):  // DECFRA
+            fillRectangle(p)
+        case (0, 1, 0x7A) where csi.intermediates.isOnly(0x24):  // DECERA
+            eraseRectangle(p, selective: false)
+        case (0, 1, 0x7B) where csi.intermediates.isOnly(0x24):  // DECSERA
+            eraseRectangle(p, selective: true)
         case (0, 1, 0x79) where csi.intermediates.isOnly(0x2A):  // DECRQCRA
             if configuration.answersChecksumRequests { checksumRectangle(p) }
 

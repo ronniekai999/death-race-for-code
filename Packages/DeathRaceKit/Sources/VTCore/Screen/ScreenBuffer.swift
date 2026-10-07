@@ -294,21 +294,34 @@ final class ScreenBuffer {
         }
     }
 
-    /// Copies the cells between the margins from one row to another. A cell's style and link
-    /// are indexes into the table of the row holding it, so both are looked up again in the
-    /// row the cell lands on, and a two-column character cut by a margin loses the half that
-    /// moved rather than leaving a head with no tail.
     private func copyColumns(from source: Row, to target: Row) {
-        guard source !== target else { return }
-        splitWideCharacter(in: target, at: scrollLeft)
-        splitWideCharacter(in: target, at: scrollRight + 1)
+        copyCells(from: source, columns: scrollLeft...scrollRight, to: target, at: scrollLeft)
+    }
+
+    /// Copies `columns` of one row into another, landing at `destination`. A cell's style and
+    /// its link are indexes into the table of the row that holds it, so both are looked up
+    /// again in the row the cell lands on, and a two-column character cut by either end of the
+    /// window loses the half that moved rather than leaving a head with no tail.
+    ///
+    /// A row cannot be copied onto itself: within one row the cells overlap, and shifting them
+    /// is `shiftBetweenMargins`' job. DECCRA lifts its rectangle into rows of its own first for
+    /// the same reason.
+    func copyCells(from source: Row, columns: ClosedRange<Int>, to target: Row, at destination: Int) {
+        guard source !== target, destination >= 0 else { return }
+        let width = min(columns.count, self.columns - destination)
+        guard width > 0 else { return }
+        let last = destination + width - 1
+        splitWideCharacter(in: target, at: destination)
+        splitWideCharacter(in: target, at: last + 1)
         var lastStyle: (source: UInt16, target: UInt16)?
-        for x in scrollLeft...scrollRight {
-            if target.cells[x].hasGrapheme { target.graphemes[x] = nil }
-            var cell = source.cells[x]
+        for offset in 0..<width {
+            let from = columns.lowerBound + offset
+            let to = destination + offset
+            if target.cells[to].hasGrapheme { target.graphemes[to] = nil }
+            var cell = source.cells[from]
             if cell.styleID != 0 {
-                if let last = lastStyle, last.source == cell.styleID {
-                    cell.styleID = last.target
+                if let known = lastStyle, known.source == cell.styleID {
+                    cell.styleID = known.target
                 } else {
                     let mapped = target.styleID(for: source.style(of: cell))
                     lastStyle = (cell.styleID, mapped)
@@ -316,13 +329,13 @@ final class ScreenBuffer {
                 }
             }
             if cell.isLinked {
-                cell.linkIndex = source.link(at: x).map { target.linkIndex(for: $0) } ?? 0
+                cell.linkIndex = source.link(at: from).map { target.linkIndex(for: $0) } ?? 0
             }
-            target.cells[x] = cell
-            if cell.hasGrapheme, let scalars = source.graphemes[x] { target.graphemes[x] = scalars }
+            target.cells[to] = cell
+            if cell.hasGrapheme, let scalars = source.graphemes[from] { target.graphemes[to] = scalars }
         }
-        if target.cells[scrollLeft].width == .spacerTail { clearCell(target, scrollLeft) }
-        if target.cells[scrollRight].width == .wide { clearCell(target, scrollRight) }
+        if target.cells[destination].width == .spacerTail { clearCell(target, destination) }
+        if target.cells[last].width == .wide { clearCell(target, last) }
         touch(target)
     }
 

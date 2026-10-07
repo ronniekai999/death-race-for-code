@@ -24,19 +24,24 @@ known bugs; with it, our deliberate refusals count as failures and DECNCSM count
 
 | | Tests |
 | --- | ---: |
-| Pass | 431 |
+| Pass | 455 |
 | Marked by esctest as known xterm bugs | 33 |
-| Fail: features scheduled for later | 62 |
+| Fail: features scheduled for later | 38 |
 | Fail: refused by design, or a deliberate difference | 41 |
 
-That is 431 of 472 (91%) of the tests for behavior we mean to have, counting the refusals as
+That is 455 of 496 (92%) of the tests for behavior we mean to have, counting the refusals as
 the failures they are. The headline moved from "95% of 378" in the other direction than it
 looks: the 19 window-manipulation tests used to be filed under "later", and they are never
 going to pass, so they are counted here among the refusals instead.
 
 **Scheduled for later:** colors — OSC 4/5/104/105/106 and the CIE, TekHVC and RGBi color
-specifications (33 tests); rectangle operations, DECCRA, DECERA, DECFRA, DECSERA (24); ISO
-protected areas, SPA/EPA (5).
+specifications (33 tests); ISO protected areas, SPA/EPA (5). That is the whole list.
+
+**DECSACE stays as it reads.** It selects whether an attribute change runs as a stream or as a
+rectangle, and the two sequences it governs — DECCARA and DECRARA — are not here, so `0*x`
+(stream) is the truthful answer and not a placeholder. esctest tests neither sequence, so
+building them would buy nothing on this scoreboard; it is DECSACE that would start to mean
+something.
 
 **Left and right margins are in**, which is what moved the number, and 74 tests came with
 them: the margins and their reports (3), then movement, scrolling, printing and the editing
@@ -171,7 +176,8 @@ with the swift.org toolchain on a Mac).
 ## v1 scope
 
 C0 and ESC (with the DEC line-drawing charset), CSI cursor/erase/insert/delete, scroll regions,
-left and right margins (DECLRMM, DECSLRM, DECIC, DECDC, DECBI, DECFI), tabs, REP, DECALN, full SGR (truecolor, underline styles and color), alternate screen
+left and right margins (DECLRMM, DECSLRM, DECIC, DECDC, DECBI, DECFI), rectangular areas
+(DECCRA, DECERA, DECFRA, DECSERA), tabs, REP, DECALN, full SGR (truecolor, underline styles and color), alternate screen
 1049/47/1047, mouse 1000/1002/1003/1006, focus 1004, bracketed paste 2004, synchronized output
 2026, DECSCUSR, DA/DSR/CPR/DECRQM/DECRQSS/XTVERSION/XTGETTCAP/XTWINOPS 18t, OSC 0/2/4/7/10–12,
 OSC 52 (write only), OSC 9;4, OSC 133, OSC 633;E, and the Kitty keyboard protocol.
@@ -184,4 +190,4 @@ unescaping (`\\` for a backslash, `\xHH` for `;` and any control character), so 
 light up in its terminal and its scripts light up in ours. Neither is ours to define, and `dur=`
 is parameter-shaped so every other terminal ignores it.
 
-Later: Sixel, Kitty graphics, iTerm2 images, double-width lines, rectangle operations, VT52.
+Later: Sixel, Kitty graphics, iTerm2 images, double-width lines, VT52.

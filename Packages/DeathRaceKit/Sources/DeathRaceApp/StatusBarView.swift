@@ -105,6 +105,7 @@ final class StatusBarView: NSView {
                 case .ink: (colors.ink, Self.boldFont)
                 case .accent: (colors.accent, Self.boldFont)
                 case .warning: (colors.warning, Self.boldFont)
+                case .danger: (colors.danger, Self.boldFont)
                 }
             let start = text.length
             if let symbol = run.symbol,

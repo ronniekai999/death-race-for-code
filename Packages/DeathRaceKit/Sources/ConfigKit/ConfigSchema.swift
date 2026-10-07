@@ -211,6 +211,28 @@ public enum ConfigSchema {
                 config.fastThresholdMilliseconds = Int(try Value.number(value, in: 0...600_000))
             },
             write: { String($0.fastThresholdMilliseconds) }),
+        ConfigKey(
+            "bests-on-disk", .sessions,
+            help: [
+                "Keep each command's fastest run in ~/.deathrace/bests.json, so a personal best",
+                "survives a restart. The file holds command lines and their times, nothing else;",
+                "it is readable by you alone, holds at most a few hundred commands, and never",
+                "records one you typed with a leading space. Off, the 999 flash only compares",
+                "within one run. Deleting the file loses only the records.",
+            ],
+            read: { value, config throws(ConfigValueError) in config.bestsOnDisk = try Value.bool(value) },
+            write: { String($0.bestsOnDisk) }),
+        ConfigKey(
+            "ring-ring-threshold-seconds", .sessions,
+            help: [
+                "A command that runs at least this long is worth telling you about once it",
+                "finishes, if you were not watching it. A failure is told however quick it was.",
+                "From 1 to 86400.",
+            ],
+            read: { value, config throws(ConfigValueError) in
+                config.ringRingThresholdSeconds = Int(try Value.number(value, in: 1...86_400))
+            },
+            write: { String($0.ringRingThresholdSeconds) }),
     ]
 
     private static let colors: [ConfigKey] = [

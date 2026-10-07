@@ -149,6 +149,10 @@ public enum SettingsCatalog {
                         Setting(
                             "fast-threshold-milliseconds", "Show a command's time when it is over",
                             .number(range: 0...60_000, step: 250, unit: "ms")),
+                        Setting("bests-on-disk", "Remember personal bests between runs", .toggle),
+                        Setting(
+                            "ring-ring-threshold-seconds", "Tell me when a command takes over",
+                            .number(range: 1...3_600, step: 5, unit: "s")),
                         Setting("window-padding-x", "Side padding", .number(range: 0...40, step: 1, unit: "pt")),
                         Setting(
                             "window-padding-y", "Top and bottom padding", .number(range: 0...40, step: 1, unit: "pt")),

@@ -57,9 +57,9 @@ enum MainMenu {
 
     private static func edit() -> NSMenu {
         let menu = NSMenu(title: "Edit")
-        add([.copy, .paste, .selectAll], to: menu)
+        add([.copy, .paste, .selectAll, .selectCommand], to: menu)
         menu.addItem(.separator())
-        add([.saveSelectionToWishingWell], to: menu)
+        add([.saveSelectionToWishingWell, .saveCommandToWishingWell], to: menu)
         menu.addItem(.separator())
         add([.clearToStart, .clearScrollback], to: menu)
         return menu
@@ -68,6 +68,8 @@ enum MainMenu {
     private static func view() -> NSMenu {
         let menu = NSMenu(title: "View")
         add([.hearMeCalling, .toggleSidebar], to: menu)
+        menu.addItem(.separator())
+        add([.previousPrompt, .nextPrompt], to: menu)
         menu.addItem(.separator())
         add([.bigger, .smaller, .actualSize], to: menu)
         menu.addItem(.separator())
@@ -179,7 +181,11 @@ enum MainMenu {
         case .copy: #selector(NSText.copy(_:))
         case .paste: #selector(NSText.paste(_:))
         case .selectAll: #selector(NSText.selectAll(_:))
+        case .selectCommand: #selector(PitLaneWindowController.selectCommand(_:))
         case .saveSelectionToWishingWell: #selector(PitLaneWindowController.saveSelectionToWishingWell(_:))
+        case .saveCommandToWishingWell: #selector(PitLaneWindowController.saveCommandToWishingWell(_:))
+        case .previousPrompt: #selector(PitLaneWindowController.jumpToPreviousPrompt(_:))
+        case .nextPrompt: #selector(PitLaneWindowController.jumpToNextPrompt(_:))
         case .clearToStart: #selector(PitLaneWindowController.clearToStart(_:))
         case .clearScrollback: #selector(PitLaneWindowController.clearScrollback(_:))
         case .hearMeCalling: #selector(PitLaneWindowController.showHearMeCalling(_:))

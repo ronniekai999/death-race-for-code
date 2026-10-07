@@ -52,6 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     /// vault, your ssh config or your Keychain.
     private(set) var wrld: WRLDService?
     var connections: (any HostConnecting)? { wrld }
+    var bests: BestsService? { bestsService }
+    var notifier: (any Notifier)? { ringRing }
     static let recentPicksKey = "HearMeCallingRecentPicks"
 
     /// Tests pass sessions that run no shell, and a settings file and defaults of their own.
@@ -94,6 +96,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         configStore.reportProblems(in: windows.first?.window)
         watchSettingsFile()
         startLucidDreams()
+        startRingRing()
+    }
+
+    /// Ring Ring, and the records the badge compares against.
+    ///
+    /// Authorization is asked for once, here, rather than the first time a command happens to
+    /// run long: a permission sheet arriving twenty minutes into a build, about a build, is
+    /// worse than one at launch. A build that cannot ask — a bare `swift run`, which has no
+    /// bundle — gets a notifier that quietly delivers nothing rather than a crash.
+    private func startRingRing() {
+        bestsService = BestsService(store: configStore.config.bestsOnDisk ? bestsStore() : nil)
+        guard RingRingNotifier.isAvailable else { return }
+        let notifier = RingRingNotifier(focus: { [weak self] pane in self?.focusPane(withID: pane) })
+        ringRing = notifier
+        notifier.requestAuthorization()
+    }
+
+    /// Where the records live.
+    private func bestsStore() -> BestsStore {
+        BestsStore(path: WRLDPaths.standard(home: NSHomeDirectory()).bests)
+    }
+
+    /// A notification was tapped: bring the pane the command ran in forward.
+    ///
+    /// Not through `focus(pane:from:)`, which only orders a window front when the pane is in a
+    /// *different* one than the caller's — here there is no caller's window, and the app itself
+    /// is usually not even in front, which is how the notification came to be shown at all.
+    private func focusPane(withID id: UInt64) {
+        guard
+            let owner = windows.first(where: { window in
+                window.panes.keys.contains { UInt64($0.value) == id }
+            }), let pane = owner.panes.keys.first(where: { UInt64($0.value) == id })
+        else { return }
+        NSApp.activate()
+        owner.window?.makeKeyAndOrderFront(nil)
+        owner.focus(pane: pane)
     }
 
     /// A click on the Dock icon with no windows open opens one.
@@ -189,6 +227,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         hotKey?.stop()
         // The quick terminal is this app's own: nothing reattaches it, so it ends with us.
         lucidDreams?.shutDown()
+        // The records, now rather than on the three-second timer, which will not fire again.
+        bestsService?.save(soon: false)
         // Where each session sits, last thing, so a session that outlives us knows where to
         // come back to even if nothing moved since the last time anything did.
         layoutChanged()
@@ -201,6 +241,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     private var newHostSheet: NewHostSheet?
     /// wrld.json and ~/.ssh/config, watched.
     private var wrldWatchers: [ConfigWatcher] = []
+    private var bestsService: BestsService?
+    private var ringRing: RingRingNotifier?
     /// The WRLD window, while it's open.
     private(set) var wrldWindow: WRLDWindowController?
 
@@ -607,6 +649,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         for controller in mazeWindows.values { controller.setChrome(Chrome(config.namedTheme)) }
         wrld?.checksHosts = config.checkHosts
         wrld?.readsHostOS = config.readHostOS
+        // Turning the records off stops writing the file and leaves the one that is there;
+        // turning them on writes what this run has learned so far.
+        bestsService?.setKeepingOnDisk(config.bestsOnDisk, store: { [weak self] in self?.bestsStore() })
     }
 
     /// Frames drawn so far by the panes that are open, for the Energy page.

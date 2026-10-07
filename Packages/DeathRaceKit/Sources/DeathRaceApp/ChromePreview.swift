@@ -159,6 +159,9 @@
             /// The Main board's WRLD, so the sidebar shows as it does there.
             let preview = PreviewWRLD()
             var connections: (any HostConnecting)? { preview }
+            // A picture keeps no records and interrupts nobody.
+            var bests: BestsService? { nil }
+            var notifier: (any Notifier)? { nil }
             var sidebarPreferred: Bool {
                 get { true }
                 set {}

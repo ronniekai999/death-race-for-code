@@ -147,6 +147,25 @@ import VTCore
         #expect(screen.runs.allSatisfy { !$0.isCurrent }, "the cursor's block is not on screen any more")
     }
 
+    /// The arithmetic both the band and ⌘⇧A depend on, pinned on its own: the cursor is placed
+    /// in the active area, so the viewport's own scroll is part of the line it sits on. A test
+    /// through `runs` would only notice a wrong sum when it changed which block was current.
+    @Test func theCursorsLineCountsTheViewportsOwnScroll() {
+        let screen = Screen(columns: 12, rows: 2)
+        for index in 0..<8 {
+            screen.feed(Self.command("c\(index)", exit: 0, milliseconds: 10) + "\r\n")
+        }
+        let onScreen = Blocks.cursorLine(in: screen.model.mirror)
+        #expect(onScreen == screen.model.mirror.viewportTopLine &+ UInt64(screen.model.mirror.cursor.y))
+
+        // Scrolled back, the cursor has not moved but the top of the view has, so the offset is
+        // what keeps the answer the same line.
+        screen.session.scroll(by: 5)
+        _ = screen.model.drain()
+        #expect(screen.model.mirror.viewportOffset == 5, "the screen did not scroll back")
+        #expect(Blocks.cursorLine(in: screen.model.mirror) == onScreen)
+    }
+
     /// A program that prints a mark of its own is overruled by the shell's, which always comes
     /// after the output. The engine cannot tell whose bytes they are, and no terminal can.
     @Test func theShellsOwnEndIsTheLastWordInABlock() {

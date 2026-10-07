@@ -67,12 +67,7 @@ public enum Blocks {
         // and the best this can do for the second.
         guard let first = starts.first else { return [] }
 
-        // The cursor is placed in the active area, so the viewport's own scroll has to be added
-        // back to find the line it is on — the same sum `updateCursor` makes. Deliberately not
-        // clamped to the viewport: scrolled back through history the cursor's line is below the
-        // last one in view, and clamping it would hand "current" to whatever row happened to be
-        // at the bottom of the screen.
-        let cursorLine = top &+ UInt64(max(mirror.cursor.y + mirror.viewportOffset, 0))
+        let cursorLine = Self.cursorLine(in: mirror)
 
         var bounds: [ClosedRange<UInt64>] = []
         if first > top { bounds.append(top...(first - 1)) }
@@ -99,6 +94,20 @@ public enum Blocks {
 }
 
 extension Blocks {
+
+    /// The line the cursor is on.
+    ///
+    /// The cursor is placed in the active area, so the viewport's own scroll has to be added
+    /// back — the same sum `updateCursor` makes. Deliberately not clamped to the viewport:
+    /// scrolled back through history the cursor's line is below the last one in view, and
+    /// clamping it would hand "the block you are in" to whatever row happened to be at the
+    /// bottom of the screen.
+    ///
+    /// Shared rather than written twice because both callers depend on it agreeing: the band is
+    /// drawn around this line, and ⌘⇧A asks the engine about it.
+    public static func cursorLine(in mirror: MirrorGrid) -> UInt64 {
+        mirror.viewportTopLine &+ UInt64(max(mirror.cursor.y + mirror.viewportOffset, 0))
+    }
 
     /// How far to scroll to put `line` at the top of the viewport, in `scroll(by:)`'s own sign:
     /// positive goes back into history, negative toward the output.

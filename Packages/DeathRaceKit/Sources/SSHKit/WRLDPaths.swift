@@ -43,6 +43,10 @@ public struct WRLDPaths: Equatable, Sendable {
     public var runFolder: String { root + "/run" }
     public var keysFolder: String { root + "/keys" }
     public var state: String { root + "/state.json" }
+    /// The fastest run of each command, so a personal best outlives a launch. Beside `state`
+    /// rather than in the settings folder: it is a record of what happened, not a setting, and
+    /// nobody wants it in a dotfiles repo.
+    public var bests: String { root + "/bests.json" }
 
     /// The broker's socket for the app process `pid`.
     public func brokerSocket(pid: Int32) -> String { runFolder + "/askpass-\(pid).sock" }

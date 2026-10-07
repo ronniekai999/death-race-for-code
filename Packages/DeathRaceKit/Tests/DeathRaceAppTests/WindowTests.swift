@@ -60,6 +60,10 @@ final class TestHost: WindowHost {
     let makeSession: SessionMaker = { _, configuration, _, _ in FakeSession(configuration) }
     /// WRLD, when a test connects panes to hosts.
     var connections: (any HostConnecting)?
+    /// Records, when a test wants a personal best to exist; nil keeps panes as they were.
+    var bests: BestsService?
+    /// Set by a test that wants to see what Ring Ring would have delivered.
+    var notifier: (any Notifier)?
     private(set) var closed: [PitLaneWindowController] = []
     private(set) var opened: [PitLaneWindowController] = []
 

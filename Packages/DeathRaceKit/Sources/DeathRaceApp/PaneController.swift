@@ -89,13 +89,15 @@ final class PaneController {
     init(
         id: PaneID, config: Config, directory: String?, scale: CGFloat,
         makeSession: @escaping SessionMaker = PaneController.realSession, launch paneLaunch: PaneLaunch = .shell,
-        connections: (any HostConnecting)? = nil
+        connections: (any HostConnecting)? = nil, bests: BestsService? = nil, notifier: (any Notifier)? = nil
     ) {
         self.id = id
         self.config = config
         self.makeSession = makeSession
         self.launch = paneLaunch
         self.connections = connections
+        self.bests = bests
+        self.notifier = notifier
         let launch = ShellLaunchPlan.launch(
             config: config, directory: directory, appVersion: DeathRaceApplication.version)
         if let host = paneLaunch.host {
@@ -388,14 +390,36 @@ final class PaneController {
                 else { continue }
                 reportedDirectory = path
                 onChange?()
+            case .progress(let report):
+                // OSC 9;4's five states collapse to the two a 3 pt fill can carry. `cleared`
+                // is nil rather than zero: a bar at zero reads as stuck, and the program means
+                // "forget it".
+                progress =
+                    switch report {
+                    case .cleared: nil
+                    case .normal(let percent): TabProgress(fraction: Double(percent) / 100)
+                    case .error(let percent): TabProgress(fraction: percent.map { Double($0) / 100 }, failed: true)
+                    case .indeterminate: TabProgress(fraction: nil)
+                    case .paused(let percent): TabProgress(fraction: percent.map { Double($0) / 100 })
+                    }
+                onChange?()
+            case .notification:
+                // A program said something itself. Ring Ring stays quiet about the command it
+                // was part of; the flag clears when that command ends.
+                programNotified = true
             case .promptMark(.commandEnd, let rowID):
                 // The record is on the row, not in the event: the mark carries only the exit
                 // code, while the duration and the text come from `OSC 633;E` and `dur=`. The
                 // row is in view at the moment a command ends, because the cursor is on it.
-                guard let command = surface.model?.mirror.lines.first(where: { $0.id == rowID })?.command else {
-                    continue
-                }
-                recordBest(command)
+                guard let mirror = surface.model?.mirror,
+                    let row = mirror.lines.firstIndex(where: { $0.id == rowID }),
+                    let command = mirror.lines[row].command
+                else { continue }
+                // Which line that row is, taken here and only here: it is the one moment the
+                // row is certainly in view, and the number stays with the line for good, so a
+                // tap on the bar can still find the command after it has scrolled away.
+                lastCommandLine = mirror.viewportTopLine &+ UInt64(row)
+                finished(command)
             default:
                 break
             }
@@ -570,7 +594,7 @@ final class PaneController {
     }
 
     private func badge(for command: CommandRecord, scale: CGFloat) -> CommandBadge? {
-        let best = command.text.isEmpty ? nil : bests.best(for: command.text)
+        let best = command.text.isEmpty ? nil : bests?.best(for: command.text)
         guard
             let words = FastLabel.words(
                 milliseconds: command.durationMilliseconds, exitCode: command.exitCode, bestMilliseconds: best,
@@ -584,19 +608,62 @@ final class PaneController {
         return CommandBadge(picture: picture, isPersonalBest: isBest)
     }
 
-    /// The best time each command has taken in this pane. Records are set from `promptMark`
-    /// events, which arrive once per command, rather than from the rows a frame happens to
-    /// show: a row is drawn again whenever the screen moves, and a time already recorded would
-    /// then be offered as the thing to beat.
-    private var bests = CommandBests()
+    /// The app's record of how fast each command has been, shared by every pane and kept on
+    /// disk. Records are set from `promptMark` events, which arrive once per command, rather
+    /// than from the rows a frame happens to show: a row is drawn again whenever the screen
+    /// moves, and a time already recorded would then be offered as the thing to beat.
+    ///
+    /// Nil in a pane built without one — the chrome previews and most window tests — and the
+    /// badge then simply has nothing to compare against.
+    private let bests: BestsService?
+    /// Ring Ring's delivery, nil where there is none.
+    private let notifier: (any Notifier)?
 
-    /// A command ended: remember its time, if it is one worth remembering.
-    private func recordBest(_ command: CommandRecord) {
-        guard command.exitCode == 0, let milliseconds = command.durationMilliseconds, !command.text.isEmpty else {
-            return
-        }
-        bests.record(command: command.text, milliseconds: milliseconds)
+    /// What the last command in this pane did, for the status bar's Fast run and the health
+    /// count. Nil in a pane whose shell says nothing about commands.
+    private(set) var lastCommand: CommandOutcome?
+    /// The line the last command ended on, so a tap on the Fast run can scroll back to it.
+    /// Kept here rather than on `CommandOutcome`, which is portable and has no business
+    /// carrying a number that only means something to a view.
+    private(set) var lastCommandLine: UInt64?
+
+    /// A command ended: remember its time, tell the bar, and say so out loud if it is worth
+    /// interrupting for.
+    private func finished(_ command: CommandRecord) {
+        let beaten = bests?.record(command)
+        lastCommand = CommandOutcome(
+            text: command.text, milliseconds: command.durationMilliseconds, exitCode: command.exitCode,
+            // What it beat, so the bar can say by how much; `record` answers that only when the
+            // run actually won, which is the same rule the badge follows.
+            bestMilliseconds: beaten,
+            thresholdMilliseconds: UInt32(clamping: config.fastThresholdMilliseconds))
+        onChange?()
+
+        // Cleared here, before anything can return: the flag is about the command that just
+        // ended, and a pane with no notifier would otherwise keep it set for good.
+        let saidSoItself = programNotified
+        programNotified = false
+
+        guard let notifier else { return }
+        // Watched means: this pane is on screen, in the tab in front, in a window you can see.
+        // The window controller keeps that answer, because a pane cannot see its own tab.
+        let notice = RingRing.notice(
+            for: RingRing.Finished(
+                command: command.text, milliseconds: command.durationMilliseconds, exitCode: command.exitCode,
+                wasWatched: isWatched?() ?? false, programNotified: saidSoItself),
+            thresholdSeconds: UInt32(clamping: config.ringRingThresholdSeconds))
+        if let notice { notifier.deliver(notice, paneID: UInt64(id.value)) }
     }
+
+    /// Whether this pane is the one being looked at, asked of the window rather than guessed.
+    var isWatched: (() -> Bool)?
+
+    /// The program sent its own `OSC 9` since the last command ended, so Ring Ring stays quiet
+    /// about this one: two notifications for one command is worse than none.
+    private var programNotified = false
+
+    /// What a program in this pane last reported about its own progress, for its tab's pill.
+    private(set) var progress: TabProgress?
 
     private func applyFonts() {
         surface.setFonts(

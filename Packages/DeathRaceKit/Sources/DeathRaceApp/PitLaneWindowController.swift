@@ -48,6 +48,11 @@ protocol WindowHost: AnyObject {
     func focus(pane: PaneID, from controller: PitLaneWindowController)
     /// WRLD, for panes on hosts; nil where there is none.
     var connections: (any HostConnecting)? { get }
+    /// How fast each command has been, shared by every pane in the app so a record means the
+    /// same thing in all of them. Nil in a host that keeps none.
+    var bests: BestsService? { get }
+    /// Ring Ring's delivery; nil where there is none, which is every test and preview.
+    var notifier: (any Notifier)? { get }
     /// The WRLD window at `place`, with `host` in its inspector when given.
     func showWRLD(at place: WRLDBoard.Place, selecting host: HostID?)
     /// Maze on `host`: its window comes forward, or its files are opened and one is made.
@@ -175,6 +180,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             case .settingsProblems: self?.onSettingsProblemsClick?()
             case .comeAndGo: self?.host?.showWRLD(at: .comeAndGo, selecting: nil)
             case .sessions: self?.host?.showSettings(page: .general)
+            case .lastCommand: self?.scrollToLastCommand()
             }
         }
         applyChrome()
@@ -236,7 +242,8 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         PaneController(
             id: ids.pane(), config: config, directory: directory,
             scale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, makeSession: makeSession,
-            launch: launch, connections: launch.host == nil ? nil : host?.connections)
+            launch: launch, connections: launch.host == nil ? nil : host?.connections, bests: host?.bests,
+            notifier: host?.notifier)
     }
 
     /// The panes' callbacks lead to this window; a tab moving in brings panes whose
@@ -244,6 +251,12 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     private func wire(_ pane: PaneController) {
         let id = pane.id
         pane.onChange = { [weak self] in self?.paneChanged(id) }
+        // Ring Ring asks this; a pane cannot see its own tab, and the answer is the window's.
+        pane.isWatched = { [weak self] in self?.isWatched(id) ?? false }
+        pane.surface.onRailClick = { [weak self] line in
+            guard let self, let pane = self.panes[id] else { return }
+            self.selectBlock(around: line, in: pane)
+        }
         pane.onEnd = { [weak self] end in self?.paneEnded(id, end) }
         pane.onBell = { [weak self] in self?.paneRang(id) }
         pane.onOutput = { [weak self] in self?.paneOutput(id) }
@@ -416,6 +429,14 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
 
     private func paneChanged(_ id: PaneID) {
         guard let tab = model.tab(containing: id) else { return }
+        // A tab's pill carries the progress of the first of its panes that has any, which for
+        // the common case of one program per tab is that program's. Two programs reporting at
+        // once have no right answer; pane order at least makes the choice a stable one.
+        let reported = tab.panes.compactMap { panes[$0]?.progress }.first
+        if activity[tab.id]?.progress != reported {
+            activity[tab.id, default: TabActivity()].progress = reported
+            refreshTabs()
+        }
         refreshCards()
         // An armed tab's pill names every armed pane.
         if tab.isArmed && tab.activePane != id { return refreshTabs() }
@@ -1150,6 +1171,103 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         }
     }
 
+    /// Saves the last command the pane's shell reported, which is what the mockup's menu item
+    /// meant and what Phase 4 had to do with a selection instead for want of the command's text.
+    @objc func saveCommandToWishingWell(_ sender: Any?) {
+        guard let pane = pane(of: sender), let connections = host?.connections else { return }
+        guard let command = pane.lastCommand?.text, !command.allSatisfy(\.isWhitespace) else { return }
+        let sheet = WishingWellSheet(title: "Save to Wishing Well", parent: window)
+        wishingWellSheet = sheet
+        sheet.show(
+            SaveSnippetView(
+                name: WishingWell.suggestedName(for: command),
+                text: WishingWell.snippetText(fromSelection: command), save: { connections.save($0) },
+                done: { [weak self, weak sheet] in
+                    sheet?.close()
+                    self?.wishingWellSheet = nil
+                    self?.focusActivePane()
+                }))
+    }
+
+    // MARK: - Conversations: walking between commands, and selecting one
+
+    /// Selects the block the cursor is in: the command and its output, and nothing of the next.
+    @objc func selectCommand(_ sender: Any?) {
+        guard let pane = pane(of: sender) else { return }
+        selectBlock(around: nil, in: pane)
+    }
+
+    @objc func jumpToPreviousPrompt(_ sender: Any?) { jump(back: true, in: pane(of: sender)) }
+    @objc func jumpToNextPrompt(_ sender: Any?) { jump(back: false, in: pane(of: sender)) }
+
+    /// Puts the prompt either side of the top of the view at the top of the view.
+    ///
+    /// Asked of the session rather than worked out here: the mirror holds only the viewport, so
+    /// a prompt that has scrolled away is not in it, and after a reattach none of them are. The
+    /// answer is a line number, and `scroll(by:)` has always been relative, so the move is a
+    /// subtraction — no absolute scroll is needed anywhere.
+    private func jump(back: Bool, in pane: PaneController?) {
+        guard let pane, let model = pane.surface.model, let generation = model.mirror.generation else { return }
+        let session = pane.session
+        let from = model.mirror.viewportTopLine
+        Task { @MainActor in
+            guard let span = await session?.promptSpan(at: from, generation: generation) else { return }
+            // Going back from inside a block means the top of this one, then the one before it;
+            // going forward always means the next. Nothing there is not a failure — it is the
+            // oldest or newest command, and the screen stays where it is.
+            let target: UInt64? =
+                back
+                ? (span.lines.lowerBound < from ? span.lines.lowerBound : span.previousPrompt) : span.nextPrompt
+            guard let target, let now = pane.surface.model?.mirror else { return }
+            let lines = Blocks.scroll(toPut: target, atTopOf: now)
+            if lines != 0 { session?.scroll(by: lines) }
+        }
+    }
+
+    /// Brings the command the status bar's Fast run is about back into view.
+    ///
+    /// Scrolls and no more. Selecting it would be a second useful thing to do and the wrong one
+    /// here: `copy-on-select` is a setting people have on, and a tap on the status bar is not a
+    /// request to change the clipboard.
+    private func scrollToLastCommand() {
+        guard let pane = activePane, let line = pane.lastCommandLine, let model = pane.surface.model,
+            let generation = model.mirror.generation
+        else { return }
+        let session = pane.session
+        Task { @MainActor in
+            // A line the engine has since trimmed out of its scrollback answers nil, and the
+            // screen stays where it is rather than jumping somewhere arbitrary.
+            guard let span = await session?.promptSpan(at: line, generation: generation),
+                let now = pane.surface.model?.mirror
+            else { return }
+            let lines = Blocks.scroll(toPut: span.lines.lowerBound, atTopOf: now)
+            if lines != 0 { session?.scroll(by: lines) }
+        }
+    }
+
+    /// Selects the block at `line`, or the one the cursor is in when nil.
+    ///
+    /// The runs in view are enough for a click on a rail, which is only drawn for a block that
+    /// is on screen. The cursor's own block can be off screen, so that one is asked of the
+    /// session, which is the same query the jump uses.
+    private func selectBlock(around line: UInt64?, in pane: PaneController) {
+        guard let model = pane.surface.model, let generation = model.mirror.generation else { return }
+        if let line, let run = Blocks.runs(in: model.mirror).first(where: { $0.lines.contains(line) }) {
+            pane.surface.select(
+                Blocks.selection(of: PromptSpan(lines: run.lines, command: run.command), in: model.mirror),
+                generation: generation)
+            return
+        }
+        let session = pane.session
+        let cursor = Blocks.cursorLine(in: model.mirror)
+        Task { @MainActor in
+            guard let span = await session?.promptSpan(at: line ?? cursor, generation: generation),
+                let now = pane.surface.model?.mirror, now.generation == generation
+            else { return }
+            pane.surface.select(Blocks.selection(of: span, in: now), generation: generation)
+        }
+    }
+
     /// The pane a context menu item was for, else the active one.
     private func pane(of sender: Any?) -> PaneController? {
         if let raw = (sender as? NSMenuItem)?.representedObject as? Int, let pane = panes[PaneID(raw)] {
@@ -1212,6 +1330,38 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     /// sky (not Righteous).
     private var showsStars: Bool { config.starfield && chrome.theme.hasStars }
 
+    /// Whether `pane` is one you were looking at when something happened in it: in the tab in
+    /// front, in a window you can actually see.
+    ///
+    /// Deliberately not "the focused pane". A split finishing while you watch it is still
+    /// watched, and a notification about it would be telling you what you just saw. A zoomed
+    /// tab hides its other panes, so those are not watched even though they are in it, which is
+    /// what `visiblePanes` already means.
+    func isWatched(_ pane: PaneID) -> Bool {
+        guard isWindowInFront?() ?? windowIsInFront else { return false }
+        // `visiblePanes` already answers the zoom question: a zoomed tab shows one pane.
+        return model.activeTab?.visiblePanes.contains(pane) ?? false
+    }
+
+    /// Whether this window is one you could be looking at.
+    ///
+    /// All three legs are needed and none is redundant: the app can be hidden with its window
+    /// still key, another of our own windows can be in front, and a window can be behind
+    /// something while both are true. It is the same liveness question the sidebar and the WRLD
+    /// window already ask of `occlusionState`.
+    private var windowIsInFront: Bool {
+        guard let window, NSApp.isActive, window.isKeyWindow else { return false }
+        return window.occlusionState.contains(.visible)
+    }
+
+    /// Overrides `windowIsInFront` for the window tests, and only for them.
+    ///
+    /// A test process is never the active app and no window in it ever reaches `.visible` — the
+    /// same fact that stops a frame being presented on CI, and the reason M3's badge had to stop
+    /// reading a cache the live path filled. So the tests say "a window you can see" and drive
+    /// the half that is model state: which tab is in front.
+    var isWindowInFront: (() -> Bool)?
+
     // MARK: - Keeping the chrome in step
 
     /// The NeonBorder and glow on each tab's active pane, the others dimmed, and the headers;
@@ -1265,7 +1415,8 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
                     id: tab.id,
                     state: PillState(
                         title: title, isActive: tab.id == model.activeTabID, isBusy: state.isBusy(at: now),
-                        rang: state.rang, failed: state.failure != nil, armed: tab.isArmed)
+                        rang: state.rang, failed: state.failure != nil, armed: tab.isArmed,
+                        progress: state.progress)
                 )
             })
         window?.title =
@@ -1290,6 +1441,13 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         facts.settingsProblems = settingsProblems
         facts.sessionsEndWithTheApp = sessionsEndWithTheApp
         facts.openTunnels = host?.connections?.openTunnelCount ?? 0
+        facts.lastCommand = pane.lastCommand
+        // "2 of 3 healthy", over the panes in the tab in front that have run something.
+        if let tab = model.activeTab {
+            let outcomes = tab.panes.compactMap { panes[$0]?.lastCommand }
+            facts.panesWithACommand = outcomes.count
+            facts.healthyPanes = outcomes.filter { !$0.failed }.count
+        }
         if let tab = model.activeTab, tab.isArmed {
             facts.armedPanes = tab.armedPanes.count
             facts.endedArmedPanes = tab.armedPanes.filter { panes[$0]?.isDone ?? true }.count
@@ -1423,6 +1581,16 @@ extension PitLaneWindowController: NSMenuItemValidation {
             return host?.connections != nil
         case #selector(saveSelectionToWishingWell(_:)):
             return host?.connections != nil && pane(of: menuItem)?.surface.hasSelection == true
+        case #selector(saveCommandToWishingWell(_:)):
+            // The same two conditions as the selection above: somewhere to save it, and
+            // something to save. A shell with no integration reports no command, so the item
+            // is off rather than silently doing nothing.
+            guard host?.connections != nil, let command = pane(of: menuItem)?.lastCommand?.text else { return false }
+            return !command.allSatisfy(\.isWhitespace)
+        case #selector(selectCommand(_:)), #selector(jumpToPreviousPrompt(_:)), #selector(jumpToNextPrompt(_:)):
+            // All three are Conversations: with it off there are no blocks to walk or select,
+            // and ⌘↑/⌘↓ should not look like they are doing nothing.
+            return config.conversations
         default:
             return true
         }

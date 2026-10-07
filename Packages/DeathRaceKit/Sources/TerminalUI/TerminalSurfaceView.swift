@@ -143,6 +143,9 @@ public final class TerminalSurfaceView: NSView {
             }
         }
     }
+    /// A click landed on a block's rail, at this line. The app answers it by selecting that
+    /// whole command, because which rows are one command is a question about shell integration.
+    public var onRailClick: ((UInt64) -> Void)?
     /// The picture of what to say beside a command, or nil for one not worth a word — which is
     /// most of them. The app draws it, because the words, the records they are compared against
     /// and the chrome's fonts are all the app's; the view only finds the cell and places it.

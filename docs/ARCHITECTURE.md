@@ -282,7 +282,7 @@ or Esc hides it. It is assembly over the Phase 3 pieces, not new session plumbin
      indexes from row to row.
    - **Limits:** URIs up to 2,048 bytes, ids up to 256, 1,024 links a row. Anything past
      them, or with control characters, prints without a link.
-2. **The delta carries the tables** (`DeltaCodec` format 3). Decoding rejects what the
+2. **The delta carries the tables** (`DeltaCodec` format 4). Decoding rejects what the
    engine never makes: indexes past the table, a flag without an index, too many links, and
    control characters.
 3. **In the app, `LinkFinder` answers which link a cell is in:** the program's own (every cell
@@ -589,6 +589,92 @@ descriptors close under programs that were given no notice. That is also why it 
 exits on its own when it is holding nothing. Caps: 64 sessions, 64 outstanding questions, a
 single-use attach token good for ten seconds, 4 KiB of placement.
 
+### Conversations, Fast and Ring Ring
+
+A command and its output told apart, how long each one took, and a word when a long one
+finishes. **Marks and decoration, not Warp-style cards:** a rail down each command, a band on
+the one holding the cursor, a badge beside the slow ones, navigation and whole-block selection,
+all drawn over an ordinary grid. The terminal stays a VT terminal, so none of it is weighed
+against the engine's esctest score.
+
+**The shell reports the time, and that is the load-bearing decision.** VTCore is
+Foundation-free and has no clock at all — its only `Clock` hands out row ids — which is what
+keeps it deterministic under the fuzzer and in `vthost replay`. Measuring in the app would have
+needed a clock in the engine and still could not time a command that ran while the app was
+closed, which is the case Phase 7 exists for. So the integration sends it:
+
+| At | Sequence |
+|---|---|
+| prompt start, prompt end, output start | `OSC 133;A`, `;B`, `;C` |
+| the command line | `OSC 633;E;<escaped>` |
+| command end | `OSC 133;D;<exit>;dur=<ms>` |
+
+None of those is ours to define. `OSC 133` is FinalTerm's and iTerm2's, so blocks work for
+someone who already has Ghostty's or iTerm2's integration installed, just without durations;
+`OSC 633;E` is VS Code's, with its backslash unescaping; and `dur=` is parameter-shaped, so
+every other terminal ignores it. Reading it needed a real parameter walk — `OSC 133;D` had been
+taking only its first parameter as an `Int32`, so `D;aid=7` silently lost the exit code and a
+bare `D` cleared one already on the row.
+
+**The record lives on the row, not in the event stream.** `TerminalEvent.coalesced` keeps only
+the newest 64 prompt marks per burst, so a loop of fast commands drops the oldest — and it is
+the `commandEnd`s you most need. Events also do not survive being taken, so a reattached session
+would have shown rails with no badges: missing exactly the command you walked away from. On the
+row, `CommandRecord` rides in `RowSnapshot` through the scrollback, a reattach and a second
+window taking the session up.
+
+That cost a **`DeltaCodec` bump to format 4**, and `DaemonFacts.deltaFormat` pins it, so an
+updated app meeting the daemon an older one left running gets `.incompatible` and Phase 7's
+handover fires: that daemon stops taking new sessions, keeps the ones it holds, and exits when
+its last one ends. **It was the first real exercise of that path**, which until then only a test
+had covered.
+
+**Where a prompt is, only the engine knows.** `MirrorGrid` holds the viewport alone, so the app
+cannot see a prompt that has scrolled off, and after a reattach it has seen no history at all.
+`promptSpan(at:generation:)` therefore asks the session — a bounded scan over the scrollback it
+already keeps, capped at 50,000 lines so a screen with no marks cannot walk the ring twice — and
+answers the block's line range, its `CommandRecord`, and the prompts either side. One query
+serves both features: ⌘↑/⌘↓ take the neighbours, ⌘⇧A and a rail click take the range.
+
+**And it needed no absolute scroll.** The phase's plan had budgeted a protocol addition for
+jump-to-prompt, on the grounds that `scroll(by:)` has always been relative. It is not needed:
+the query answers an absolute line, the view already knows which line is at the top, and the
+difference is a subtraction. `Blocks.scroll(toPut:atTopOf:)` is that subtraction, in portable
+code with a test, and `scroll(by:)` stays the only scroll the protocol has.
+
+The query did cost a **`SessionWire` bump to version 2**, and negotiating `1...2` and degrading
+was rejected rather than overlooked: an older daemon drops an unknown request silently, and
+`RemoteSession.ask` resumes a waiter with nothing only when the connection has gone — so the
+continuation would wait for ever. A refused handshake and a handover is the failure this design
+already handles.
+
+**The drawing is split by what a picture can see.** The rail and the band go into the `Frame`,
+appended after the row cache exactly as the hovered link's underline is, so they rebuild zero
+rows and appear in `--render-chrome` and the goldens for free. The band mixes into
+`frame.backgrounds` cell by cell, keeping each word's top byte, because `starryAlpha` marks a
+row's empty tail and a constant write would have killed every star it covered. The badge is
+proportional gradient text, which the terminal atlas cannot hold, so it is a `CALayer` above the
+`CAMetalLayer` — and a layer carries an obligation the frame does not: it must be hand-drawn for
+`snapshot(using:)`, beside `drawCursor(in:)`, and **its placement must come from the mirror
+rather than from anything a presented frame left behind**, because no pane on CI is ever on
+screen (see Known risks).
+
+**Ring Ring decides in portable code and only delivers on macOS.** `RingRing.notice(for:...)` is
+a table with a test per rule — quiet for a command you watched finish, for one under the
+threshold, for one with no duration, for a program that sent its own `OSC 9`, and for anything
+typed with a leading space — behind a `Notifier` seam with a fake, the shape `HotKeyRegistrar`
+already uses. The seam is `@MainActor`, which is the honest model: nothing delivers a notice off
+the main thread, and `UNUserNotificationCenter` is the only part a Mac is needed for. Whether a
+pane was watched is the window's answer, not the pane's, and it is one seam deeper again so that
+the window tests can vary which tab is in front — the one half of it CI can produce.
+
+**Personal bests are kept, with the obvious caution.** `~/.deathrace/bests.json`, 0600 in a 0700
+folder through `AtomicFile`, capped, and stored as an array so the eviction order survives a
+reload. `bests-on-disk` turns it off, and a command hidden from the shell's history by a leading
+space is never recorded, never notified and never put on screen. The honest comparison is that
+your shell already keeps every command line in `~/.zsh_history` at the same mode, so this is a
+second copy rather than a new exposure — and the help says where it is so it can be deleted.
+
 ### Signing
 
 `scripts/bundle.sh` signs with the Apple Development identity already in your keychain, the
@@ -683,6 +769,27 @@ seam depends on the answer.
   window with the same helper. The badge's runs are an argument now, the frame passing the ones
   it drew and a picture passing the screen as it is. Left as it was, the theme pictures and the
   render goldens would have carried rails and bands with no badges at all.
+
+  M4 then met the same fact twice more, from directions that do not look like the first. Ring
+  Ring's "were you watching this pane" asked the window for `occlusionState`, which on a runner
+  is never `.visible`, so the test for a command you watched finish would have been told you
+  were not — the window half is a seam now, defaulted to the real check, and the tests vary the
+  half CI can produce: which tab is in front. And `sessionDidUpdate` never drains synchronously;
+  with no pane seen it always takes the 250 ms hidden-drain timer, so a test that read the mirror
+  on the next line saw it as it was before the feed. **The rule is the same each time: on CI
+  nothing is on screen, so neither a layer's placement nor a test's expectation may depend on
+  anything that only happens because something was.**
+- **A case added to a portable enum is caught only by a macOS runner.** `swiftc -parse` is
+  syntax only, and `check-imports.py` sees type names rather than exhaustiveness, so an enum
+  widened in AppCore whose consumer lives in the macOS-only app target compiles here and fails
+  there. Phase 8 M4b added `StatusLine.Tap.lastCommand` and left `PitLaneWindowController`'s
+  switch without its arm; the build failed sixteen times over on one line. So when a commit adds
+  a case to a portable enum, grep the macOS-only sources for a switch over that enum before
+  pushing. Two other classes of the same gap now have cheap checks instead:
+  `scripts/check-expect-messages.py` for an expectation message that is a `String` rather than a
+  `Comment`, and, written per change rather than committed, a probe naming the portable API the
+  macOS code uses and type-checked against the built modules — which is what `PaneID.value`,
+  a member that does not exist, needed to be caught before a runner found it.
 
 ## Roadmap
 

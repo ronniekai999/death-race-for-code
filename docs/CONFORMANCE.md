@@ -159,7 +159,15 @@ C0 and ESC (with the DEC line-drawing charset), CSI cursor/erase/insert/delete, 
 tabs, REP, DECALN, full SGR (truecolor, underline styles and color), alternate screen
 1049/47/1047, mouse 1000/1002/1003/1006, focus 1004, bracketed paste 2004, synchronized output
 2026, DECSCUSR, DA/DSR/CPR/DECRQM/DECRQSS/XTVERSION/XTGETTCAP/XTWINOPS 18t, OSC 0/2/4/7/10–12,
-OSC 52 (write only), OSC 9;4, OSC 133, and the Kitty keyboard protocol.
+OSC 52 (write only), OSC 9;4, OSC 133, OSC 633;E, and the Kitty keyboard protocol.
+
+`OSC 133;D` takes a parameter walk rather than one value: the first bare number is the exit
+code and the rest are `key=value`, which is how `dur=<ms>` rides along. Before Phase 8 only the
+first parameter was read, and only as an `Int32`, so `D;aid=7` lost the exit code and a bare `D`
+cleared one already on the row. `OSC 633;E;<command>` is VS Code's, with its backslash
+unescaping (`\\` for a backslash, `\xHH` for `;` and any control character), so our scripts
+light up in its terminal and its scripts light up in ours. Neither is ours to define, and `dur=`
+is parameter-shaped so every other terminal ignores it.
 
 Later: OSC 8 hyperlinks (Phase 3), Sixel, Kitty graphics, iTerm2 images, DECSLRM, double-width
 lines, rectangle operations, VT52.

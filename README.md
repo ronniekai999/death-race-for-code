@@ -13,7 +13,11 @@ Phases 1 to 6 are merged and green on both CIs: the engine, the window, the Pit 
 Termius layer, Lucid Dreams — the quick terminal that drops out of the notch — and Maze, the
 SFTP browser. Phase 7, **Legends Never Die**, is written: the daemon and both ends of its wire
 are tested on Linux as two real processes, including the `kill -9` criterion, and the app's
-half waits for the hands-on pass in [docs/MANUAL-TESTS.md](docs/MANUAL-TESTS.md).
+half waits for the hands-on pass in [docs/MANUAL-TESTS.md](docs/MANUAL-TESTS.md). Phase 8,
+**Conversations, Fast and Ring Ring**, is written too: our own shell integration for zsh, bash
+and fish, a rail and a band and a duration beside each command, personal bests that outlive a
+launch, jump-to-prompt and whole-block selection, progress in a tab's pill, and a word when a
+long command finishes while you are looking elsewhere.
 
 - **WRLD, your hosts:** kept in `wrld.json` next to the settings file, which never holds a
   secret. Hosts in your `~/.ssh/config` join with one click and keep using that file, which

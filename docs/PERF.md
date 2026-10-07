@@ -69,6 +69,24 @@ segment and stamps it on each cell. Three runs in the same container:
 
 All are within run-to-run noise of the numbers above.
 
+**After Conversations (Phase 8).** The engine's hot path gained the `OSC 133` parameter walk and
+`OSC 633;E`, both of which run once per command rather than per cell, and `CommandRecord` on the
+row, which `Row.estimatedBytes` now counts toward the scrollback cap. Nothing per-character
+changed, and the benchmark numbers above are unmoved.
+
+What the phase deliberately does **not** spend:
+- **The rail and the band rebuild no rows.** Both are applied after `FrameBuilder`'s row cache,
+  exactly as the hovered link's underline is, so `rebuiltRows` stays 0 while they are on screen —
+  asserted by a test rather than hoped for.
+- **The badge is a layer the Metal pass never sees.** It moves inside the same `CATransaction`
+  as the frame's `present()`, so it cannot shear against scrolling text, and its gradient text is
+  drawn into an image once and cached by `(text, scale)`.
+- **Finding a prompt is one query per keypress, not per frame.** `promptSpan` scans the
+  scrollback the engine already keeps, bounded at 50,000 lines, and only when ⌘↑/⌘↓ or a block
+  selection asks.
+- **The bests file is written at most once every three seconds**, and only when a record
+  actually changed — a loop of distinct commands writes it a few times, not a thousand.
+
 ## Measuring on the Mac
 
 The Phase 2 budgets above are checked by hand on the M5, with a debug build

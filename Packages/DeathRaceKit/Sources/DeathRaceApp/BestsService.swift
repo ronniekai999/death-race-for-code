@@ -37,6 +37,13 @@ final class BestsService {
     /// The fastest `command` has been, or nil for one never seen.
     func best(for command: String) -> UInt32? { bests.best(for: command) }
 
+    /// What a run of `command` taking `milliseconds` should be measured against: the best of
+    /// the other runs. This is the one the badge wants, because by the time a badge is drawn
+    /// the run it describes has already been recorded.
+    func bestToBeat(for command: String, milliseconds: UInt32?) -> UInt32? {
+        bests.bestToBeat(for: command, milliseconds: milliseconds)
+    }
+
     /// A command ended. Remembers its time when it is one worth remembering, and answers the
     /// best it beat so the words can say by how much.
     ///

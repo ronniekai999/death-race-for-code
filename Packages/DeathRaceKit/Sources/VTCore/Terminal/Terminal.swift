@@ -54,6 +54,12 @@ public final class Terminal {
     /// program set (OSC 4, 10, 11, 12). A new base palette leaves them alone; their resets
     /// (OSC 104, 110, 111, 112) and RIS forget them.
     var paletteOverrides: Set<Int> = []
+    /// The special colors (OSC 5, or OSC 4 past the end of the palette): in xterm's order,
+    /// bold, underline, blink, reverse and italic. They are kept and reported and nothing draws
+    /// with them, which is also what xterm does unless its user turns on `colorBDMode` and its
+    /// siblings; a slot nobody has set reads as the foreground, which is their default.
+    var specialColors = [RGB?](repeating: nil, count: Terminal.specialColorCount)
+    static let specialColorCount = 5
     static let foregroundSlot = 256
     static let backgroundSlot = 257
     static let cursorSlot = 258

@@ -24,18 +24,35 @@ known bugs; with it, our deliberate refusals count as failures and DECNCSM count
 
 | | Tests |
 | --- | ---: |
-| Pass | 455 |
+| Pass | 466 |
 | Marked by esctest as known xterm bugs | 33 |
-| Fail: features scheduled for later | 38 |
+| Fail: features scheduled for later | 5 |
 | Fail: refused by design, or a deliberate difference | 41 |
+| Fail: tests that encode the reference terminal's own environment | 22 |
 
-That is 455 of 496 (92%) of the tests for behavior we mean to have, counting the refusals as
-the failures they are. The headline moved from "95% of 378" in the other direction than it
-looks: the 19 window-manipulation tests used to be filed under "later", and they are never
-going to pass, so they are counted here among the refusals instead.
+That is 466 of 507 (92%) of the tests for behavior we mean to have, counting the refusals and
+the unreachable tests as the failures they are. The headline moved from "95% of 378" in the
+other direction than it looks: the 19 window-manipulation tests used to be filed under
+"later", and they are never going to pass, so they are counted here among the refusals.
 
-**Scheduled for later:** colors — OSC 4/5/104/105/106 and the CIE, TekHVC and RGBi color
-specifications (33 tests); ISO protected areas, SPA/EPA (5). That is the whole list.
+**Scheduled for later:** ISO protected areas, SPA/EPA (5 tests). That is the whole list.
+
+**The 22 unreachable ones are worth naming**, because "later" would be a lie about them:
+
+- **The X11 color specifications** (21 tests): `rgbi:`, `CIELab:`, `CIELuv:`, `CIEXYZ:`,
+  `CIEuvY:`, `CIExyY:` and `TekHVC:`, in each of OSC 4, OSC 5 and OSC 10–12. esctest compares
+  the color read back against the exact value X11's Xcms produced on the display its reference
+  xterm ran on: `rgbi:0.5/0.5/0.5` must come back `c1c1/bbbb/bbbb`, where two channels follow a
+  gamma of 2.2 and red follows 2.49. Those numbers are a *display's* characterization, carried
+  in the X server's XDCCC properties, not a terminal's behavior, and matching them would mean
+  embedding one X server's device profile in a macOS terminal. So the specs are not parsed at
+  all: a program that sends one gets no color change, which is what the engine does with any
+  spec it cannot read. `rgb:` and the four `#` forms, which are exact and device-independent,
+  are all supported.
+- **`ResetSpecialColor_Dynamic`** (1 test): esctest sets the foreground to `#000` at startup and
+  then checks that OSC 110 restores *that*. It passes on xterm because esctest also launches it
+  with a black foreground resource, so the program-set value and the resource agree. OSC 110
+  here restores the app's theme, which is the same rule and a different answer.
 
 **DECSACE stays as it reads.** It selects whether an attribute change runs as a stream or as a
 rectangle, and the two sequences it governs — DECCARA and DECRARA — are not here, so `0*x`
@@ -180,7 +197,8 @@ left and right margins (DECLRMM, DECSLRM, DECIC, DECDC, DECBI, DECFI), rectangul
 (DECCRA, DECERA, DECFRA, DECSERA), tabs, REP, DECALN, full SGR (truecolor, underline styles and color), alternate screen
 1049/47/1047, mouse 1000/1002/1003/1006, focus 1004, bracketed paste 2004, synchronized output
 2026, DECSCUSR, DA/DSR/CPR/DECRQM/DECRQSS/XTVERSION/XTGETTCAP/XTWINOPS 18t, OSC 0/2/4/7/10–12,
-OSC 52 (write only), OSC 9;4, OSC 133, OSC 633;E, and the Kitty keyboard protocol.
+OSC 52 (write only), OSC 5/105 (the special colors, kept and reported), OSC 9;4, OSC 133,
+OSC 633;E, and the Kitty keyboard protocol.
 
 `OSC 133;D` takes a parameter walk rather than one value: the first bare number is the exit
 code and the rest are `key=value`, which is how `dur=<ms>` rides along. Before Phase 8 only the

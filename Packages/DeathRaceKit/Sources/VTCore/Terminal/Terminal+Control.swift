@@ -134,6 +134,7 @@ extension Terminal {
         modes = TerminalModes()
         palette = configuration.palette
         paletteOverrides.removeAll()
+        specialColors = [RGB?](repeating: nil, count: Self.specialColorCount)
         title = ""
         iconName = ""
         titleStack.removeAll()

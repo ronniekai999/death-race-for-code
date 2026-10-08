@@ -146,6 +146,39 @@ private final class SolidBitmaps: GlyphRasterizing {
         #expect(Glow.smoothstep(0.28, 0.44, 0.9) == 1)
     }
 
+    // MARK: - Which themes glow, and how strongly
+
+    /// There is no intensity setting: how strong the light is comes from the theme's own
+    /// `glowOpacity`, already tuned for the chrome's glow. So every dark theme has to pack to
+    /// something a person can see, and the light one has to have none at all.
+    @Test func everyDarkThemeHasAStrengthAndTheLightOneHasNoGlow() {
+        var strengths: Set<UInt32> = []
+        for theme in ThemeCatalog.all {
+            let packed = Glow(strength: theme.chrome.glowOpacity).packed
+            if theme.isLight {
+                #expect(!theme.hasGlow, "\(theme.id) is light and would be adding light to white")
+            } else {
+                #expect(theme.hasGlow, "\(theme.id) is dark and should glow")
+                #expect(packed >> 24 >= 24, "\(theme.id) packs to \(packed >> 24), too faint to see")
+                strengths.insert(packed >> 24)
+            }
+        }
+        // Not one number for everything: Goodbye & Good Riddance is deliberately the faintest.
+        #expect(strengths.count > 1)
+        #expect(Glow(strength: ThemeCatalog.goodbyeGoodRiddance.chrome.glowOpacity).packed >> 24 == 31)
+        #expect(Glow(strength: ThemeCatalog.legendsNeverDie.chrome.glowOpacity).packed >> 24 == 89)
+    }
+
+    /// `hasGlow` tracks `hasStars` today, and both are "not the light theme" — but they are
+    /// separate properties for separate reasons, so this records that they agree rather than
+    /// letting one stand in for the other.
+    @Test func lightThemesHaveNeitherStarsNorGlow() {
+        for theme in ThemeCatalog.all {
+            #expect(theme.hasGlow == theme.hasStars)
+            #expect(theme.hasGlow == !theme.isLight)
+        }
+    }
+
     // MARK: - What the macOS half's hardest test rests on
 
     /// `RenderKitTests.aGlowReadsOnlyItsOwnGlyph` proves the scatter does not read a

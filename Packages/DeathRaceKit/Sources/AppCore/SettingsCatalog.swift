@@ -146,6 +146,7 @@ public enum SettingsCatalog {
                     title: "Window",
                     settings: [
                         Setting("starfield", "Starfield behind the terminal", .toggle),
+                        Setting("text-glow", "Bright colours glow", .toggle),
                         Setting("conversations", "Mark each command and how long it took", .toggle),
                         Setting(
                             "fast-threshold-milliseconds", "Show a command's time when it is over",

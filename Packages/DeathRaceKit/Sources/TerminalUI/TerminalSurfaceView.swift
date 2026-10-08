@@ -99,6 +99,18 @@ public final class TerminalSurfaceView: NSView {
     public var starfield = false {
         didSet { if starfield != oldValue { redraw() } }
     }
+    /// How strongly a bright colour throws light around its own character, before the energy
+    /// gate has had its say; nil, or a strength of zero, draws none at all.
+    ///
+    /// Which characters glow is not this property's business and never reaches the frame: the
+    /// renderer decides per glyph, from the glyph's own colour, so the rows do not have to be
+    /// built again when this changes.
+    public var textGlow: Glow? {
+        didSet {
+            guard textGlow != oldValue else { return }
+            applyEnergyConditions()
+        }
+    }
     /// Lines a notch of a mouse wheel scrolls.
     public var mouseScrollMultiplier = 3.0
     /// On the alternate screen (less, man), the wheel sends arrow keys even when the program
@@ -171,7 +183,7 @@ public final class TerminalSurfaceView: NSView {
     }
     /// How fast the view may draw (`follow-low-power-mode`, `output-frame-rate-cap`).
     public var frameRatePolicy = FrameRatePolicy() {
-        didSet { if frameRatePolicy != oldValue { applyFrameRate() } }
+        didSet { if frameRatePolicy != oldValue { applyEnergyConditions() } }
     }
 
     public private(set) var grid: GridLayout
@@ -247,6 +259,10 @@ public final class TerminalSurfaceView: NSView {
     /// The display's full rate is on for recent input.
     private var inputBoosted = false
     private var appliedFrameRate: FrameRatePolicy.Range?
+    /// What the energy gate left of `textGlow`: the renderer is given this, never the
+    /// property, so Low Power Mode and a hot Mac take the light away without the owner's
+    /// setting being changed under it.
+    private(set) var allowedGlow: PackedColor = 0
     /// Selection state kept by the selection extension.
     var selection: Selection?
     var selectionGeneration: UInt64?
@@ -434,12 +450,14 @@ public final class TerminalSurfaceView: NSView {
             appliedFrameRate = nil
         }
         link?.isPaused = false
-        applyFrameRate()
+        applyEnergyConditions()
     }
 
     @objc private func displayLinkFired(_ link: CADisplayLink) {
         // Typing stopped a second ago: back to the rate for output.
-        if inputBoosted && CACurrentMediaTime() - lastInputTime >= FrameRatePolicy.inputWindow { applyFrameRate() }
+        if inputBoosted && CACurrentMediaTime() - lastInputTime >= FrameRatePolicy.inputWindow {
+            applyEnergyConditions()
+        }
         let changed = drain()
         let drew = (changed || needsFrame) && drawFrame()
         if !pacer.tick(drew: drew) {
@@ -485,7 +503,7 @@ public final class TerminalSurfaceView: NSView {
         guard
             renderer.encode(
                 frame, cell: cell, layout: layout, glyphs: glyphs, target: drawable.texture,
-                commandBuffer: commandBuffer, dim: dimming?.packed ?? 0)
+                commandBuffer: commandBuffer, dim: dimming?.packed ?? 0, glow: allowedGlow)
         else {
             needsFrame = true
             return true
@@ -750,7 +768,8 @@ public final class TerminalSurfaceView: NSView {
         let layout = PixelLayout(
             width: width, height: height, originX: Int((grid.left * scale).rounded()),
             originY: Int((grid.top * scale).rounded()))
-        return try renderer.render(frame, cell: cell, layout: layout, glyphs: glyphs, dim: dimming?.packed ?? 0)
+        return try renderer.render(
+            frame, cell: cell, layout: layout, glyphs: glyphs, dim: dimming?.packed ?? 0, glow: allowedGlow)
     }
 
     /// Places a badge beside each command worth a word, at the right-hand end of the line its
@@ -896,22 +915,41 @@ public final class TerminalSurfaceView: NSView {
     /// A key press, a scroll or a selection drag: the display's full rate for a second.
     func noteInput() {
         lastInputTime = CACurrentMediaTime()
-        if !inputBoosted { applyFrameRate() }
+        if !inputBoosted { applyEnergyConditions() }
+    }
+
+    /// What the Mac is asking for, and the two things that follow from it: whether bright
+    /// colours may throw light, and how fast the display link may run.
+    ///
+    /// One function because one set of conditions decides both, and **the glow has to be
+    /// settled before the frame rate**: the frame-rate half returns early without a display
+    /// link, which is every pane on CI and in `ChromePreview`, so a glow applied after it
+    /// would never reach the paths that have no link to drive.
+    func applyEnergyConditions() {
+        let recent = CACurrentMediaTime() - lastInputTime < FrameRatePolicy.inputWindow
+        inputBoosted = recent
+        let info = ProcessInfo.processInfo
+        let conditions = FrameRatePolicy.Conditions(
+            recentInput: recent, lowPowerMode: info.isLowPowerModeEnabled,
+            thermal: FrameRatePolicy.Thermal(rawValue: info.thermalState.rawValue) ?? .nominal)
+        // The same `follow-low-power-mode` setting the frame rate follows, so there is nothing
+        // extra to plumb and the two can never be told different things.
+        let effects = EffectsPolicy(followsLowPowerMode: frameRatePolicy.followsLowPowerMode)
+        let allowed = effects.allowsGlow(conditions) ? (textGlow?.packed ?? 0) : 0
+        if allowed != allowedGlow {
+            allowedGlow = allowed
+            redraw()
+        }
+        applyFrameRate(conditions)
     }
 
     /// Sets the display link's frame rate range from `frameRatePolicy`, only when the answer
     /// changed.
-    func applyFrameRate() {
-        let recent = CACurrentMediaTime() - lastInputTime < FrameRatePolicy.inputWindow
-        inputBoosted = recent
+    private func applyFrameRate(_ conditions: FrameRatePolicy.Conditions) {
         guard let link else { return }
         var policy = frameRatePolicy
         if let fastest = window?.screen?.maximumFramesPerSecond, fastest > 0 { policy.displayMaximum = Double(fastest) }
-        let info = ProcessInfo.processInfo
-        let range = policy.range(
-            for: FrameRatePolicy.Conditions(
-                recentInput: recent, lowPowerMode: info.isLowPowerModeEnabled,
-                thermal: FrameRatePolicy.Thermal(rawValue: info.thermalState.rawValue) ?? .nominal))
+        let range = policy.range(for: conditions)
         guard range != appliedFrameRate else { return }
         appliedFrameRate = range
         link.preferredFrameRateRange = CAFrameRateRange(
@@ -921,7 +959,7 @@ public final class TerminalSurfaceView: NSView {
     /// Posted on whatever thread noticed the change: the view hears of it on the main one.
     @objc nonisolated private func energyConditionsChanged(_ notification: Notification) {
         DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated { self?.applyFrameRate() }
+            MainActor.assumeIsolated { self?.applyEnergyConditions() }
         }
     }
 

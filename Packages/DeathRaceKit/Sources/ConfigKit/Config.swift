@@ -42,6 +42,8 @@ public struct Config: Sendable, Equatable {
     public var windowSize = GridSize(columns: 100, rows: 30)
     /// Faint stars behind the panes and in the terminal's empty space (dark themes only).
     public var starfield = true
+    /// Bright-coloured characters throw a little light around themselves (dark themes only).
+    public var textGlow = true
     /// When panes show a header with the program, directory and branch.
     public var paneHeaders = PaneHeaders.split
 

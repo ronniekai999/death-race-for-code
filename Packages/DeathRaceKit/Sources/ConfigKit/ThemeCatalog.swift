@@ -13,6 +13,17 @@ public struct NamedTheme: Sendable, Equatable, Identifiable {
 
     /// Stars behind the panes and in the terminal's empty space; light themes have none.
     public var hasStars: Bool { !isLight }
+
+    /// Whether a bright colour throws light around its own character here, which light themes
+    /// cannot do — and the reason is mechanical rather than a matter of taste.
+    ///
+    /// The glow is light *added* to the frame. Righteous is dark text on white, so adding light
+    /// around a dark glyph brightens white: invisible at best, and at worst it eats the
+    /// antialiased edge that gives the letter its shape. Its palette also sits entirely at a
+    /// brightness of 0.32 to 0.45, straddling the rule's own floor, so half of it would glow
+    /// arbitrarily — `GlowTests` records that as seven of its sixteen entries landing in the
+    /// faint middle, against none to three in any dark theme.
+    public var hasGlow: Bool { !isLight }
 }
 
 /// The window's colors around the terminal: the design system's tokens, per theme. Legends

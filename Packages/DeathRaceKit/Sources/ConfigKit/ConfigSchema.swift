@@ -203,6 +203,16 @@ public enum ConfigSchema {
             read: { value, config throws(ConfigValueError) in config.starfield = try Value.bool(value) },
             write: { String($0.starfield) }),
         ConfigKey(
+            "text-glow", .window,
+            help: [
+                "Bright-coloured characters throw a little light around themselves, in their own",
+                "colour. Ordinary text, white and the greys never do, and nor does the pane you",
+                "are not working in. The light theme, Righteous, has none. Each theme decides how",
+                "strong it is; Low Power Mode and a hot Mac turn it off.",
+            ],
+            read: { value, config throws(ConfigValueError) in config.textGlow = try Value.bool(value) },
+            write: { String($0.textGlow) }),
+        ConfigKey(
             "conversations", .window,
             help: [
                 "Draw what your shell reports about each command: a thin rail beside it, a band",

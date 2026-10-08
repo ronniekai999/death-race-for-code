@@ -11,6 +11,7 @@ import VTCore
         "cursor-style-blink": "false", "option-as-meta": "both",
         "mouse-scroll-multiplier": "1.5", "mouse-scroll-alternate": "false", "window-padding-x": "10",
         "window-padding-y": "4", "window-size": "120x40", "pane-headers": "always", "starfield": "false",
+        "text-glow": "false",
         "conversations": "false", "fast-threshold-milliseconds": "2500",
         "bests-on-disk": "false", "ring-ring-threshold-seconds": "120", "program-notifications": "false",
         "theme": "righteous", "background": "#000000", "foreground": "#FFFFFF", "cursor-color": "#FF0000",

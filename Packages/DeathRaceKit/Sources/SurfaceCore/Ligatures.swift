@@ -48,7 +48,20 @@ public struct RunScanner: Sendable {
     /// How many columns one run may cover.
     public let maxCells: Int
 
-    public init(maxCells: Int = 8) {
+    /// The default is five because of what the work costs rather than what a font can hold.
+    ///
+    /// The scanner asks the shaper up to `maxCells - 1` questions per candidate column, and the
+    /// set of distinct questions is every substring of the alphabet up to that length — so the
+    /// cap is the exponent on the memo's key space, not a detail. Measured on a screen of varied
+    /// punctuation, 80 by 24: at eight it is about 10,800 questions for one full rebuild, enough
+    /// to fill the memo past its bound and start paying the font again on the next one. Ordinary
+    /// source code asks about sixteen.
+    ///
+    /// Five costs four questions a column instead of seven and covers every ligature either
+    /// bundled family has: the widest is four components (`<!--`), and the font's own tables say
+    /// so. A longer run would in any case only be a ligature with unchanged characters trailing
+    /// it, which draws the same either way.
+    public init(maxCells: Int = 5) {
         self.maxCells = max(2, min(maxCells, GlyphKey.maxRunCells))
     }
 
@@ -67,7 +80,7 @@ public struct RunScanner: Sendable {
     /// the last column by the slant times the cell's height. So the cap is taken against the
     /// limit less that slack, not against the limit itself. A quarter of the cell's height
     /// covers a 12° slant with room to spare, which is the steepest `FontSet` applies.
-    public init(cell: CellMetrics, maxCells: Int = 8, limit: Int = 1024) {
+    public init(cell: CellMetrics, maxCells: Int = 5, limit: Int = GlyphKey.maxRunPixels) {
         let slack = 4 + cell.height / 4
         let byWidth = (limit - slack) / max(cell.width, 1)
         self.init(maxCells: min(maxCells, byWidth))
@@ -89,12 +102,11 @@ public struct RunScanner: Sendable {
         in row: RowSnapshot, columns: Int, selected: ClosedRange<Int>?,
         face: (Int) -> (bold: Bool, italic: Bool), shaper: any RunShaping
     ) -> [GlyphRun] {
-        guard maxCells >= 2 else { return [] }
         let limit = min(columns, row.cells.count)
         var found: [GlyphRun] = []
         var x = 0
         while x < limit {
-            guard let head = candidate(in: row, at: x, selected: selected) else {
+            guard let head = candidate(in: row, at: x) else {
                 x += 1
                 continue
             }
@@ -103,7 +115,7 @@ public struct RunScanner: Sendable {
             var end = x
             while end + 1 < limit, scalars.count < maxCells,
                 sameRun(in: row, from: x, to: end + 1, selected: selected),
-                let next = candidate(in: row, at: end + 1, selected: selected)
+                let next = candidate(in: row, at: end + 1)
             {
                 scalars.append(next)
                 end += 1
@@ -130,7 +142,10 @@ public struct RunScanner: Sendable {
     }
 
     /// The scalar at a column, if that column could be part of a run at all.
-    private func candidate(in row: RowSnapshot, at x: Int, selected: ClosedRange<Int>?) -> UInt32? {
+    ///
+    /// It takes no selection: whether a column may *join* the run beside it is `sameRun`'s, and
+    /// a second check here would read as a boundary rule while enforcing nothing.
+    private func candidate(in row: RowSnapshot, at x: Int) -> UInt32? {
         let cell = row.cells[x]
         // A run is single-column characters only: a double-width character and the halves of
         // one carry VT width semantics that drive the cursor, selection and reflow, and those
@@ -153,6 +168,10 @@ public struct RunScanner: Sendable {
 /// The scanner asks about every candidate in every row it rebuilds. Shaping a candidate with
 /// CoreText costs far more than drawing it, so without this the feature would cost more than
 /// it is worth on the first frame of every screenful of punctuation.
+///
+/// There is no way to forget one face's answers and keep the rest, and deliberately so: a memo
+/// is built on top of one shaper, and after a change of face or cell size that shaper is the
+/// wrong one to ask. Whoever replaces the shaper replaces the memo with it.
 public final class MemoizedRunShaping: RunShaping {
     private let base: any RunShaping
     private let limit: Int
@@ -167,15 +186,14 @@ public final class MemoizedRunShaping: RunShaping {
         let key = GlyphKey(run: scalars, bold: bold, italic: italic)
         if let known = answers[key] { return known }
         let answer = base.shapesAsOne(scalars, bold: bold, italic: italic)
-        // Past the bound the memo stops growing rather than evicting: the alphabet and the cell
-        // cap make the real number of distinct runs a few hundred, so reaching the bound means
-        // something unexpected is asking, and paying the shaper is better than unbounded memory.
-        if answers.count < limit { answers[key] = answer }
+        // At the bound the memo starts again rather than stopping. Stopping is the worse of the
+        // two: a program can print a screenful of punctuation nobody has a ligature for, and
+        // from then on every question would reach the font for ever. Emptying costs one screen
+        // of answers and keeps the next screen cheap, which is the shape the work actually has.
+        if answers.count >= limit { answers.removeAll(keepingCapacity: true) }
+        answers[key] = answer
         return answer
     }
-
-    /// A new face or a new cell size: every answer was about the old one.
-    public func forgetAll() { answers.removeAll(keepingCapacity: true) }
 
     /// How many answers are held, for tests and for measuring.
     public var count: Int { answers.count }

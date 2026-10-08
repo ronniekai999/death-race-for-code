@@ -251,13 +251,17 @@ private func plainFace(_ column: Int) -> (bold: Bool, italic: Bool) { (false, fa
         let ordinary = CellMetrics(
             width: 9, height: 18, baseline: 14, underlineTop: 15, underlineThickness: 1,
             strikethroughTop: 9, strikethroughThickness: 1, scale: 1)
-        #expect(RunScanner(cell: ordinary).maxCells == 8, "the asked-for cap, well inside the limit")
+        #expect(
+            RunScanner(cell: ordinary, maxCells: 8).maxCells == 8,
+            "the asked-for cap, well inside the limit")
+        #expect(RunScanner(cell: ordinary).maxCells == 5, "and the default where nothing binds")
         // The case the slack exists for: eight 128-px columns are exactly 1024, so the ink of
-        // the eighth plus a pixel of antialiasing is already past the rasterizer's bound.
+        // the eighth plus a pixel of antialiasing is already past the rasterizer's bound. Asked
+        // for explicitly, because the default is below it and would hide the arithmetic.
         let big = CellMetrics(
             width: 128, height: 272, baseline: 220, underlineTop: 230, underlineThickness: 2,
             strikethroughTop: 140, strikethroughThickness: 2, scale: 2)
-        #expect(RunScanner(cell: big).maxCells == 7, "(1024 - 72) / 128")
+        #expect(RunScanner(cell: big, maxCells: 8).maxCells == 7, "(1024 - 72) / 128")
         // Never below two, or `maxCells` would mean "no runs" rather than "short runs".
         let huge = CellMetrics(
             width: 4000, height: 600, baseline: 480, underlineTop: 500, underlineThickness: 2,
@@ -297,25 +301,20 @@ private func plainFace(_ column: Int) -> (bold: Bool, italic: Bool) { (false, fa
         #expect(memo.count == 3)
     }
 
-    @Test func aNewFaceForgetsEveryAnswer() {
-        let table = TableShaper()
-        let memo = MemoizedRunShaping(table)
-        let bang = Array("!=".unicodeScalars.map(\.value))
-        _ = memo.shapesAsOne(bang, bold: false, italic: false)
-        memo.forgetAll()
-        _ = memo.shapesAsOne(bang, bold: false, italic: false)
-        #expect(table.asked == ["!=", "!="])
-    }
-
-    /// Past its bound the memo stops growing rather than evicting: reaching it means something
-    /// unexpected is asking, and paying the shaper beats unbounded memory.
-    @Test func theMemoIsBounded() {
+    /// At its bound the memo starts again rather than stopping, so a screenful of punctuation
+    /// nobody has a ligature for cannot leave every later question reaching the font for ever.
+    @Test func theMemoIsBoundedAndStartsAgain() {
         let table = TableShaper([])
         let memo = MemoizedRunShaping(table, limit: 2)
         for scalar in UInt32(0x21)...UInt32(0x25) {
             _ = memo.shapesAsOne([scalar, 0x3D], bold: false, italic: false)
         }
-        #expect(memo.count == 2)
+        #expect(memo.count <= 2, "never more than the bound")
+        #expect(memo.count >= 1, "and never empty, which would mean nothing is memoized at all")
+        // The last answer is held, so asking it again does not reach the shaper.
+        let before = table.asked.count
+        _ = memo.shapesAsOne([0x25, 0x3D], bold: false, italic: false)
+        #expect(table.asked.count == before)
     }
 }
 
@@ -340,11 +339,12 @@ private struct ShapedSurface {
     }
 
     func frame(
-        shaper: (any RunShaping)? = nil, selection: TextRegion? = nil, starfield: Bool = false
+        shaper: (any RunShaping)? = nil, selection: TextRegion? = nil, starfield: Bool = false,
+        preedit: PreeditLayout? = nil
     ) -> Frame {
         builder.build(
             mirror: model.mirror, theme: .legendsNeverDie, cell: Self.cell, selection: selection,
-            glyphs: glyphs, starfield: starfield, shaper: shaper)
+            glyphs: glyphs, preedit: preedit, starfield: starfield, shaper: shaper)
     }
 }
 
@@ -406,6 +406,45 @@ private struct ShapedSurface {
             atlas: .mask, x: 0, y: 0, width: 0, height: 0, offsetX: 0, offsetY: 0, shelf: 0)
         let frame = surface.frame(shaper: TableShaper())
         #expect(frame.glyphs.map(\.cellX) == [0, 2, 3, 5], "every character still on screen")
+    }
+
+    /// A run the atlas is not ready for yet is a different answer from one it refused, and the
+    /// difference is whether the row is ever asked again. Forgetting it is invisible — every
+    /// character is on screen, drawn one at a time — and the ligature never appears at all.
+    @Test func aRunTheAtlasIsNotReadyForKeepsTheRowDirty() {
+        let surface = ShapedSurface()
+        surface.feed("a != b")
+        let runKey = GlyphKey(run: Array("!=".unicodeScalars.map(\.value)), bold: false, italic: false)
+        surface.glyphs.notReady = [runKey]
+        let frame = surface.frame(shaper: TableShaper())
+        #expect(frame.glyphs.map(\.cellX) == [0, 2, 3, 5], "every character still on screen")
+        #expect(!frame.isComplete, "so the row is built again and the run gets its chance")
+    }
+
+    /// A run may not straddle composing text. `overlay` takes out whatever reaches into it, and
+    /// one bitmap cannot be drawn for only part of its columns — so a run kept here would take
+    /// its uncovered column with it and leave that cell blank.
+    @Test func aRunNeverStraddlesComposingText() {
+        let surface = ShapedSurface()
+        surface.feed("a!=cde")
+        // One narrow column of composing text, landing on the run's first column.
+        let composing = PreeditLayout(text: "x", cursorColumn: 1, cursorRow: 0, columns: 12)
+        let frame = surface.frame(shaper: TableShaper(), preedit: composing)
+        #expect(frame.glyphs.map(\.cellX).contains(2), "the = beside the composing text is still drawn")
+        #expect(frame.glyphs.allSatisfy { $0.cells == 1 }, "and no run was formed over it")
+    }
+
+    /// A new glyph source means new atlas coordinates, and a fresh one's epoch starts where the
+    /// old one's did — so nothing in `Inputs` can see it and the rows have to be dropped by hand.
+    @Test func forgettingTheRowsRebuildsThemAll() {
+        let surface = ShapedSurface(rows: 3)
+        surface.feed("a != b\r\nc\r\nd")
+        _ = surface.frame(shaper: TableShaper())
+        _ = surface.frame(shaper: TableShaper())
+        #expect(surface.builder.rebuiltRows == 0, "nothing changed, so nothing was rebuilt")
+        surface.builder.forgetRows()
+        _ = surface.frame(shaper: TableShaper())
+        #expect(surface.builder.rebuiltRows == 3)
     }
 
     /// The off-proof, and it is stronger than a golden: `Frame.summary` records only a glyph's

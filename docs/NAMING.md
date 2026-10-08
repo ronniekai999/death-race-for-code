@@ -21,7 +21,7 @@ modules keep descriptive names, except where a themed name stays clear (`Legends
 | Command finished alert | Ring Ring | "swift build finished in 12.4s." |
 | Close confirmation | Goodbye & Good Riddance? | "2 sessions are still running. Close anyway?" |
 | Max-effects preset | The Party Never Ends | |
-| Joined operators | Ligatures, with no title of its own | "Draws runs like != and => the way the font draws them together." Never "texture healing", which is a different thing the app does not do. |
+| Joined operators | Ligatures, with no title of its own | "Draws runs like != and => the way the font draws them together." Say runs, or operators, never "texture healing": the font's `calt` does shape some punctuation pairs for their neighbours, but letters are drawn exactly as they were, which is what people mean by the phrase. |
 
 Secure Keyboard Entry has no themed name, and its copy stays literal. On the Lucid Dreams
 panel it is off until you click into the app (the panel is non-activating), so nothing there

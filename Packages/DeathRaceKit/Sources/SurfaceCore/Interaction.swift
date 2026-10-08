@@ -260,6 +260,22 @@ public struct PreeditLayout: Sendable, Equatable {
     /// The column the input method's caret is in, for the candidate window.
     public var caretColumn: Int
 
+    /// Every column this composing text covers, as one range, or nil when it covers none.
+    ///
+    /// Gaps between its cells are included, which is the safe direction: the frame builder uses
+    /// this to keep a shaped run from straddling composition, and a run that reaches into a gap
+    /// would still have to be taken out and so would still leave a column blank.
+    public var columns: Range<Int>? {
+        guard let first = cells.first else { return nil }
+        var low = first.column
+        var high = first.column + (first.isWide ? 2 : 1)
+        for cell in cells.dropFirst() {
+            low = min(low, cell.column)
+            high = max(high, cell.column + (cell.isWide ? 2 : 1))
+        }
+        return low < high ? low..<high : nil
+    }
+
     /// `text` at the cursor; `caret` is the input method's caret, in characters from the
     /// start of `text` (nil puts it at the end).
     public init(text: String, cursorColumn: Int, cursorRow: Int, columns: Int, caret: Int? = nil) {

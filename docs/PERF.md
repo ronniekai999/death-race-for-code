@@ -227,9 +227,17 @@ The Phase 2 budgets above are checked by hand on the M5, with a debug build
   that are dirty, so a screen that is not changing does no shaping work at all and the frame
   count is untouched. What it does cost is the atlas: a run is its own key, its bitmap is two to
   eight cells wide, and `ShelfAtlas` buckets by height only — so run bitmaps land on the same
-  shelves as ordinary text and use them up several times faster. The number of distinct keys is
-  bounded by the alphabet and the cell cap rather than by what someone types, which is the
-  reason the alphabet is punctuation and not words.
+  shelves as ordinary text and use them up several times faster.
+
+  It also costs *shaping*, and that one has a bad case worth naming rather than hiding. The
+  scanner asks the shaper up to `maxCells - 1` questions for each candidate column, and the set
+  of distinct questions is every substring of the alphabet up to that length — so the cap is an
+  exponent, not a detail. Measured on an 80 by 24 screen of varied punctuation: about 10,800
+  questions for one full rebuild with the cap at eight, against sixteen for a screen of ordinary
+  source code. That is the cap's whole reason for being five: four questions a column instead of
+  seven, a key space orders of magnitude smaller, and every ligature either bundled family has
+  still inside it, the widest being four characters. The memo starts again at its bound rather
+  than stopping, so even the bad case cannot leave every later question reaching the font.
 
   Worth measuring on the Mac, and measurable here too, since `GlyphCache` and `ShelfAtlas` are
   portable: replay a corpus recording of source code with shaping off and on, and compare the

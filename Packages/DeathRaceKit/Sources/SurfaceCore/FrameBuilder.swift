@@ -20,9 +20,13 @@ public struct GlyphInstance: Sendable, Equatable {
     ///
     /// The shader reads bit 0 and nothing else — it sizes the quad from `width` and `height`,
     /// so a bitmap wider than a cell already draws across columns with no notion of them. The
-    /// span is for the frame's own later passes, which do count columns. Less one, so a
-    /// one-column glyph leaves these bits zero and every frame built before runs existed is
-    /// bit-for-bit what it was.
+    /// span is for the frame's own later passes, which do count columns.
+    ///
+    /// It is the span less one, so a one-column glyph leaves these bits zero and its whole word
+    /// is what it was before runs existed. A double-width character's is not: it covers two
+    /// columns and now says so, which is the point — the composing-text overlay used to filter
+    /// by the column a glyph *starts* on, so a wide character one column to the left painted
+    /// into what was being typed.
     public var flags: UInt32
 
     public static let colorAtlasFlag: UInt32 = 1
@@ -146,6 +150,9 @@ public final class FrameBuilder {
     private struct CachedRow {
         var version: UInt64
         var selection: ClosedRange<Int>?
+        /// The columns composing text covers on this row, which runs are kept out of, so the
+        /// row is built again when composition moves rather than keeping a stale answer.
+        var preedit: Range<Int>?
         var backgrounds: [PackedColor]
         var glyphs: [GlyphInstance]
         var decorations: [DecorationInstance]
@@ -155,6 +162,17 @@ public final class FrameBuilder {
 
     private var inputs: Inputs?
     private var cache: [UInt64: CachedRow] = [:]
+
+    /// Every cached row is thrown away.
+    ///
+    /// `Inputs` identifies the glyph source by its `epoch` alone, and a brand-new source starts
+    /// at zero — so replacing one (new faces, a new cell, thicker strokes) can leave the tuple
+    /// unchanged while every cached row still holds coordinates into the atlas that was just
+    /// discarded. Whoever replaces the source says so by calling this.
+    public func forgetRows() {
+        cache.removeAll(keepingCapacity: true)
+        inputs = nil
+    }
     /// Rows rebuilt by the last `build`, for tests and measurement.
     public private(set) var rebuiltRows = 0
 
@@ -190,11 +208,18 @@ public final class FrameBuilder {
         for (y, row) in mirror.lines.enumerated() {
             let line = mirror.viewportTopLine &+ UInt64(y)
             let selected = selection?.columns(on: line, width: columns)
+            // A run may not straddle the composing text: `overlay` takes out whatever reaches
+            // into it, and one bitmap cannot be drawn for only part of its columns — so the
+            // columns outside would be left blank. Kept out here instead, where they fall back
+            // to drawing one at a time, which is what composition wants anyway.
+            let composing = preedit.flatMap { $0.row == y ? $0.columns : nil }
             var cached = cache[row.id]
-            if cached == nil || cached!.version != row.version || cached!.selection != selected || !cached!.complete {
+            if cached == nil || cached!.version != row.version || cached!.selection != selected
+                || cached!.preedit != composing || !cached!.complete
+            {
                 cached = buildRow(
                     row, columns: columns, selected: selected, resolver: resolver, cell: cell, glyphs: glyphs,
-                    starfield: starfield, shaper: shaper)
+                    starfield: starfield, shaper: shaper, composing: composing)
                 cache[row.id] = cached
                 rebuiltRows += 1
             }
@@ -350,7 +375,8 @@ public final class FrameBuilder {
 
     private func buildRow(
         _ row: RowSnapshot, columns: Int, selected: ClosedRange<Int>?, resolver: ColorResolver, cell: CellMetrics,
-        glyphs: any GlyphSource, starfield: Bool, shaper: (any RunShaping)? = nil
+        glyphs: any GlyphSource, starfield: Bool, shaper: (any RunShaping)? = nil,
+        composing: Range<Int>? = nil
     ) -> CachedRow {
         var plain: [ResolvedStyle?] = Array(repeating: nil, count: row.styles.count)
         var highlighted: [ResolvedStyle?] = Array(repeating: nil, count: row.styles.count)
@@ -368,8 +394,8 @@ public final class FrameBuilder {
         }
 
         var out = CachedRow(
-            version: row.version, selection: selected, backgrounds: [], glyphs: [], decorations: [], shelves: [],
-            complete: true)
+            version: row.version, selection: selected, preedit: composing, backgrounds: [], glyphs: [],
+            decorations: [], shelves: [], complete: true)
         out.backgrounds.reserveCapacity(columns)
         var shelves = Set<UInt16>()
         var decorations = DecorationRuns(cell: cell)
@@ -388,7 +414,9 @@ public final class FrameBuilder {
                         let id = Int(row.cells[x].styleID) < row.styles.count ? Int(row.cells[x].styleID) : 0
                         let resolved = style(id, selected: selected?.contains(x) ?? false)
                         return (resolved.bold, resolved.italic)
-                    }, shaper: $0)
+                    }, shaper: $0
+                )
+                .filter { composing == nil || !($0.column..<($0.column + $0.cells)).overlaps(composing!) }
             } ?? []
         func emit(_ placement: GlyphPlacement, at x: Int, cells: Int, _ resolved: ResolvedStyle) {
             out.glyphs.append(
@@ -434,11 +462,21 @@ public final class FrameBuilder {
                     let candidate = runs[nextRun]
                     nextRun += 1
                     let key = GlyphKey(run: candidate.scalars, bold: resolved.bold, italic: resolved.italic)
-                    if let placement = glyphs.placement(for: key), !placement.isEmpty {
-                        run = candidate
-                        span = candidate.cells
-                        runEnd = x + candidate.cells - 1
-                        emit(placement, at: x, cells: candidate.cells, resolved)
+                    if let placement = glyphs.placement(for: key) {
+                        if !placement.isEmpty {
+                            run = candidate
+                            span = candidate.cells
+                            runEnd = x + candidate.cells - 1
+                            emit(placement, at: x, cells: candidate.cells, resolved)
+                        }
+                    } else {
+                        // Nil is the other answer, and it means something else entirely: not
+                        // refused but *not ready yet*, so the row has to be asked again. The
+                        // cells below still draw this frame, which is why forgetting this is
+                        // invisible — the characters are all on screen, the row is cached as
+                        // the whole answer, and the ligature never appears for as long as that
+                        // row lives.
+                        out.complete = false
                     }
                 }
                 decorations.add(resolved, column: x, cells: span)

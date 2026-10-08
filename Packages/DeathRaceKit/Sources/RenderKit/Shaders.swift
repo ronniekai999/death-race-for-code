@@ -31,7 +31,7 @@ public enum Shaders {
             ushort2 size;
             short2 offset;        // the bitmap's top-left relative to the cell's
             uint color;
-            uint flags;           // bit 0: in the color atlas
+            uint flags;           // bit 0: in the color atlas; 1-5: columns covered, less one
         };
         static_assert(sizeof(GlyphInstance) == 24, "GlyphInstance must match SurfaceCore's layout");
 

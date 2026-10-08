@@ -24,6 +24,15 @@ public struct GlyphKey: Hashable, Sendable {
     /// allowed to cover is `RunScanner`'s cap, which is smaller and derived from the cell size.
     public static let maxRunCells = 32
 
+    /// The widest bitmap a rasterizer will draw, in pixels.
+    ///
+    /// It lives here because two places need it and they are in different modules: the
+    /// rasterizer refuses anything wider, and `RunScanner` has to cap a run's columns so that
+    /// it never asks. Re-typing the number in both would be a silent trap, since a refusal is
+    /// cached and means "draws nothing" — raise it in one place only and over-long runs turn
+    /// into blank space and stay blank.
+    public static let maxRunPixels = 1024
+
     /// `runCells` is 0 for anything that is not a run, which packs bit-for-bit as it did before
     /// runs existed — so a frame built without shaping is identical, not merely similar.
     public init(scalars: [UInt32], bold: Bool, italic: Bool, wide: Bool, runCells: Int = 0) {

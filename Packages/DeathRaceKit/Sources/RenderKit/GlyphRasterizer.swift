@@ -18,12 +18,31 @@ public struct GlyphRasterizer: GlyphRasterizing, Sendable {
     public let cell: CellMetrics
     public let thicken: Bool
     let language: String?
+    /// The four faces with the run features on, in `FontSet.face(bold:italic:)`'s order.
+    ///
+    /// Built once here rather than per question. The scanner asks about every candidate in
+    /// every row it rebuilds, and each question used to make a feature-settings array, a font
+    /// descriptor and a font copy — thousands of them in one frame on a screen of punctuation,
+    /// all recomputing four values that depend on nothing but the faces.
+    private let runFaces: [CTFont]
 
     public init(fonts: FontSet, cell: CellMetrics, thicken: Bool = false, language: String? = nil) {
         self.fonts = fonts
         self.cell = cell
         self.thicken = thicken
         self.language = language ?? Locale.preferredLanguages.first
+        runFaces = [
+            Self.shaping(fonts.regular), Self.shaping(fonts.bold), Self.shaping(fonts.italic),
+            Self.shaping(fonts.boldItalic),
+        ]
+    }
+
+    /// The run-shaping face for a style, in the same order `FontSet.face(bold:italic:)` uses.
+    ///
+    /// A run is never a private-use character, so unlike `face(for:)` this needs no symbols
+    /// font: the alphabet is punctuation, which every monospaced face has.
+    func runFace(bold: Bool, italic: Bool) -> CTFont {
+        runFaces[(bold ? 1 : 0) + (italic ? 2 : 0)]
     }
 
     public func rasterize(_ key: GlyphKey) -> RasterizedGlyph {
@@ -79,15 +98,19 @@ public struct GlyphRasterizer: GlyphRasterizing, Sendable {
         "liga", "calt", "ss01", "ss02", "ss03", "ss04", "ss05", "ss06", "ss07", "ss08", "ss09",
     ]
 
-    /// `font` with the run features on. Size 0 and no matrix keep the font's own, as the
-    /// cascade-list copy in `FontSet` does, so a face slanted into an italic stays slanted.
-    static func shaping(_ font: CTFont) -> CTFont {
+    /// The descriptor that turns the run features on: the same every time, so made once.
+    private static let runDescriptor: CTFontDescriptor = {
         let settings: [[String: Any]] = runFeatures.map {
             [kCTFontOpenTypeFeatureTag as String: $0, kCTFontOpenTypeFeatureValue as String: 1]
         }
-        let descriptor = CTFontDescriptorCreateWithAttributes(
+        return CTFontDescriptorCreateWithAttributes(
             [kCTFontFeatureSettingsAttribute: settings] as CFDictionary)
-        return CTFontCreateCopyWithAttributes(font, 0, nil, descriptor)
+    }()
+
+    /// `font` with the run features on. Size 0 and no matrix keep the font's own, as the
+    /// cascade-list copy in `FontSet` does, so a face slanted into an italic stays slanted.
+    static func shaping(_ font: CTFont) -> CTFont {
+        CTFontCreateCopyWithAttributes(font, 0, nil, runDescriptor)
     }
 
     /// The shaped line for a key.
@@ -98,7 +121,7 @@ public struct GlyphRasterizer: GlyphRasterizing, Sendable {
     /// looks unligated while being spaced as though it were — with nothing failing anywhere,
     /// on any platform that can run the tests.
     func line(for key: GlyphKey) -> CTLine? {
-        let font = key.isRun ? Self.shaping(face(for: key)) : face(for: key)
+        let font = key.isRun ? runFace(bold: key.bold, italic: key.italic) : face(for: key)
         var attributes: [CFString: Any] = [
             kCTFontAttributeName: font,
             kCTForegroundColorFromContextAttributeName: true,
@@ -202,7 +225,8 @@ public struct GlyphRasterizer: GlyphRasterizing, Sendable {
         ).integral.insetBy(dx: -1, dy: -1)
         let width = Int(pixelBounds.width)
         let height = Int(pixelBounds.height)
-        guard width > 0, height > 0, width <= 1024, height <= 1024 else { return .empty }
+        let bound = GlyphKey.maxRunPixels
+        guard width > 0, height > 0, width <= bound, height <= bound else { return .empty }
 
         let bytesPerPixel = isColor ? 4 : 1
         let context: CGContext?

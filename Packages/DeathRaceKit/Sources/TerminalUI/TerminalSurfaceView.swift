@@ -955,6 +955,11 @@ public final class TerminalSurfaceView: NSView {
     private func resetGlyphs() {
         rasterizer = GlyphRasterizer(fonts: fonts, cell: cell, thicken: fontThicken)
         glyphs = GlyphCache(rasterizer: rasterizer)
+        // The rows have to go with the atlas. A new cache's epoch starts at zero, so when the
+        // cell did not change — thicker strokes, or a new italic family with the same metrics —
+        // the builder's inputs look identical and it would keep rows pointing into the atlas
+        // that was just thrown away.
+        builder.forgetRows()
         rebuildShaper()
         cursorKey = nil
         redraw()

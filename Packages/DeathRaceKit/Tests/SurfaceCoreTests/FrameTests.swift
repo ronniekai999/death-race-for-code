@@ -12,10 +12,14 @@ final class FakeGlyphs: GlyphSource {
     var placements: [GlyphKey: GlyphPlacement] = [:]
     var requests: [GlyphKey] = []
     var unavailable: Set<UInt32> = []
+    /// Keys the atlas is not ready for, runs included — `unavailable` reaches single scalars
+    /// only, and a run key's whole point is that it is not one.
+    var notReady: Set<GlyphKey> = []
     var usedShelves: Set<UInt16> = []
 
     func placement(for key: GlyphKey) -> GlyphPlacement? {
         requests.append(key)
+        if notReady.contains(key) { return nil }
         if key.scalars.count == 1, unavailable.contains(key.scalars[0]) { return nil }
         if let known = placements[key] { return known }
         let index = UInt16(placements.count)

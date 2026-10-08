@@ -115,7 +115,5 @@ import Testing
         #expect(memo.shapesAsOne(scalars("!="), bold: false, italic: false))
         #expect(!memo.shapesAsOne(scalars("/*"), bold: false, italic: false))
         #expect(memo.count == 2, "one answer per distinct run, kept whichever way it went")
-        memo.forgetAll()
-        #expect(memo.count == 0)
     }
 }

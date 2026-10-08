@@ -365,12 +365,19 @@ across the columns it covers — and is off by default. Every decision below cam
 the bundled fonts' own `GSUB` tables, by applying each feature's lookups to every pair and
 triple of the run alphabet. Three of them went against what we believed when the work started.
 
-**The feature is programming ligatures and not texture healing.** Letter-side contextual
-alternates would need whole words shaped and the atlas keyed by shaped run, and
+**The feature is programming ligatures, and letters are untouched.** `calt` is in the feature
+list, so Monaspace's punctuation-side contextual alternates — the 36 pairs it shapes for their
+neighbours without joining them — do come along, and the oracle promotes them to runs because
+they are drawn differently as a unit, which is the question it asks. What does *not* come along
+is the texture healing people mean by the phrase: letter-side contextual alternates would need
+whole words shaped and the atlas keyed by shaped run, and
 `GlyphCache.placements` has no eviction for glyph keys — only for the shelves under them — so a
 key space that grows with the words someone types is a leak rather than a feature. The run
 alphabet is therefore fixed punctuation, `! # $ % & * + - . / : < = > ? @ \ ^ | ~`, which keeps
-the key space bounded by the alphabet and the cell cap.
+the key space bounded by the alphabet and the cell cap — and the cap is five rather than eight
+because the scanner asks the shaper up to `maxCells - 1` questions per candidate and the cap is
+the exponent on that key space. Measured: a screen of varied punctuation asks about 10,800
+questions at eight and the widest ligature either bundled family has is four characters wide.
 
 **A ligature does not reduce the glyph count, so the oracle cannot ask whether it did.** In both
 bundled families every ligature is N glyphs in and N glyphs *out*: the font keeps one glyph per

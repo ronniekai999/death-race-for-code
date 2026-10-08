@@ -111,6 +111,20 @@ public final class TerminalSurfaceView: NSView {
             applyEnergyConditions()
         }
     }
+    /// What the Mac is asking for, read from `ProcessInfo`. `recentInput` is the view's own and
+    /// is overwritten.
+    ///
+    /// A seam because two things that depend on it must not depend on how hot the runner happens
+    /// to be: a window test asserting the glow was applied, and the pictures CI keeps for
+    /// review. A `--render-chrome` artifact that came back glow-free because the runner was at
+    /// `serious` thermal pressure, with no step saying why, is worse than no artifact — and the
+    /// Phase 9 criteria tell a reviewer to compare against exactly those pictures.
+    public var energyState: () -> FrameRatePolicy.Conditions = {
+        let info = ProcessInfo.processInfo
+        return FrameRatePolicy.Conditions(
+            recentInput: false, lowPowerMode: info.isLowPowerModeEnabled,
+            thermal: FrameRatePolicy.Thermal(rawValue: info.thermalState.rawValue) ?? .nominal)
+    }
     /// Lines a notch of a mouse wheel scrolls.
     public var mouseScrollMultiplier = 3.0
     /// On the alternate screen (less, man), the wheel sends arrow keys even when the program
@@ -928,10 +942,8 @@ public final class TerminalSurfaceView: NSView {
     func applyEnergyConditions() {
         let recent = CACurrentMediaTime() - lastInputTime < FrameRatePolicy.inputWindow
         inputBoosted = recent
-        let info = ProcessInfo.processInfo
-        let conditions = FrameRatePolicy.Conditions(
-            recentInput: recent, lowPowerMode: info.isLowPowerModeEnabled,
-            thermal: FrameRatePolicy.Thermal(rawValue: info.thermalState.rawValue) ?? .nominal)
+        var conditions = energyState()
+        conditions.recentInput = recent
         // The same `follow-low-power-mode` setting the frame rate follows, so there is nothing
         // extra to plumb and the two can never be told different things.
         let effects = EffectsPolicy(followsLowPowerMode: frameRatePolicy.followsLowPowerMode)

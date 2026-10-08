@@ -210,22 +210,25 @@ public final class SurfaceRenderer {
         encoder.setFragmentBuffer(backgrounds, offset: 0, index: 1)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
 
-        // Light first and the crisp glyphs over it, so a fully covered pixel is exactly what it
-        // would be without this draw. Skipped outright when there is no glow, which is what
-        // makes a frame with the parameter left out bit-identical to today's.
-        if let glyphBuffer, glow != 0 {
-            encoder.setRenderPipelineState(pipelines.glows)
-            encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
-            encoder.setVertexBuffer(glyphBuffer, offset: 0, index: 1)
-            encoder.setFragmentTexture(maskTexture, index: 0)
-            encoder.drawPrimitives(
-                type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: frame.glyphs.count)
-        }
+        // The glow and the glyphs are the same instances from the same buffer, so they bind it
+        // once: two blocks would be four redundant encoder calls a frame and, worse, two places
+        // that have to agree about the instance count.
         if let glyphBuffer {
-            encoder.setRenderPipelineState(pipelines.glyphs)
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
             encoder.setVertexBuffer(glyphBuffer, offset: 0, index: 1)
             encoder.setFragmentTexture(maskTexture, index: 0)
+            // Light first and the crisp glyphs over it, so a fully covered pixel is exactly what
+            // it would be without this draw. Skipped outright when there is no strength, which
+            // is what makes a frame with the parameter left out bit-identical to today's — and
+            // it tests the alpha byte, not the whole word, because that is all the shader reads:
+            // a tint with no strength (which `Uniforms.glow` reserves for XDR) would otherwise
+            // dispatch an instance per glyph for the vertex stage to cull.
+            if glow >> 24 != 0 {
+                encoder.setRenderPipelineState(pipelines.glows)
+                encoder.drawPrimitives(
+                    type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: frame.glyphs.count)
+            }
+            encoder.setRenderPipelineState(pipelines.glyphs)
             encoder.setFragmentTexture(colorTexture, index: 1)
             encoder.drawPrimitives(
                 type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: frame.glyphs.count)

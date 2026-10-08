@@ -389,9 +389,15 @@
             context.restoreGState()
             if let renderer, let tab = controller.model.activeTab {
                 for id in tab.panes {
-                    guard let surface = controller.panes[id]?.surface, !surface.isHiddenOrHasHiddenAncestor,
-                        let image = try surface.snapshot(using: renderer)?.cgImage()
+                    guard let surface = controller.panes[id]?.surface, !surface.isHiddenOrHasHiddenAncestor
                     else { continue }
+                    // These pictures are for review, so what they show must not depend on how
+                    // hot the machine that drew them was: a glow-free artifact because the
+                    // runner hit `serious` thermal pressure, with nothing saying so, would be
+                    // read as the feature not working.
+                    surface.energyState = { FrameRatePolicy.Conditions(recentInput: false) }
+                    surface.applyEnergyConditions()
+                    guard let image = try surface.snapshot(using: renderer)?.cgImage() else { continue }
                     context.draw(image, in: surface.convert(surface.bounds, to: nil))
                     surface.drawCursor(in: context)
                     // Badges are layers, which an offscreen frame leaves out, so a picture of a

@@ -29,6 +29,13 @@ private final class SolidBitmaps: GlyphRasterizing {
         #expect(glow.packed == 0x2430_2010)
         #expect(Glow(strength: 2).packed >> 24 == 0xFF)
         #expect(Glow(strength: -1).packed == 0)
+        // The clamp reads as total and is not: `min`/`max` propagate NaN, and converting one to
+        // `UInt32` traps instead of clamping. Every non-finite value goes to **off**, including
+        // `+∞`, which a clamp alone would have sent to full brightness: for a visual effect,
+        // failing dark is the safe direction and failing at maximum light is not.
+        #expect(Glow(strength: .nan).packed == 0)
+        #expect(Glow(strength: .infinity).packed == 0)
+        #expect(Glow(strength: -.infinity).packed == 0)
     }
 
     /// The renderer skips the glow draw on `glow == 0`, so "off" has to be exactly one value: a

@@ -128,7 +128,8 @@ public enum Shaders {
             float2 atlasCoord;
             float3 color [[flat]];
             float strength [[flat]];
-            float radius [[flat]];
+            float3 rings [[flat]];        // x: the inner ring, y: the outer, z: the outer's
+                                          // diagonals. Whole texels, worked out once per glyph
             float2 atlasBoxMin [[flat]];  // this glyph's own rectangle: a tap outside it reads
             float2 atlasBoxMax [[flat]];  // nothing, not whatever was packed beside it
         };
@@ -174,7 +175,7 @@ public enum Shaders {
                 out.atlasCoord = float2(0.0);
                 out.color = float3(0.0);
                 out.strength = 0.0;
-                out.radius = 1.0;
+                out.rings = float3(1.0);
                 out.atlasBoxMin = float2(0.0);
                 out.atlasBoxMax = float2(0.0);
                 return out;
@@ -195,7 +196,15 @@ public enum Shaders {
             out.atlasCoord = float2(glyph.atlasOrigin) - grow + corner * (size + 2.0 * grow);
             out.color = color;
             out.strength = strength;
-            out.radius = radius;
+            // **Whole texels**, which is load-bearing rather than tidy: the fragment's taps are
+            // read with `read`, which truncates, so offsets left at their exact distances land
+            // on whatever texel they happen to fall in. At a radius of 2 — every non-Retina
+            // display, and `font-size = 9` at 2x — the inner ring at 0.707 and the diagonals at
+            // 1.414 both truncated onto the *same* four texels, the four nearest orthogonal
+            // neighbours were never read at all, and nine distinct taps were normalized as
+            // though there were thirteen. Rounded, the rings are distinct at every radius the
+            // cell can produce, and the outer ring sits at `radius` in all eight directions.
+            out.rings = float3(max(1.0, round(radius * 0.5)), radius, max(1.0, round(radius * 0.70710678)));
             out.atlasBoxMin = float2(glyph.atlasOrigin);
             out.atlasBoxMax = float2(glyph.atlasOrigin) + size;
             return out;
@@ -211,22 +220,22 @@ public enum Shaders {
 
         fragment float4 glowFragment(GlowOut in [[stage_in]],
                                      texture2d<float, access::read> mask [[texture(0)]]) {
-            // Thirteen taps on two rings. A separable blur needs an intermediate texture, which
-            // is the one thing this renderer does not have anywhere; at a text radius of about
-            // three pixels a ring and a true 7x7 Gaussian are indistinguishable, and 7x7 is 49
-            // taps. If a profile ever demands it, the fallback is a pre-blurred atlas.
-            const float diagonal = 0.70710678;
-            float r = in.radius;
+            // Thirteen taps on two rings, at whole texels (the vertex stage works the radii
+            // out). A separable blur needs an intermediate texture, which is the one thing this
+            // renderer does not have anywhere; at a text radius of about three pixels a ring and
+            // a true 7x7 Gaussian are indistinguishable, and 7x7 is 49 taps. If a profile ever
+            // demands it, the fallback is a pre-blurred atlas.
+            float e = in.rings.x;
+            float r = in.rings.y;
+            float d = in.rings.z;
             float2 p = in.atlasCoord;
             float2 lo = in.atlasBoxMin;
             float2 hi = in.atlasBoxMax;
-            float d = r * diagonal;
-            float e = d * 0.5;
             float middle = glowTap(mask, p, lo, hi);
-            float near = glowTap(mask, p + float2(e, e), lo, hi)
-                + glowTap(mask, p + float2(e, -e), lo, hi)
-                + glowTap(mask, p + float2(-e, e), lo, hi)
-                + glowTap(mask, p + float2(-e, -e), lo, hi);
+            float near = glowTap(mask, p + float2(e, 0.0), lo, hi)
+                + glowTap(mask, p + float2(-e, 0.0), lo, hi)
+                + glowTap(mask, p + float2(0.0, e), lo, hi)
+                + glowTap(mask, p + float2(0.0, -e), lo, hi);
             float ring = glowTap(mask, p + float2(r, 0.0), lo, hi)
                 + glowTap(mask, p + float2(-r, 0.0), lo, hi)
                 + glowTap(mask, p + float2(0.0, r), lo, hi)

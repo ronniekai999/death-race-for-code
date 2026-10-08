@@ -50,7 +50,24 @@ extension WindowTests {
         let controller = makeWindow(host)
         defer { controller.window?.close() }
         let surface = try #require(controller.activePane?.surface)
+        // The runner's own temperature is not what is under test: a loaded macOS runner can
+        // report `serious` thermal pressure, and then this would fail for a reason the message
+        // could not name.
+        surface.energyState = { FrameRatePolicy.Conditions(recentInput: false) }
+        surface.applyEnergyConditions()
         let strength = UInt32((ThemeCatalog.legendsNeverDie.chrome.glowOpacity * 255).rounded())
+        #expect(surface.allowedGlow >> 24 == strength)
+
+        // And the gate itself, asserted on the policy rather than on the weather.
+        surface.energyState = { FrameRatePolicy.Conditions(recentInput: false, lowPowerMode: true) }
+        surface.applyEnergyConditions()
+        #expect(surface.allowedGlow == 0)
+        surface.energyState = { FrameRatePolicy.Conditions(recentInput: false, thermal: .serious) }
+        surface.applyEnergyConditions()
+        #expect(surface.allowedGlow == 0)
+        // Typing must not take it away, which is the whole reason `recentInput` is not an input.
+        surface.energyState = { FrameRatePolicy.Conditions(recentInput: false) }
+        surface.applyEnergyConditions()
         #expect(surface.allowedGlow >> 24 == strength)
     }
 }

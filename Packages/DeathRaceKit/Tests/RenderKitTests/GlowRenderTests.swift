@@ -19,8 +19,10 @@ import VTCore
         // `setVertexBytes` sends the stride, so size and stride have to be equal or the shader
         // reads bytes this side never wrote. That is what `reserved` is for.
         #expect(MemoryLayout<Uniforms>.size == MemoryLayout<Uniforms>.stride)
-        #expect(MemoryLayout<Uniforms>.offset(of: \.dim) == 40)
-        #expect(MemoryLayout<Uniforms>.offset(of: \.glow) == 44)
+        #expect(MemoryLayout<Uniforms>.offset(of: \.clearColor) == 32)
+        #expect(MemoryLayout<Uniforms>.offset(of: \.dim) == 36)
+        #expect(MemoryLayout<Uniforms>.offset(of: \.glow) == 40)
+        #expect(MemoryLayout<Uniforms>.offset(of: \.reserved) == 44)
     }
 }
 
@@ -54,6 +56,12 @@ struct GlowRenderTests {
     /// Strong enough that a missed exclusion could not hide in the antialiasing noise.
     static let strong: PackedColor = Glow(strength: 1).packed
 
+    /// One renderer for the suite. `makeLibrary(source:)` compiles the whole shader library and
+    /// `Shaders.swift`'s own header puts that at a few tens of milliseconds, "done once per
+    /// device" — one per `image(...)` call would be nine or ten compilations added to the macOS
+    /// Test step for this suite alone.
+    static let shared: OffscreenRenderer? = try? OffscreenRenderer()
+
     static let cell = CellMetrics(
         width: 16, height: 32, baseline: 24, underlineTop: 27, underlineThickness: 2, strikethroughTop: 16,
         strikethroughThickness: 2, scale: 2)
@@ -75,15 +83,10 @@ struct GlowRenderTests {
     }
 
     func image(
-        _ text: String, glow: PackedColor, dim: PackedColor = 0, rasterizer: any GlyphRasterizing? = nil
+        _ text: String, glow: PackedColor, dim: PackedColor = 0, rasterizer: (any GlyphRasterizing)? = nil
     ) throws -> RenderedImage {
-        let renderer = try OffscreenRenderer()
-        var raster: any GlyphRasterizing
-        if let rasterizer {
-            raster = rasterizer
-        } else {
-            raster = GlyphRasterizer(fonts: FontSet(family: "SF Mono", size: 13), cell: Self.cell)
-        }
+        let renderer = try #require(Self.shared)
+        let raster = rasterizer ?? GlyphRasterizer(fonts: FontSet(family: "SF Mono", size: 13), cell: Self.cell)
         let (built, glyphs, layout) = frame(text, rasterizer: raster)
         #expect(built.isComplete)
         return try renderer.render(built, cell: Self.cell, layout: layout, glyphs: glyphs, dim: dim, glow: glow)
@@ -173,7 +176,7 @@ struct GlowRenderTests {
         #expect(built.frame.isComplete)
         let layout = PixelLayout(
             width: 6 * Self.cell.width + 16, height: Self.cell.height + 16, originX: 8, originY: 8)
-        let renderer = try OffscreenRenderer()
+        let renderer = try #require(Self.shared)
         let off = try renderer.render(built.frame, cell: Self.cell, layout: layout, glyphs: glyphs)
         let on = try renderer.render(
             built.frame, cell: Self.cell, layout: layout, glyphs: glyphs, glow: Self.strong)

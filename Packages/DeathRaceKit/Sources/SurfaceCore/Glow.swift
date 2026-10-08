@@ -31,7 +31,12 @@ public struct Glow: Equatable, Sendable {
     /// is what makes a frame drawn with the parameter left out bit-identical to one drawn with
     /// `Glow.none`.
     public var packed: PackedColor {
-        let alpha = UInt32((min(max(strength, 0), 1) * 255).rounded())
+        // `isFinite` first, because the clamp alone is not total: Swift's `min` and `max`
+        // propagate NaN (`0 >= .nan` is false), and `UInt32(Double.nan.rounded())` traps rather
+        // than clamping. Nothing reaches it today — strengths come from the themes' literals —
+        // but `init(strength:)` is public and this is read on every frame-settling path.
+        let clamped = strength.isFinite ? min(max(strength, 0), 1) : 0
+        let alpha = UInt32((clamped * 255).rounded())
         guard alpha > 0 else { return 0 }
         return UInt32(tint.red) | UInt32(tint.green) << 8 | UInt32(tint.blue) << 16 | alpha << 24
     }

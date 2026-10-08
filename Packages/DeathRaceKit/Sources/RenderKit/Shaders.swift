@@ -5,8 +5,8 @@
 /// compiler is part of macOS. `DeathRace --print-shader-source` prints this for checking with
 /// `xcrun metal`.
 ///
-/// The structs mirror `Uniforms` here and `GlyphInstance` and `DecorationInstance` in
-/// SurfaceCore; `static_assert`s and Swift `MemoryLayout` tests keep both sides the same size.
+/// The structs mirror `Uniforms` in SurfaceRenderer and `GlyphInstance` and `DecorationInstance`
+/// in SurfaceCore; `static_assert`s and Swift `MemoryLayout` tests keep both sides the same size.
 /// Colors arrive as sRGB bytes, red lowest, and are written to a `.bgra8Unorm` target in sRGB
 /// as they are.
 public enum Shaders {
@@ -22,8 +22,12 @@ public enum Shaders {
             uint rows;
             uint clearColor;      // packed sRGB, red lowest
             uint dim;             // packed sRGB: what an inactive pane fades toward, alpha how far
+            uint glow;            // alpha: how strong a bright colour's light is. RGB: XDR's tint, unused
+            uint reserved;        // named rather than left as padding: without it Swift's size (44)
+                                  // and its stride (48) disagree, and `setVertexBytes` sends the
+                                  // stride. XDR's second word goes here.
         };
-        static_assert(sizeof(Uniforms) == 40, "Uniforms must match RenderKit's layout");
+        static_assert(sizeof(Uniforms) == 48, "Uniforms must match RenderKit's layout");
 
         struct GlyphInstance {
             ushort2 cell;
@@ -112,6 +116,130 @@ public enum Shaders {
                 color = starry(in.position.xy, color);
             }
             return dimmed(color, dim);
+        }
+
+        // Glow: a bright colour's own light, scattered from the same glyph buffer the next draw
+        // uses, additively and under it. A fully covered pixel therefore keeps exactly the colour
+        // it would have without this draw; an antialiased edge pixel picks the halo up through
+        // its own `1 - coverage`, which is what makes it read as light rather than as an outline.
+
+        struct GlowOut {
+            float4 position [[position]];
+            float2 atlasCoord;
+            float3 color [[flat]];
+            float strength [[flat]];
+            float radius [[flat]];
+            float2 atlasBoxMin [[flat]];  // this glyph's own rectangle: a tap outside it reads
+            float2 atlasBoxMax [[flat]];  // nothing, not whatever was packed beside it
+        };
+
+        // Which glyphs emit, from the glyph's own colour. **The twin of `Glow.emissiveStrength`
+        // in SurfaceCore**, and nothing can prove the two agree, because this one is a string:
+        // the four thresholds and both formulas have to be changed together, and
+        // `GlowTests`' per-theme table is what records what they do.
+        //
+        // Chroma decides, not brightness. On a dark ground the default foreground is the
+        // brightest thing on the screen, so a brightness rule would glow every line of ordinary
+        // output; saturation is what separates a colour a program chose. Brightness is only a
+        // floor, and it is what keeps ANSI black out.
+        static float emissive(float3 c) {
+            float chroma = max(max(c.r, c.g), c.b) - min(min(c.r, c.g), c.b);
+            float luma = dot(c, float3(0.299, 0.587, 0.114));
+            return smoothstep(0.28, 0.44, chroma) * smoothstep(0.30, 0.45, luma);
+        }
+
+        vertex GlowOut glowVertex(uint vid [[vertex_id]], uint iid [[instance_id]],
+                                  constant Uniforms &u [[buffer(0)]],
+                                  device const GlyphInstance *glyphs [[buffer(1)]]) {
+            GlyphInstance glyph = glyphs[iid];
+            float4 dim = unpackColor(u.dim);
+            float3 color = unpackColor(glyph.color).rgb;
+            float strength = unpackColor(u.glow).a * emissive(color);
+            // A colour glyph carries its own colour and is not in the mask atlas this reads at
+            // all; and a pane being faded is not the one you are working in, which is where
+            // "only the focused pane glows" comes from for nothing.
+            if ((glyph.flags & 1u) != 0u || dim.a > 0.0) { strength = 0.0; }
+
+            GlowOut out;
+            // Half of one least-significant bit: the light this draw adds is at most
+            // `color * strength`, so below this it cannot change a single pixel of an 8-bit
+            // target and the fragments would be spent for nothing. A floor on the *product*,
+            // not on the rule — the Swift twin reports the rule's own answer, which for the
+            // most saturated grey anyone shipped is six ten-thousandths.
+            if (strength < 0.5 / 255.0) {
+                // Outside the clip volume and zero area, so both triangles go and no fragment
+                // runs: one test per glyph rather than per pixel, which is what keeps a screen
+                // of body text costing nothing.
+                out.position = float4(-2.0, -2.0, 0.0, 1.0);
+                out.atlasCoord = float2(0.0);
+                out.color = float3(0.0);
+                out.strength = 0.0;
+                out.radius = 1.0;
+                out.atlasBoxMin = float2(0.0);
+                out.atlasBoxMax = float2(0.0);
+                return out;
+            }
+
+            // About three device pixels at 13 pt on a 2x display. From the cell rather than
+            // fixed, so the halo keeps its proportion as the font size changes.
+            float radius = max(2.0, round(u.cellSize.y * 0.10));
+            // One past the furthest tap, so the quad's own rim is reliably zero and there is no
+            // step where it ends.
+            float2 grow = float2(radius + 1.0);
+            float2 corner = float2(float(vid & 1u), float(vid >> 1u));
+            float2 size = float2(glyph.size);
+            float2 origin = u.gridOrigin + float2(glyph.cell) * u.cellSize + float2(glyph.offset);
+            out.position = clipPosition(origin - grow + corner * (size + 2.0 * grow), u.viewportSize);
+            // The atlas is read texel for pixel, so growing both by the same amount keeps that
+            // mapping exact.
+            out.atlasCoord = float2(glyph.atlasOrigin) - grow + corner * (size + 2.0 * grow);
+            out.color = color;
+            out.strength = strength;
+            out.radius = radius;
+            out.atlasBoxMin = float2(glyph.atlasOrigin);
+            out.atlasBoxMax = float2(glyph.atlasOrigin) + size;
+            return out;
+        }
+
+        // `access::read` returns zero outside the *texture*, and the shelf allocator pads a glyph
+        // by one pixel, so a tap a few pixels out would otherwise read a neighbouring glyph and
+        // the halo would carry pieces of it.
+        static float glowTap(texture2d<float, access::read> mask, float2 at, float2 lo, float2 hi) {
+            if (any(at < lo) || any(at >= hi)) { return 0.0; }
+            return mask.read(uint2(at)).r;
+        }
+
+        fragment float4 glowFragment(GlowOut in [[stage_in]],
+                                     texture2d<float, access::read> mask [[texture(0)]]) {
+            // Thirteen taps on two rings. A separable blur needs an intermediate texture, which
+            // is the one thing this renderer does not have anywhere; at a text radius of about
+            // three pixels a ring and a true 7x7 Gaussian are indistinguishable, and 7x7 is 49
+            // taps. If a profile ever demands it, the fallback is a pre-blurred atlas.
+            const float diagonal = 0.70710678;
+            float r = in.radius;
+            float2 p = in.atlasCoord;
+            float2 lo = in.atlasBoxMin;
+            float2 hi = in.atlasBoxMax;
+            float d = r * diagonal;
+            float e = d * 0.5;
+            float middle = glowTap(mask, p, lo, hi);
+            float near = glowTap(mask, p + float2(e, e), lo, hi)
+                + glowTap(mask, p + float2(e, -e), lo, hi)
+                + glowTap(mask, p + float2(-e, e), lo, hi)
+                + glowTap(mask, p + float2(-e, -e), lo, hi);
+            float ring = glowTap(mask, p + float2(r, 0.0), lo, hi)
+                + glowTap(mask, p + float2(-r, 0.0), lo, hi)
+                + glowTap(mask, p + float2(0.0, r), lo, hi)
+                + glowTap(mask, p + float2(0.0, -r), lo, hi)
+                + glowTap(mask, p + float2(d, d), lo, hi)
+                + glowTap(mask, p + float2(d, -d), lo, hi)
+                + glowTap(mask, p + float2(-d, d), lo, hi)
+                + glowTap(mask, p + float2(-d, -d), lo, hi);
+            // 1 + 4x0.7 + 8x0.25 = 5.8, so the middle of a thick stroke reaches full strength.
+            float coverage = (middle + near * 0.7 + ring * 0.25) / 5.8;
+            // Additive, with an RGB-only write mask on the pipeline: the target's alpha is never
+            // touched, whatever this returns.
+            return float4(in.color * (coverage * in.strength), 0.0);
         }
 
         // Glyphs: one quad per instance, read texel for texel from an atlas: coverage tinted

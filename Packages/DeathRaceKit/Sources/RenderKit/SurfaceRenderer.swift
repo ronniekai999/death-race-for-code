@@ -16,14 +16,25 @@ public enum RenderError: Error, CustomStringConvertible {
     }
 }
 
-/// The compiled shaders: three pipelines for one device and one pixel format.
+/// The compiled shaders: four pipelines for one device and one pixel format.
 public final class RenderPipelines: @unchecked Sendable {
     // Pipeline states are immutable and thread-safe, as Metal documents; Sendable by hand
     // because the protocols are not marked.
     let backgrounds: any MTLRenderPipelineState
+    let glows: any MTLRenderPipelineState
     let glyphs: any MTLRenderPipelineState
     let decorations: any MTLRenderPipelineState
     public let pixelFormat: MTLPixelFormat
+
+    /// How a draw reaches the target.
+    enum Blending {
+        /// Straight over what is there: the backgrounds, which cover every pixel.
+        case replacing
+        /// Premultiplied source over destination: the shaders multiply color by coverage.
+        case over
+        /// Added to what is there, leaving the target's alpha alone — light, not ink.
+        case adding
+    }
 
     /// Compiles `Shaders.source`: a few tens of milliseconds, so done once per device and
     /// off the main thread where it can be.
@@ -34,7 +45,9 @@ public final class RenderPipelines: @unchecked Sendable {
         } catch {
             throw RenderError.shaders(String(describing: error))
         }
-        func pipeline(_ vertex: String, _ fragment: String, blends: Bool) throws -> any MTLRenderPipelineState {
+        func pipeline(
+            _ vertex: String, _ fragment: String, _ blending: Blending
+        ) throws -> any MTLRenderPipelineState {
             let descriptor = MTLRenderPipelineDescriptor()
             descriptor.label = vertex
             descriptor.vertexFunction = library.makeFunction(name: vertex)
@@ -44,8 +57,10 @@ public final class RenderPipelines: @unchecked Sendable {
             }
             let attachment = descriptor.colorAttachments[0]!
             attachment.pixelFormat = pixelFormat
-            if blends {
-                // Premultiplied alpha: the shaders multiply color by coverage.
+            switch blending {
+            case .replacing:
+                break
+            case .over:
                 attachment.isBlendingEnabled = true
                 attachment.rgbBlendOperation = .add
                 attachment.alphaBlendOperation = .add
@@ -53,6 +68,18 @@ public final class RenderPipelines: @unchecked Sendable {
                 attachment.sourceAlphaBlendFactor = .one
                 attachment.destinationRGBBlendFactor = .oneMinusSourceAlpha
                 attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
+            case .adding:
+                attachment.isBlendingEnabled = true
+                attachment.rgbBlendOperation = .add
+                attachment.sourceRGBBlendFactor = .one
+                attachment.destinationRGBBlendFactor = .one
+                // Light added to the frame must not touch its alpha, which the glyph draw after
+                // it blends against. The write mask says so, and the alpha factors say it again
+                // in case the mask is ever widened: keep what is there, add nothing.
+                attachment.alphaBlendOperation = .add
+                attachment.sourceAlphaBlendFactor = .zero
+                attachment.destinationAlphaBlendFactor = .one
+                attachment.writeMask = [.red, .green, .blue]
             }
             do {
                 return try device.makeRenderPipelineState(descriptor: descriptor)
@@ -60,9 +87,10 @@ public final class RenderPipelines: @unchecked Sendable {
                 throw RenderError.shaders("\(vertex): \(error)")
             }
         }
-        backgrounds = try pipeline("backgroundVertex", "backgroundFragment", blends: false)
-        glyphs = try pipeline("glyphVertex", "glyphFragment", blends: true)
-        decorations = try pipeline("decorationVertex", "decorationFragment", blends: true)
+        backgrounds = try pipeline("backgroundVertex", "backgroundFragment", .replacing)
+        glows = try pipeline("glowVertex", "glowFragment", .adding)
+        glyphs = try pipeline("glyphVertex", "glyphFragment", .over)
+        decorations = try pipeline("decorationVertex", "decorationFragment", .over)
         self.pixelFormat = pixelFormat
     }
 }
@@ -82,7 +110,7 @@ public struct PixelLayout: Sendable, Equatable {
     }
 }
 
-/// The values every shader reads, laid out as the shaders' `Uniforms`: 40 bytes.
+/// The values every shader reads, laid out as the shaders' `Uniforms`: 48 bytes.
 struct Uniforms {
     var viewportSize: SIMD2<Float>
     var gridOrigin: SIMD2<Float>
@@ -92,6 +120,15 @@ struct Uniforms {
     var clearColor: UInt32
     /// Packed sRGB: what an inactive pane fades toward; its alpha is how far (0, not at all).
     var dim: UInt32 = 0
+    /// `Glow.packed`: how strong a bright colour's light is, in the alpha byte. 0 draws none,
+    /// and the glow draw is skipped outright.
+    var glow: UInt32 = 0
+    /// Padding with a name, and XDR Neon's second word when it needs one.
+    ///
+    /// Not tidy-up-able: without it `size` is 44 while `stride` is 48 — `SIMD2<Float>` aligns to
+    /// 8 — and the encoder sends the *stride*, so the shader would read four bytes this side
+    /// never wrote. `UniformsLayoutTests` fails loudly if it goes.
+    var reserved: UInt32 = 0
 }
 
 /// Encodes frames for one surface: the atlas textures, and per-frame buffers for up to three
@@ -124,12 +161,13 @@ public final class SurfaceRenderer {
     }
 
     /// Encodes `frame` into `commandBuffer`, drawing into `target`, faded toward `dim` by its
-    /// alpha (an inactive pane). False when every slot is still in flight (draw again on the
-    /// next tick) or a buffer could not be made.
+    /// alpha (an inactive pane) and with bright colours throwing light as strongly as `glow`'s
+    /// alpha says (`Glow.packed`; 0 draws none at all). False when every slot is still in flight
+    /// (draw again on the next tick) or a buffer could not be made.
     @discardableResult
     public func encode(
         _ frame: Frame, cell: CellMetrics, layout: PixelLayout, glyphs: GlyphCache, target: any MTLTexture,
-        commandBuffer: any MTLCommandBuffer, dim: PackedColor = 0
+        commandBuffer: any MTLCommandBuffer, dim: PackedColor = 0, glow: PackedColor = 0
     ) -> Bool {
         guard available.wait(timeout: .now()) == .success else { return false }
         var encoded = false
@@ -157,7 +195,8 @@ public final class SurfaceRenderer {
             viewportSize: SIMD2(Float(layout.width), Float(layout.height)),
             gridOrigin: SIMD2(Float(layout.originX), Float(layout.originY)),
             cellSize: SIMD2(Float(cell.width), Float(cell.height)),
-            columns: UInt32(frame.columns), rows: UInt32(frame.rows), clearColor: frame.clearColor, dim: dim)
+            columns: UInt32(frame.columns), rows: UInt32(frame.rows), clearColor: frame.clearColor, dim: dim,
+            glow: glow)
 
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = target
@@ -171,6 +210,17 @@ public final class SurfaceRenderer {
         encoder.setFragmentBuffer(backgrounds, offset: 0, index: 1)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
 
+        // Light first and the crisp glyphs over it, so a fully covered pixel is exactly what it
+        // would be without this draw. Skipped outright when there is no glow, which is what
+        // makes a frame with the parameter left out bit-identical to today's.
+        if let glyphBuffer, glow != 0 {
+            encoder.setRenderPipelineState(pipelines.glows)
+            encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
+            encoder.setVertexBuffer(glyphBuffer, offset: 0, index: 1)
+            encoder.setFragmentTexture(maskTexture, index: 0)
+            encoder.drawPrimitives(
+                type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: frame.glyphs.count)
+        }
         if let glyphBuffer {
             encoder.setRenderPipelineState(pipelines.glyphs)
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)

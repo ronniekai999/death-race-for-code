@@ -4,6 +4,25 @@ import VTCore
 
 @testable import SurfaceCore
 
+/// Bitmaps of a chosen size, fully covered, so a test can decide what goes into the atlas and in
+/// what order. CoreText draws whatever CoreText draws, which is the wrong tool for a question
+/// about atlas neighbours.
+private final class SolidBitmaps: GlyphRasterizing {
+    /// Scalar to (width, height).
+    let shapes: [UInt32: (Int, Int)]
+
+    init(shapes: [UInt32: (Int, Int)]) {
+        self.shapes = shapes
+    }
+
+    func rasterize(_ key: GlyphKey) -> RasterizedGlyph {
+        guard let scalar = key.scalars.first, let (width, height) = shapes[scalar] else { return .empty }
+        return RasterizedGlyph(
+            atlas: .mask, width: width, height: height, offsetX: 2, offsetY: 5,
+            pixels: [UInt8](repeating: 0xFF, count: width * height))
+    }
+}
+
 @Suite struct GlowTests {
     @Test func theStrengthRidesInTheAlphaByte() {
         let glow = Glow(strength: 0.14, tint: RGB(0x10, 0x20, 0x30))
@@ -125,6 +144,26 @@ import VTCore
         #expect(abs(Glow.smoothstep(0.28, 0.44, 0.36) - 0.5) < 1e-12)
         #expect(Glow.smoothstep(0.28, 0.44, 0.1) == 0)
         #expect(Glow.smoothstep(0.28, 0.44, 0.9) == 1)
+    }
+
+    // MARK: - What the macOS half's hardest test rests on
+
+    /// `RenderKitTests.aGlowReadsOnlyItsOwnGlyph` proves the scatter does not read a
+    /// neighbouring glyph out of the atlas, and it can only prove that if the packer really does
+    /// put two bitmaps of one height side by side. That is a portable fact, so it is checked
+    /// here on every push rather than inside a test only a Mac with a GPU ever runs — where a
+    /// change in the packer would turn it into a test that passes while proving nothing.
+    @Test func theAtlasPacksTwoBitmapsOfOneHeightSideBySide() throws {
+        let rasterizer = SolidBitmaps(shapes: [0x41: (8, 12), 0x42: (2, 12)])
+        let cache = GlyphCache(rasterizer: rasterizer)
+        let block = try #require(cache.placement(for: GlyphKey(scalar: 0x41)))
+        let sliver = try #require(cache.placement(for: GlyphKey(scalar: 0x42)))
+        #expect(block.y == sliver.y)
+        #expect(block.shelf == sliver.shelf)
+        #expect(sliver.x > block.x)
+        // One pixel of pad, which is exactly why the scatter has to clamp: three pixels of
+        // halo reach well past it.
+        #expect(Int(sliver.x) - Int(block.x + block.width) <= 2)
     }
 
     // MARK: - The energy gate

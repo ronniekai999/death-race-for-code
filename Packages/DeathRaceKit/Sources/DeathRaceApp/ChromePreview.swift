@@ -203,6 +203,11 @@
             config.themeID = theme.id
             // The pills and headers name the shell the mockups show, whatever the runner's is.
             config.command = "/bin/zsh"
+            // The bundled family and its ligatures, because a picture of the default font would
+            // show neither — and these pictures are how the chrome is reviewed without a build.
+            config.fontFamily = "Monaspace Neon"
+            config.fontFamilyItalic = "Monaspace Radon"
+            config.fontLigatures = true
             let host = Host()
             host.scripts = scripts
             let controller = PitLaneWindowController(config: config, host: host, directory: directory)

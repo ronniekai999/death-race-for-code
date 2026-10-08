@@ -60,8 +60,16 @@ public struct RunScanner: Sendable {
     /// into blank space and stay blank. And a bitmap too wide for the atlas to place at all
     /// leaves the row incomplete, which means the row is rebuilt and re-asked on every frame,
     /// for ever, with no progress. Deriving the cap from the cell keeps us out of both.
+    ///
+    /// `limit` is the rasterizer's own bound, and a run's bitmap is wider than the columns it
+    /// covers: a pixel of room for antialiasing on each side, whole-pixel rounding outwards,
+    /// and — for a face with no italic of its own, which is slanted instead — ink leaning past
+    /// the last column by the slant times the cell's height. So the cap is taken against the
+    /// limit less that slack, not against the limit itself. A quarter of the cell's height
+    /// covers a 12° slant with room to spare, which is the steepest `FontSet` applies.
     public init(cell: CellMetrics, maxCells: Int = 8, limit: Int = 1024) {
-        let byWidth = limit / max(cell.width, 1)
+        let slack = 4 + cell.height / 4
+        let byWidth = (limit - slack) / max(cell.width, 1)
         self.init(maxCells: min(maxCells, byWidth))
     }
 

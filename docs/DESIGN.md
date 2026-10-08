@@ -109,6 +109,21 @@ in all eight themes without a screen recording permission, and CI keeps them as 
 - The SwiftUI windows (Settings, Hear Me Calling) are left out. Their text doesn't survive
   being drawn this way, so they are reviewed on the Mac.
 
+## Ligatures
+
+`font-ligatures` is off by default. With it on and a font that has them — Monaspace Neon does,
+SF Mono does not — a run of punctuation is drawn the way the font draws it together: `!=` joins
+into one mark, `->` becomes an arrow, `===` a triple bar. Each character still occupies its own
+column, so the ligature is the same width as the characters under it and nothing else on screen
+moves.
+
+- Only punctuation joins. Letters are drawn as they always were, side by side.
+- A selection edge inside a ligature breaks it: the two characters draw separately so the
+  highlight lands on the cell boundary, and they join again when the selection moves off.
+- The block cursor shows the character it is on, not the half of a ligature behind it.
+- The `--render-chrome` pictures are drawn in Monaspace Neon with ligatures on, so the operators
+  in them are the real thing rather than the default font's.
+
 ## Conversations
 
 A command and its output, marked on the ordinary grid rather than boxed into a card.

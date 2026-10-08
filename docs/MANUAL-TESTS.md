@@ -410,6 +410,21 @@ Phase 3 is done when all of these hold on the M5:
       `printf '\e[3mitalic\e[0m'` draws in Radon.
 - [ ] About credits the bundled fonts.
 - [ ] The Dock, Finder and ⌘⇥ show icon B with no gray plate around it.
+- [ ] `font-ligatures = true` with `font-family = Monaspace Neon`: `!=`, `=>`, `->` and `===`
+      are drawn joined, and each still occupies its own columns — put the cursor at the end of
+      the line and count them.
+- [ ] The same with SF Mono draws exactly as it did before. The default font has no ligatures,
+      so nothing should change and nothing should break.
+- [ ] `font-ligatures = false` after it was on: the text goes back on the config reload, not on
+      a relaunch.
+- [ ] Drag a selection across `=>`: the highlight lands on cell boundaries and the two
+      characters draw separately while they are inside it, joining again when it moves off.
+- [ ] `printf '\e[4ma != b\n'`: the underline runs through the ligature unbroken.
+- [ ] At `font-size = 72` or more, `!=` is still drawn rather than blank. Blank there means the
+      cap taken from the cell is wrong, and it would stay blank for as long as the atlas held it.
+- [ ] The block cursor on the second column of `!=` — this one is written down because the
+      answer is known and not addressed: it draws a plain `=` inverted while the row behind it
+      shows the ligature's right half. Worth deciding whether you can live with it.
 
 ## Links
 

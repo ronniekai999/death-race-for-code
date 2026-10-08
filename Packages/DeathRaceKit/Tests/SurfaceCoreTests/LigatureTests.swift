@@ -245,11 +245,19 @@ private func plainFace(_ column: Int) -> (bold: Bool, italic: Bool) { (false, fa
         let wide = CellMetrics(
             width: 300, height: 600, baseline: 480, underlineTop: 500, underlineThickness: 2,
             strikethroughTop: 300, strikethroughThickness: 2, scale: 2)
-        #expect(RunScanner(cell: wide).maxCells == 3, "1024 / 300")
+        // Three columns of ink would be 900 px, and a slanted face leans another 128 past the
+        // last of them: over the rasterizer's 1024 and so drawn as nothing at all.
+        #expect(RunScanner(cell: wide).maxCells == 2, "(1024 - 154) / 300")
         let ordinary = CellMetrics(
             width: 9, height: 18, baseline: 14, underlineTop: 15, underlineThickness: 1,
             strikethroughTop: 9, strikethroughThickness: 1, scale: 1)
         #expect(RunScanner(cell: ordinary).maxCells == 8, "the asked-for cap, well inside the limit")
+        // The case the slack exists for: eight 128-px columns are exactly 1024, so the ink of
+        // the eighth plus a pixel of antialiasing is already past the rasterizer's bound.
+        let big = CellMetrics(
+            width: 128, height: 272, baseline: 220, underlineTop: 230, underlineThickness: 2,
+            strikethroughTop: 140, strikethroughThickness: 2, scale: 2)
+        #expect(RunScanner(cell: big).maxCells == 7, "(1024 - 72) / 128")
         // Never below two, or `maxCells` would mean "no runs" rather than "short runs".
         let huge = CellMetrics(
             width: 4000, height: 600, baseline: 480, underlineTop: 500, underlineThickness: 2,
@@ -507,5 +515,52 @@ private struct ShapedSurface {
                 instance.flags = flags
             }
         }
+    }
+}
+
+/// Draws every key as a block one cell wide per column it covers, through a real `GlyphCache`:
+/// `buildComplete` takes the cache itself rather than a `GlyphSource`, so the fake goes under it.
+private final class SpanRasterizer: GlyphRasterizing {
+    func rasterize(_ key: GlyphKey) -> RasterizedGlyph {
+        let width = 6 * key.cells
+        return RasterizedGlyph(
+            atlas: .mask, width: width, height: 10, offsetX: 0, offsetY: 2,
+            pixels: [UInt8](repeating: 0xFF, count: width * 10))
+    }
+}
+
+/// `buildComplete` is how a picture, a preview and the render goldens build their frames, and
+/// it is a second signature: a shaper reaching the live view but not this one would leave
+/// `--render-chrome` and every preview showing unligated text while the window ligated, with
+/// nothing failing anywhere.
+@Suite struct ShapedPictureTests {
+    private func picture(shaper: (any RunShaping)?) -> Frame {
+        let cache = GlyphCache(rasterizer: SpanRasterizer(), budget: .seconds(60))
+        let session = ReplaySession(Terminal.Configuration(columns: 6, rows: 1))
+        let model = SurfaceModel(session: session)
+        session.feed("a != b")
+        _ = model.drain()
+        let cell = CellMetrics(
+            width: 6, height: 10, baseline: 8, underlineTop: 9, underlineThickness: 1, strikethroughTop: 5,
+            strikethroughThickness: 1, scale: 1)
+        let (frame, _) = FrameBuilder().buildComplete(
+            mirror: model.mirror, theme: .legendsNeverDie, cell: cell, selection: nil, glyphs: cache,
+            shaper: shaper)
+        return frame
+    }
+
+    @Test func aPictureDrawsTheRunsTheLiveViewWould() {
+        let frame = picture(shaper: TableShaper())
+        #expect(frame.isComplete)
+        // a, the run across two columns, b.
+        #expect(frame.glyphs.map(\.cellX) == [0, 2, 5])
+        #expect(frame.glyphs.map(\.cells) == [1, 2, 1])
+        #expect(frame.glyphs[1].width == 12, "one bitmap two cells wide")
+    }
+
+    @Test func aPictureWithoutAShaperIsWhatItAlwaysWas() {
+        let frame = picture(shaper: nil)
+        #expect(frame.glyphs.map(\.cellX) == [0, 2, 3, 5])
+        #expect(frame.glyphs.allSatisfy { $0.cells == 1 })
     }
 }

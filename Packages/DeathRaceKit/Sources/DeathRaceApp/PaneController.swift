@@ -571,6 +571,7 @@ final class PaneController {
         surface.theme = config.theme
         surface.padding = (config.windowPaddingX, config.windowPaddingY)
         surface.fontThicken = config.fontThicken
+        surface.fontLigatures = config.fontLigatures
         surface.cursorStyle = config.cursorStyle
         surface.cursorBlink = config.cursorStyleBlink
         surface.optionAsMeta = config.optionAsMeta

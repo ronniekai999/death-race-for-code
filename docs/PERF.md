@@ -223,5 +223,23 @@ The Phase 2 budgets above are checked by hand on the M5, with a debug build
 - **Phase 9's effects ride existing frames.** Text glow and XDR Neon will draw only on frames
   that output, typing or scrolling already caused, and Low Power Mode, battery and thermal
   pressure will turn them off.
+- **Ligatures cost atlas, not frames.** A run is scanned in `buildRow`, which runs only for rows
+  that are dirty, so a screen that is not changing does no shaping work at all and the frame
+  count is untouched. What it does cost is the atlas: a run is its own key, its bitmap is two to
+  eight cells wide, and `ShelfAtlas` buckets by height only — so run bitmaps land on the same
+  shelves as ordinary text and use them up several times faster. The number of distinct keys is
+  bounded by the alphabet and the cell cap rather than by what someone types, which is the
+  reason the alphabet is punctuation and not words.
+
+  Worth measuring on the Mac, and measurable here too, since `GlyphCache` and `ShelfAtlas` are
+  portable: replay a corpus recording of source code with shaping off and on, and compare the
+  shelf count and the number of `epoch` bumps. An `epoch` bump is the expensive one — it makes
+  every row look its glyphs up again. Asking CoreText whether a face ligates two characters costs
+  far more than drawing the answer, so `MemoizedRunShaping` pays it once per distinct run per
+  face; on Monaspace about half of all punctuation pairs and triples shape differently, so the
+  memo settles at a few hundred answers rather than growing.
+- **Shaping off is free, and that is asserted rather than assumed.** With the setting off no
+  shaper exists, the scanner never runs, and a test compares the frame's glyph and decoration
+  instances built with no parameter against the same frame built with an explicit nil.
 - **XDR Neon is opt-in.** Extended dynamic range uses more bandwidth and power; Apple's guidance
   is to enable it only when the user will see the difference.

@@ -355,8 +355,73 @@ the same weight in the next cell at six cell sizes. Frame goldens replay real pr
 recordings through the whole path (engine, deltas, mirror, colors, frame builder) and compare
 the colors drawn. Shaders compile at runtime from source, because Xcode 26 ships its Metal
 toolchain as a separate download and builds can hang silently without it.
-Glow, XDR Neon (EDR), ligature shaping and images are a late polish phase, and they only ever
-draw on frames that are happening anyway.
+Glow, XDR Neon (EDR) and images are a late polish phase, and they only ever draw on frames
+that are happening anyway.
+
+### Ligatures: runs, not cells
+
+`font-ligatures` draws a run of punctuation the way the font draws it together — one bitmap
+across the columns it covers — and is off by default. Every decision below came out of reading
+the bundled fonts' own `GSUB` tables, by applying each feature's lookups to every pair and
+triple of the run alphabet. Three of them went against what we believed when the work started.
+
+**The feature is programming ligatures and not texture healing.** Letter-side contextual
+alternates would need whole words shaped and the atlas keyed by shaped run, and
+`GlyphCache.placements` has no eviction for glyph keys — only for the shelves under them — so a
+key space that grows with the words someone types is a leak rather than a feature. The run
+alphabet is therefore fixed punctuation, `! # $ % & * + - . / : < = > ? @ \ ^ | ~`, which keeps
+the key space bounded by the alphabet and the cell cap.
+
+**A ligature does not reduce the glyph count, so the oracle cannot ask whether it did.** In both
+bundled families every ligature is N glyphs in and N glyphs *out*: the font keeps one glyph per
+column, each with exactly one cell's advance, and puts the connected shape across them. Of 2,128
+punctuation sequences, 1,096 shape differently and not one changes its glyph count — so
+"fewer glyphs than characters", which is the obvious test, would have answered no to every
+ligature this app ships with. The oracle compares the *shaped glyphs against the glyphs the
+characters have on their own*, which is the question `RunShaping` documents, and it also checks
+that the advance is unchanged: nothing downstream can save us from a font that does not keep it,
+because the shrink-to-fit in `drawText` is for colour and double-width glyphs and a run is
+neither.
+
+**`liga` and `calt` are not where Monaspace keeps its ligatures.** `calt` draws 36 punctuation
+pairs differently and ligates none of them — that is texture healing — and `liga` ligates four.
+Every operator anyone would name is in a stylistic set instead, one family each: `!=` and `===`
+in `ss01`, `<=` in `ss02`, `->` in `ss03`, `|>` in `ss05`, `::` in `ss07`, `=>` in `ss09`. So the
+features a run is shaped with are `liga`, `calt` and `ss01` to `ss09`. `calt` stays in the list
+because fonts like Fira Code put every ligature they have in it and no stylistic set at all.
+They are applied **only to a run**, never to the single character in an ordinary cell, so a
+cell's glyph is bit-for-bit what it was before any of this existed.
+
+The rest of the design:
+
+- **The span lives in `GlyphKey`'s free bits, not in `isWide`.** The two mean different things
+  to the rasterizer: `isWide` is a double-width character, which is shrunk to fit its two cells,
+  while a run keeps the advance the font gives it. A key with no run packs bit-for-bit as it did
+  before runs existed, so a frame built without shaping is identical rather than merely similar.
+- **The portable half is where the bugs are, so it is all of the work that can be tested.** Where
+  a run could be — leftmost-longest, style boundaries, selection edges, double-width cells, the
+  row's end, the length a bitmap may reach — is text and width arithmetic in `SurfaceCore`.
+  Whether a face draws these characters differently as a unit is one protocol method, answered
+  by CoreText on macOS and by a table in tests.
+- **The oracle is its own protocol rather than a question put to `GlyphSource`,** whose two
+  negative answers are both taken: `nil` means "not ready, keep the row dirty and ask again" and
+  `.empty` means "draws nothing, like a space". A font saying *I do not ligate this* is neither.
+- **The oracle and the rasterizer are one shaping call.** `GlyphRasterizer.line(for:)` is the
+  only place an attributed string is built, and both the question and the bitmap come from it.
+  Two lines differing by one attribute would give text that looks unligated while being spaced
+  as though it were, with nothing failing on any machine that can run the tests.
+- **Both caps are about liveness, not tidiness.** The rasterizer answers `.empty` for a bitmap
+  over 1024 px, and `.empty` is cached and means "draws nothing" — so an over-long run at a large
+  font size would turn into blank space and stay blank. And a bitmap too wide for the atlas to
+  place leaves the row incomplete, so it is rebuilt and re-asked every frame for ever with no
+  progress. `RunScanner` takes its cap from the cell against the limit *less* the slack a run's
+  bitmap needs — a pixel of antialiasing each side, whole-pixel rounding outwards, and a slanted
+  face's ink leaning past the last column — and `buildRow` falls back to drawing the cells one at
+  a time if a run key ever comes back empty anyway.
+- **The cursor, selection and hit-testing stay per-cell**, and a selection edge inside a run
+  breaks it so both columns draw separately, which is what gives the highlight cell boundaries.
+  A block cursor parked on the second column of `!=` draws that cell's own character inverted;
+  nothing in the app addresses that and this change does not either.
 
 ### The Termius layer rides OpenSSH
 

@@ -73,6 +73,19 @@ public final class TerminalSurfaceView: NSView {
             if fontThicken != oldValue { resetGlyphs() }
         }
     }
+    /// Runs the font draws differently together — `!=`, `=>`, `===` — drawn that way, as one
+    /// picture across the columns they cover.
+    ///
+    /// Unlike thickening this changes no bitmap that already exists, so the glyphs are not
+    /// drawn again: the frame builder sees the shaper arrive or leave and rebuilds its rows,
+    /// which is all that has to happen.
+    public var fontLigatures = false {
+        didSet {
+            guard fontLigatures != oldValue else { return }
+            rebuildShaper()
+            redraw()
+        }
+    }
     /// A pane that is not its tab's active one fades toward the window's ground; nil draws
     /// it as it is.
     public var dimming: Dimming? {
@@ -166,6 +179,11 @@ public final class TerminalSurfaceView: NSView {
     var session: (any SurfaceSession)? { model?.session }
     private var rasterizer: GlyphRasterizer
     private var glyphs: GlyphCache
+    /// Nil while the setting is off, which is what the frame builder reads as "do not shape".
+    /// The memo is worth keeping because asking CoreText whether a face ligates two characters
+    /// costs far more than drawing the answer, and the scanner asks about every candidate in
+    /// every row it rebuilds.
+    private var shaper: MemoizedRunShaping?
     private let builder = FrameBuilder()
     private var renderer: SurfaceRenderer?
     private var pacer = FramePacer()
@@ -456,7 +474,7 @@ public final class TerminalSurfaceView: NSView {
         let frame = builder.build(
             mirror: model.mirror, theme: theme, cell: cell, selection: selectionRange, glyphs: glyphs,
             preedit: preedit, starfield: starfield, link: hoveredLink,
-            blocks: blockColors.map { BlockChrome(runs: blockRuns, colors: $0) })
+            blocks: blockColors.map { BlockChrome(runs: blockRuns, colors: $0) }, shaper: shaper)
         guard let drawable = metalLayer.nextDrawable(), let commandBuffer = context.queue.makeCommandBuffer() else {
             needsFrame = true
             return true
@@ -716,12 +734,19 @@ public final class TerminalSurfaceView: NSView {
         let width = Int((Double(bounds.width) * scale).rounded())
         let height = Int((Double(bounds.height) * scale).rounded())
         guard width > 0, height > 0 else { return nil }
-        let glyphs = GlyphCache(rasterizer: GlyphRasterizer(fonts: fonts, cell: cell, thicken: fontThicken))
+        let raster = GlyphRasterizer(fonts: fonts, cell: cell, thicken: fontThicken)
+        let glyphs = GlyphCache(rasterizer: raster)
+        // A picture builds its own cache and its own builder, so it needs its own shaper too:
+        // the view's belongs to the view's rasterizer. Without one a preview and the render
+        // goldens would quietly show unligated text while the live view ligated — and the
+        // previews are what someone looks at to decide whether this feature exists at all.
+        let shaper = fontLigatures ? MemoizedRunShaping(RunShaper(raster)) : nil
         // As many frames as the glyph cache's per-frame budget needs to draw every glyph.
         let (frame, _) = FrameBuilder().buildComplete(
             mirror: model.mirror, theme: theme, cell: cell, selection: selectionRange, glyphs: glyphs,
             starfield: starfield, link: hoveredLink,
-            blocks: blockColors.map { BlockChrome(runs: Blocks.runs(in: model.mirror), colors: $0) })
+            blocks: blockColors.map { BlockChrome(runs: Blocks.runs(in: model.mirror), colors: $0) },
+            shaper: shaper)
         let layout = PixelLayout(
             width: width, height: height, originX: Int((grid.left * scale).rounded()),
             originY: Int((grid.top * scale).rounded()))
@@ -930,8 +955,19 @@ public final class TerminalSurfaceView: NSView {
     private func resetGlyphs() {
         rasterizer = GlyphRasterizer(fonts: fonts, cell: cell, thicken: fontThicken)
         glyphs = GlyphCache(rasterizer: rasterizer)
+        rebuildShaper()
         cursorKey = nil
         redraw()
+    }
+
+    /// The shaper, made fresh from the current rasterizer, or nil when the setting is off.
+    ///
+    /// Made again rather than merely emptied: a memo whose answers are forgotten still holds
+    /// the rasterizer it was built with, and after a font or cell change that rasterizer is
+    /// the wrong one to ask. The two must be the same object for the oracle and the bitmap to
+    /// agree, so the shaper is replaced whenever the rasterizer is.
+    private func rebuildShaper() {
+        shaper = fontLigatures ? MemoizedRunShaping(RunShaper(rasterizer)) : nil
     }
 
     override public func viewDidChangeBackingProperties() {

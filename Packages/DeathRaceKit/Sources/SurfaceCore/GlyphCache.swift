@@ -195,7 +195,7 @@ extension FrameBuilder {
     public func buildComplete(
         mirror: MirrorGrid, theme: Theme, cell: CellMetrics, selection: TextRegion?, glyphs: GlyphCache,
         preedit: PreeditLayout? = nil, starfield: Bool = false, link: LinkHit? = nil,
-        blocks: BlockChrome? = nil, maxFrames: Int = 1_000
+        blocks: BlockChrome? = nil, shaper: (any RunShaping)? = nil, maxFrames: Int = 1_000
     ) -> (frame: Frame, frames: Int) {
         var frames = 0
         while true {
@@ -203,7 +203,7 @@ extension FrameBuilder {
             glyphs.beginFrame()
             let frame = build(
                 mirror: mirror, theme: theme, cell: cell, selection: selection, glyphs: glyphs, preedit: preedit,
-                starfield: starfield, link: link, blocks: blocks)
+                starfield: starfield, link: link, blocks: blocks, shaper: shaper)
             frames += 1
             if frame.isComplete || frames >= maxFrames { return (frame, frames) }
         }

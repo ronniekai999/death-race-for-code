@@ -395,8 +395,18 @@
                     // hot the machine that drew them was: a glow-free artifact because the
                     // runner hit `serious` thermal pressure, with nothing saying so, would be
                     // read as the feature not working.
+                    //
+                    // Put back afterwards. Left overridden, the pane would stop following real
+                    // Low Power Mode and thermal state for the rest of its life — this is a
+                    // `--render-chrome` path so nobody would meet it, but a one-way override of
+                    // another object's behaviour is a trap whichever path it is on.
+                    let energy = surface.energyState
                     surface.energyState = { FrameRatePolicy.Conditions(recentInput: false) }
                     surface.applyEnergyConditions()
+                    defer {
+                        surface.energyState = energy
+                        surface.applyEnergyConditions()
+                    }
                     guard let image = try surface.snapshot(using: renderer)?.cgImage() else { continue }
                     context.draw(image, in: surface.convert(surface.bounds, to: nil))
                     surface.drawCursor(in: context)

@@ -60,6 +60,15 @@ struct GlowRenderTests {
     /// `Shaders.swift`'s own header puts that at a few tens of milliseconds, "done once per
     /// device" — one per `image(...)` call would be nine or ten compilations added to the macOS
     /// Test step for this suite alone.
+    ///
+    /// Sharing it means sharing its atlas *texture*, which these tests do not all share a
+    /// `GlyphCache` with — and `SurfaceRenderer` keys that texture on `sizeGeneration` alone, so
+    /// a second cache of the same size does not get a new one. That is safe here, and by an
+    /// argument rather than by luck: each `render` uploads the full width of whatever rows its
+    /// own cache dirtied, and every glyph a render draws was placed by that cache in that frame,
+    /// so it lies inside those rows. The texture can be stale only *outside* the box
+    /// `glowFragment` clamps its taps to. What would break it is rendering a cache that has no
+    /// dirty rows left after a different cache has uploaded — which no test here does.
     static let shared: OffscreenRenderer? = try? OffscreenRenderer()
 
     static let cell = CellMetrics(

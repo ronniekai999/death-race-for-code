@@ -10,6 +10,9 @@ public struct Config: Sendable, Equatable {
     public var fontSize = 13.0
     /// Heavier strokes for light text on a dark background.
     public var fontThicken = false
+    /// Draws runs like `!=` as the single glyph a font makes of them. Off by default: the
+    /// default font has none, and it changes how text is grouped on screen.
+    public var fontLigatures = false
     /// A family for italic text, like Monaspace Radon beside Monaspace Neon; nil uses the
     /// main family's italic.
     public var fontFamilyItalic: String?

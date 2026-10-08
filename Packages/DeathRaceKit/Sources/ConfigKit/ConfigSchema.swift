@@ -88,6 +88,17 @@ public enum ConfigSchema {
             help: ["Draws text with heavier strokes, which some prefer for light text on a dark background."],
             read: { value, config throws(ConfigValueError) in config.fontThicken = try Value.bool(value) },
             write: { String($0.fontThicken) }),
+        ConfigKey(
+            "font-ligatures", .fonts,
+            help: [
+                "Draws runs like != and => as the single glyph the font makes of them, across the",
+                "columns they sit on. It needs a font that has them, such as Monaspace Neon; SF Mono",
+                "has none, and with none the text is drawn exactly as it was. Every character keeps",
+                "its own cell either way, so the cursor, selecting and copying all count columns.",
+                "This does not change how letters are drawn beside each other.",
+            ],
+            read: { value, config throws(ConfigValueError) in config.fontLigatures = try Value.bool(value) },
+            write: { String($0.fontLigatures) }),
     ]
 
     private static let cursor: [ConfigKey] = [

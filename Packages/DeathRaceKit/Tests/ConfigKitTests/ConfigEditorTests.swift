@@ -7,7 +7,8 @@ import VTCore
     /// A value for every setting that is not its default.
     static let samples: [String: String] = [
         "font-family": "Monaspace Neon", "font-size": "15", "font-family-italic": "Monaspace Radon",
-        "font-thicken": "true", "cursor-style": "bar", "cursor-style-blink": "false", "option-as-meta": "both",
+        "font-thicken": "true", "font-ligatures": "true", "cursor-style": "bar",
+        "cursor-style-blink": "false", "option-as-meta": "both",
         "mouse-scroll-multiplier": "1.5", "mouse-scroll-alternate": "false", "window-padding-x": "10",
         "window-padding-y": "4", "window-size": "120x40", "pane-headers": "always", "starfield": "false",
         "conversations": "false", "fast-threshold-milliseconds": "2500",

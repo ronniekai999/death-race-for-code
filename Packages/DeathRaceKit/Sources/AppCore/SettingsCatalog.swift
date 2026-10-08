@@ -140,6 +140,7 @@ public enum SettingsCatalog {
                         Setting("font-size", "Size", .number(range: 6...144, step: 1, unit: "pt")),
                         Setting("font-family-italic", "Italics", .fontFamily(italic: true)),
                         Setting("font-thicken", "Thicken strokes", .toggle),
+                        Setting("font-ligatures", "Ligatures", .toggle),
                     ]),
                 Group(
                     title: "Window",

@@ -16,10 +16,27 @@ public struct GlyphInstance: Sendable, Equatable {
     public var offsetY: Int16
     /// The text color; ignored for color glyphs.
     public var color: PackedColor
-    /// Bit 0: the glyph is in the color atlas.
+    /// Bit 0: the glyph is in the color atlas. Bits 1–5: the columns it covers, less one.
+    ///
+    /// The shader reads bit 0 and nothing else — it sizes the quad from `width` and `height`,
+    /// so a bitmap wider than a cell already draws across columns with no notion of them. The
+    /// span is for the frame's own later passes, which do count columns. Less one, so a
+    /// one-column glyph leaves these bits zero and every frame built before runs existed is
+    /// bit-for-bit what it was.
     public var flags: UInt32
 
     public static let colorAtlasFlag: UInt32 = 1
+    static let cellsShift: UInt32 = 1
+    private static let cellsWidth: UInt32 = 0x1F
+
+    /// The columns this glyph covers.
+    public var cells: Int { Int((flags >> Self.cellsShift) & Self.cellsWidth) + 1 }
+
+    /// `flags` for a glyph in `atlas` covering `cells` columns.
+    static func flags(atlas: AtlasKind, cells: Int) -> UInt32 {
+        let span = UInt32(max(0, min(cells, Int(cellsWidth) + 1) - 1)) << cellsShift
+        return (atlas == .color ? colorAtlasFlag : 0) | span
+    }
 }
 
 /// What a decoration instance draws.
@@ -288,8 +305,16 @@ public final class FrameBuilder {
         for item in preedit.cells {
             let span = item.isWide ? 2 : 1
             guard item.column >= 0, item.column + span <= frame.columns else { continue }
-            // What the row drew under the composing text goes.
-            frame.glyphs.removeAll { $0.cellY == cellY && (item.column..<(item.column + span)).contains(Int($0.cellX)) }
+            // What the row drew under the composing text goes — counting the columns each
+            // glyph covers, not just the one it starts on. A run that begins to the left of
+            // the composing text reaches into it, and filtering by the first column alone
+            // would leave its other half painting over what is being typed.
+            let covered = item.column..<(item.column + span)
+            frame.glyphs.removeAll { glyph in
+                guard glyph.cellY == cellY else { return false }
+                let start = Int(glyph.cellX)
+                return (start..<(start + glyph.cells)).overlaps(covered)
+            }
             for column in item.column..<(item.column + span) {
                 frame.backgrounds[preedit.row * frame.columns + column] = plain.background.packed
             }
@@ -304,7 +329,7 @@ public final class FrameBuilder {
                         cellX: UInt16(clamping: item.column), cellY: cellY, atlasX: placement.x, atlasY: placement.y,
                         width: placement.width, height: placement.height, offsetX: placement.offsetX,
                         offsetY: placement.offsetY, color: plain.foreground.packed,
-                        flags: placement.atlas == .color ? GlyphInstance.colorAtlasFlag : 0))
+                        flags: GlyphInstance.flags(atlas: placement.atlas, cells: span)))
                 shelves.insert(placement.shelf)
             }
         }
@@ -365,13 +390,13 @@ public final class FrameBuilder {
                         return (resolved.bold, resolved.italic)
                     }, shaper: $0)
             } ?? []
-        func emit(_ placement: GlyphPlacement, at x: Int, _ resolved: ResolvedStyle) {
+        func emit(_ placement: GlyphPlacement, at x: Int, cells: Int, _ resolved: ResolvedStyle) {
             out.glyphs.append(
                 GlyphInstance(
                     cellX: UInt16(clamping: x), cellY: 0, atlasX: placement.x, atlasY: placement.y,
                     width: placement.width, height: placement.height, offsetX: placement.offsetX,
                     offsetY: placement.offsetY, color: resolved.foreground.packed,
-                    flags: placement.atlas == .color ? GlyphInstance.colorAtlasFlag : 0))
+                    flags: GlyphInstance.flags(atlas: placement.atlas, cells: cells)))
             shelves.insert(placement.shelf)
         }
         var nextRun = runs.startIndex
@@ -413,7 +438,7 @@ public final class FrameBuilder {
                         run = candidate
                         span = candidate.cells
                         runEnd = x + candidate.cells - 1
-                        emit(placement, at: x, resolved)
+                        emit(placement, at: x, cells: candidate.cells, resolved)
                     }
                 }
                 decorations.add(resolved, column: x, cells: span)
@@ -431,7 +456,7 @@ public final class FrameBuilder {
                         scalars: scalars, bold: resolved.bold, italic: resolved.italic,
                         wide: cellValue.width == .wide)
                     if let placement = glyphs.placement(for: key) {
-                        if !placement.isEmpty { emit(placement, at: x, resolved) }
+                        if !placement.isEmpty { emit(placement, at: x, cells: span, resolved) }
                     } else {
                         out.complete = false
                     }

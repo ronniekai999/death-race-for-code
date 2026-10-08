@@ -227,7 +227,11 @@ private struct Surface {
         let frame = surface.frame()
         #expect(frame.glyphs.map(\.cellX) == [0, 2, 4])
         #expect(frame.glyphs.map(\.width) == [18, 18, 9])
-        #expect(frame.glyphs.map(\.flags) == [0, GlyphInstance.colorAtlasFlag, 0])
+        // Bit 0 is the color atlas; bits 1–5 are the columns covered, less one. So 中 is 2,
+        // the emoji is 2 | the color bit, and the narrow `x` is 0 — which is why a glyph that
+        // covers one column still has flags of exactly 0.
+        #expect(frame.glyphs.map(\.flags) == [2, 3, 0])
+        #expect(frame.glyphs.map(\.cells) == [2, 2, 1])
         #expect(surface.glyphs.requests.map(\.isWide) == [true, true, false])
     }
 

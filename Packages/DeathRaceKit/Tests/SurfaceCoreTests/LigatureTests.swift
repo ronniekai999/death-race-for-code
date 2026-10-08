@@ -439,3 +439,73 @@ private struct ShapedSurface {
         #expect(surface.glyphs.requests.map(\.string).contains("==="))
     }
 }
+
+/// The columns a glyph covers, carried in `flags` so the frame's later passes can count them.
+///
+/// Only one pass needs this today, and it is a bug fix rather than a new feature: the composing
+/// text removes what the row drew underneath it, and it used to look only at the column each
+/// glyph starts on. Anything covering more than one column — a ligature, and a double-width
+/// character long before ligatures existed — could start to the left of the composing text and
+/// keep painting into it.
+@Suite struct GlyphSpanTests {
+    @Test func aRunIsRemovedWhenComposingTextLandsOnItsSecondHalf() {
+        let surface = ShapedSurface(columns: 8, rows: 2)
+        surface.feed("a!=cdef")
+        // `!=` covers columns 1 and 2; the composing text starts on column 2.
+        let preedit = PreeditLayout(text: "x", cursorColumn: 2, cursorRow: 0, columns: 8)
+        let frame = surface.builder.build(
+            mirror: surface.model.mirror, theme: .legendsNeverDie, cell: ShapedSurface.cell,
+            selection: nil, glyphs: surface.glyphs, preedit: preedit, shaper: TableShaper())
+        #expect(
+            !frame.glyphs.contains { $0.cellX == 1 && $0.cells == 2 },
+            "the run reached into the composing text, so it goes")
+        #expect(frame.glyphs.contains { $0.cellX == 2 && $0.cells == 1 }, "and the composing text is drawn")
+    }
+
+    /// The same fault without any ligature at all: this is the pre-existing half of the bug.
+    @Test func aWideCharacterIsRemovedWhenComposingTextLandsOnItsSecondHalf() {
+        let surface = ShapedSurface(columns: 8, rows: 2)
+        surface.feed("\u{4F60}cdef")
+        // 你 covers columns 0 and 1; the composing text starts on column 1.
+        let preedit = PreeditLayout(text: "x", cursorColumn: 1, cursorRow: 0, columns: 8)
+        let frame = surface.builder.build(
+            mirror: surface.model.mirror, theme: .legendsNeverDie, cell: ShapedSurface.cell,
+            selection: nil, glyphs: surface.glyphs, preedit: preedit)
+        #expect(
+            !frame.glyphs.contains { $0.cellX == 0 && $0.cells == 2 },
+            "the wide character's right half was under the composing text")
+    }
+
+    /// A glyph entirely to the left of the composing text is left alone — the predicate is an
+    /// overlap, not "anything that starts before it".
+    @Test func aGlyphBesideTheComposingTextStays() {
+        let surface = ShapedSurface(columns: 8, rows: 2)
+        surface.feed("a!=cdef")
+        let preedit = PreeditLayout(text: "x", cursorColumn: 4, cursorRow: 0, columns: 8)
+        let frame = surface.builder.build(
+            mirror: surface.model.mirror, theme: .legendsNeverDie, cell: ShapedSurface.cell,
+            selection: nil, glyphs: surface.glyphs, preedit: preedit, shaper: TableShaper())
+        #expect(frame.glyphs.contains { $0.cellX == 1 && $0.cells == 2 }, "the run is nowhere near it")
+        #expect(frame.glyphs.contains { $0.cellX == 0 })
+    }
+
+    @Test func theSpanRidesTheFlagsWithoutDisturbingTheColorBit() {
+        #expect(GlyphInstance.flags(atlas: .mask, cells: 1) == 0, "one column leaves the word at zero")
+        #expect(GlyphInstance.flags(atlas: .color, cells: 1) == GlyphInstance.colorAtlasFlag)
+        #expect(GlyphInstance.flags(atlas: .mask, cells: 2) == 2)
+        #expect(GlyphInstance.flags(atlas: .color, cells: 2) == 3)
+        #expect(GlyphInstance.flags(atlas: .mask, cells: 8) == 14)
+        // And reading it back gives the columns, whichever atlas it is in.
+        for cells in 1...32 {
+            for atlas in [AtlasKind.mask, .color] {
+                let flags = GlyphInstance.flags(atlas: atlas, cells: cells)
+                var instance = GlyphInstance(
+                    cellX: 0, cellY: 0, atlasX: 0, atlasY: 0, width: 1, height: 1, offsetX: 0, offsetY: 0,
+                    color: 0, flags: flags)
+                #expect(instance.cells == cells)
+                #expect((flags & GlyphInstance.colorAtlasFlag != 0) == (atlas == .color))
+                instance.flags = flags
+            }
+        }
+    }
+}

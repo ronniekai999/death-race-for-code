@@ -47,6 +47,45 @@ public final class Terminal {
     public internal(set) var isAlternateScreen = false
 
     public internal(set) var modes = TerminalModes()
+    /// Whose protection the cells' protected bit is: DECSCA's, which only the selective erases
+    /// spare, or ISO 6429's from SPA, which only the plain erases spare. One bit on the cell and
+    /// one mode beside it is xterm's model, and esctest pins both halves of it.
+    var protection = Protection.none
+
+    enum Protection {
+        case none
+        /// DECSCA: DECSEL and DECSED leave these cells alone; ED, EL and ECH do not.
+        case dec
+        /// SPA and EPA: ED, EL and ECH leave these cells alone; DECSEL and DECSED do not.
+        case iso
+    }
+
+    /// The erases, by what they do with a protected cell.
+    enum Erase {
+        /// ED, EL, ECH and DECERA.
+        case plain
+        /// DECSEL and DECSED.
+        case selective
+        /// DECSERA.
+        case selectiveRectangle
+    }
+
+    /// Whether an erase leaves the cells somebody protected alone. One bit marks the cell and
+    /// `protection` says who marked it; what each erase then does is a table xterm's own author
+    /// settled and esctest pins every row of:
+    ///
+    /// - ED, EL and ECH spare what ISO 6429's SPA protected, and not what DECSCA did.
+    /// - DECSEL and DECSED spare either, which xterm does "for backward compatibility" — the
+    ///   reason esctest gives for filing it as xterm's own difference from the specification.
+    /// - DECSERA spares only DECSCA's, which is DEC's rule for it, and is how xterm behaves
+    ///   even while its DECSEL does not.
+    func sparesProtected(_ erase: Erase) -> Bool {
+        switch erase {
+        case .plain: protection == .iso
+        case .selective: protection != .none
+        case .selectiveRectangle: protection == .dec
+        }
+    }
     /// The colors in use: the base palette (`configuration.palette`, the app's theme) with
     /// what programs changed on top.
     public internal(set) var palette: Palette
@@ -54,6 +93,12 @@ public final class Terminal {
     /// program set (OSC 4, 10, 11, 12). A new base palette leaves them alone; their resets
     /// (OSC 104, 110, 111, 112) and RIS forget them.
     var paletteOverrides: Set<Int> = []
+    /// The special colors (OSC 5, or OSC 4 past the end of the palette): in xterm's order,
+    /// bold, underline, blink, reverse and italic. They are kept and reported and nothing draws
+    /// with them, which is also what xterm does unless its user turns on `colorBDMode` and its
+    /// siblings; a slot nobody has set reads as the foreground, which is their default.
+    var specialColors = [RGB?](repeating: nil, count: Terminal.specialColorCount)
+    static let specialColorCount = 5
     static let foregroundSlot = 256
     static let backgroundSlot = 257
     static let cursorSlot = 258
@@ -249,6 +294,10 @@ public final class Terminal {
     public var currentVersion: UInt64 { clock.current }
 
     public var scrollRegion: ClosedRange<Int> { screen.scrollTop...screen.scrollBottom }
+
+    /// The left and right margins (DECSLRM), inclusive. They bound nothing unless
+    /// `modes.leftRightMargins` is on, and turning that off puts them back to the full width.
+    public var columnMargins: ClosedRange<Int> { screen.scrollLeft...screen.scrollRight }
 
     public var kittyKeyboardFlags: UInt8 {
         (isAlternateScreen ? kittyFlagsAlternate : kittyFlagsPrimary).last ?? 0

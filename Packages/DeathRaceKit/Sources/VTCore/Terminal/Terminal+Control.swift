@@ -13,10 +13,9 @@ extension Terminal {
             s.cursor.pendingWrap = false
         case 0x0A, 0x0B, 0x0C:  // LF, VT, FF
             index()
-            if modes.newline { s.cursor.x = 0 }
+            if modes.newline { carriageReturn() }
         case 0x0D:  // CR
-            s.cursor.x = 0
-            s.cursor.pendingWrap = false
+            carriageReturn()
         case 0x0E:  // SO: G1 into GL
             s.cursor.charsets.gl = 1
         case 0x0F:  // SI: G0 into GL
@@ -60,7 +59,13 @@ extension Terminal {
         case 0x44: index()  // ESC D: IND
         case 0x45:  // ESC E: NEL
             index()
-            s.cursor.x = 0
+            carriageReturn()
+        case 0x56:  // ESC V: SPA, start of a protected area
+            protection = .iso
+            s.cursor.protected = true
+        case 0x57: s.cursor.protected = false  // ESC W: EPA, end of one
+        case 0x36: backIndex()  // ESC 6: DECBI
+        case 0x39: forwardIndex()  // ESC 9: DECFI
         case 0x48: s.tabStops[s.cursor.x] = true  // ESC H: HTS
         case 0x4D: reverseIndex()  // ESC M: RI
         case 0x4E: s.cursor.charsets.singleShift = 2  // ESC N: SS2
@@ -73,6 +78,15 @@ extension Terminal {
         case 0x5A: reply(Self.primaryDeviceAttributes)  // ESC Z: DECID, the old DA1
         default: break  // ESC \ (ST) and the rest
         }
+    }
+
+    /// CR: back to the left margin. A cursor already left of the margin goes to the screen's
+    /// own edge instead — except in origin mode, where the left margin is the only start of a
+    /// line there is. Without margins both answers are column zero.
+    func carriageReturn() {
+        let s = screen
+        s.cursor.x = modes.origin || s.cursor.x >= s.scrollLeft ? s.scrollLeft : 0
+        s.cursor.pendingWrap = false
     }
 
     // MARK: - Cursor save and restore
@@ -100,7 +114,9 @@ extension Terminal {
         }
         s.cursor.x = min(saved.x, s.columns - 1)
         s.cursor.y = min(saved.y, s.rows - 1)
-        s.cursor.pendingWrap = saved.pendingWrap && saved.x == s.columns - 1
+        // The wrap was pending at whatever the right limit was, which is the right margin when
+        // there is one.
+        s.cursor.pendingWrap = saved.pendingWrap && s.cursor.x == s.rightLimit
         s.cursor.pen = saved.pen
         s.cursor.protected = saved.protected
         s.cursor.charsets = saved.charsets
@@ -118,13 +134,13 @@ extension Terminal {
             pendingCommandText = nil
             s.cursor = Cursor()
             s.savedCursor = nil
-            s.scrollTop = 0
-            s.scrollBottom = s.rows - 1
+            s.resetMargins()
             s.tabStops = ScreenBuffer.defaultTabStops(columns: s.columns)
         }
         modes = TerminalModes()
         palette = configuration.palette
         paletteOverrides.removeAll()
+        specialColors = [RGB?](repeating: nil, count: Self.specialColorCount)
         title = ""
         iconName = ""
         titleStack.removeAll()
@@ -136,6 +152,7 @@ extension Terminal {
         currentLink = nil
         savedPrivateModes.removeAll()
         inertModes.removeAll()
+        protection = .none
         allowsColumnSwitch = false
         keepsScreenOnColumnSwitch = false
         emit(.colorsChanged)
@@ -153,8 +170,13 @@ extension Terminal {
         modes.applicationKeypad = false
         modes.reverseWraparound = false
         modes.reverseWraparoundExtended = false
-        s.scrollTop = 0
-        s.scrollBottom = s.rows - 1
+        // DEC STD 070 has DECSTR reset left/right mode as well as the margins themselves. The
+        // mode is one and the margins are one pair per screen, so both screens' go back: see
+        // the note on mode 69 in `setPrivateMode`.
+        modes.leftRightMargins = false
+        protection = .none
+        s.resetMargins()
+        for other in [primary, alternate] where other !== s { other.resetLeftRightMargins() }
         s.cursor.pen = .default
         s.cursor.protected = false
         s.cursor.charsets = CharsetState()
@@ -167,8 +189,7 @@ extension Terminal {
     /// DECALN: fills the screen with E, resets the margins and homes the cursor.
     func screenAlignmentTest() {
         let s = screen
-        s.scrollTop = 0
-        s.scrollBottom = s.rows - 1
+        s.resetMargins()
         for y in 0..<s.rows {
             let row = s.active[y]
             row.graphemes.removeAll()

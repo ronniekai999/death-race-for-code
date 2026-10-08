@@ -5,7 +5,7 @@ How we know `VTCore` behaves like a terminal. Every check runs on Linux in CI.
 | Check | What it proves | Status |
 | --- | --- | --- |
 | Unit tests | each sequence and edge case we implement | parser, terminal, reflow, input, deltas, sessions |
-| esctest | xterm-compatible behavior, through `vthost` answering its queries | 358 pass; ratchet in CI |
+| esctest | xterm-compatible behavior, through `vthost` answering its queries | 469 pass, every failure named; ratchet in CI |
 | vttest | the classic VT100/VT220 screens, each checked against what vttest says it should show | 10 suites, 139 screens |
 | libFuzzer | no crashes or hangs on arbitrary input; deltas replay to the same screen | 1 min per PR, 30 min weekly |
 | SwiftTerm differential | every corpus screen through SwiftTerm too; each divergence reviewed | 165 screens, 5 differ, all SwiftTerm's |
@@ -24,33 +24,87 @@ known bugs; with it, our deliberate refusals count as failures and DECNCSM count
 
 | | Tests |
 | --- | ---: |
-| Pass | 358 |
-| Marked by esctest as known xterm bugs | 33 |
-| Fail: features scheduled for later | 156 |
-| Fail: deliberate differences from xterm | 20 |
+| Pass | 469 |
+| Marked by esctest as known xterm bugs | 35 |
+| Fail: features scheduled for later | 0 |
+| Fail: refused by design, or a deliberate difference | 41 |
+| Fail: tests that encode the reference terminal's own environment | 22 |
 
-That is 358 of 378 (95%) on the v1 scope, counting the deliberate differences as failures.
+That is 469 of 532 (88%): every test esctest judges, with the refusals and the unreachable
+tests counted as the failures they are. The other 35 are the set esctest expects xterm itself
+to fail, so a pass there would be a deliberate divergence from the reference — and two of them
+are exactly that, which is said below.
 
-**Scheduled for later** (from the plan's "Later" list): left/right margins, DECSLRM (66
-tests); rectangle operations, DECCRA, DECERA, DECFRA, DECSERA (22); special colors, OSC
-5/105/106 (19); window manipulation and title reports (19, and see below); CIE, TekHVC
-and RGBi color specifications (14); DECIC, DECDC, DECBI, DECFI (11); ISO protected areas,
-SPA/EPA (5).
+The number reads lower than the "95% of 378" Phase 1 recorded while the engine does more than
+it did then, because that was 95% of the v1 *scope*: the 156 tests filed under "later" were
+left out of the denominator altogether. Nothing is filed under later any more, so nothing is
+left out, and the 19 window-manipulation tests have moved to the refusals they always were. A
+fraction whose denominator shrinks as the engine grows is not worth quoting; this one counts
+every test.
 
-**Deliberate differences:**
+**Nothing is scheduled for later any more.** Everything on the roadmap's conformance list is
+in: left and right margins and what rides on them, the rectangular areas, the special colors,
+and ISO protected areas. What is left is the 41 tests we refuse on purpose and the 22 that
+encode the reference terminal's own environment.
 
+**Two of the 35 known xterm bugs are ours by choice.** DECSEL and DECSED spare a cell ISO 6429
+protected as well as one DECSCA did, which esctest files as xterm's own difference from the
+specification, quoting its author: xterm does it "for backward compatibility". A selective
+erase that takes what a program went out of its way to protect is the worse answer to be wrong
+with, so we are wrong the same way. DECSERA, where xterm is strict, is strict here too — an
+asymmetry esctest pins on both sides.
+
+**The 22 unreachable ones are worth naming**, because "later" would be a lie about them:
+
+- **The X11 color specifications** (21 tests): `rgbi:`, `CIELab:`, `CIELuv:`, `CIEXYZ:`,
+  `CIEuvY:`, `CIExyY:` and `TekHVC:`, in each of OSC 4, OSC 5 and OSC 10–12. esctest compares
+  the color read back against the exact value X11's Xcms produced on the display its reference
+  xterm ran on: `rgbi:0.5/0.5/0.5` must come back `c1c1/bbbb/bbbb`, where two channels follow a
+  gamma of 2.2 and red follows 2.49. Those numbers are a *display's* characterization, carried
+  in the X server's XDCCC properties, not a terminal's behavior, and matching them would mean
+  embedding one X server's device profile in a macOS terminal. So the specs are not parsed at
+  all: a program that sends one gets no color change, which is what the engine does with any
+  spec it cannot read. `rgb:` and the four `#` forms, which are exact and device-independent,
+  are all supported.
+- **`ResetSpecialColor_Dynamic`** (1 test): esctest sets the foreground to `#000` at startup and
+  then checks that OSC 110 restores *that*. It passes on xterm because esctest also launches it
+  with a black foreground resource, so the program-set value and the resource agree. OSC 110
+  here restores the app's theme, which is the same rule and a different answer.
+
+**DECSACE stays as it reads.** It selects whether an attribute change runs as a stream or as a
+rectangle, and the two sequences it governs — DECCARA and DECRARA — are not here, so `0*x`
+(stream) is the truthful answer and not a placeholder. esctest tests neither sequence, so
+building them would buy nothing on this scoreboard; it is DECSACE that would start to mean
+something.
+
+**Left and right margins are in**, which is what moved the number, and 74 tests came with
+them: the margins and their reports (3), then movement, scrolling, printing and the editing
+sequences bounded by them (44), then what is defined in terms of them — origin mode's
+horizontal half, DECIC, DECDC, DECBI and DECFI (27). Origin mode is the pair of rules
+together: addressing counts from the margins' own corner and the cursor is reported back in
+the same coordinates, which is why esctest has HPA and VPA "ignoring" origin mode while they
+do nothing of the kind.
+
+**Refusals and deliberate differences:**
+
+- **The window does not move, resize, raise or lower itself.** `Terminal+CSI.swift` answers
+  XTWINOPS' reports and its title stack and ignores the rest: a program does not get to
+  rearrange the desktop (19 tests). These are never going to pass, and that is the point.
 - **We say we are a VT220** (DA1 `?62;22c`, DA2 `>1;10;0c`, DECSCL 62). xterm claims VT420
-  or VT525 features we do not have, and programs act on those claims (6 tests).
+  or VT525 features we do not have, and programs act on those claims (5 tests).
 - **The window owns its size.** Programs cannot resize it (DECSLPP, DECSNLS, `CSI 8 t`) or
-  switch it to 132 columns (DECCOLM) (5 tests). Once a program allows the switch (mode
+  switch it to 132 columns (DECCOLM) (6 tests). Once a program allows the switch (mode
   40), DECCOLM still clears the screen (unless DECNCSM), resets the margins and homes the
   cursor, as xterm does when the window manager refuses the resize.
 - **Titles cannot be read back** (`CSI 20 t`, `CSI 21 t`). Title reports are a well-known
   way to type text into a shell (5 tests).
 - **The clipboard cannot be read** (OSC 52 with `?`): a program would see whatever the user
   last copied (1 test).
-- **DECSCL does not change the conformance level** (1 test), and **mode 41**, xterm's
-  workaround for an old `more(1)` bug, is not implemented (1 test).
+- **DECSCL does not change the conformance level** (3 tests). We answer DECRQSS `"p"` as a
+  VT220 and offer every sequence we have whatever a program asks for, so a program that sets
+  level 3 and then sets a left margin gets one, where xterm refuses it. Gating features by a
+  conformance level would recover these three; nothing else needs it.
+- **Mode 41**, xterm's workaround for an old `more(1)` bug, is not implemented (1 test).
 - **DECARM can be set and queried.** esctest expects xterm to fail this test, so passing it
   counts as a failure (1 test).
 
@@ -156,10 +210,13 @@ with the swift.org toolchain on a Mac).
 ## v1 scope
 
 C0 and ESC (with the DEC line-drawing charset), CSI cursor/erase/insert/delete, scroll regions,
-tabs, REP, DECALN, full SGR (truecolor, underline styles and color), alternate screen
+left and right margins (DECLRMM, DECSLRM, DECIC, DECDC, DECBI, DECFI), rectangular areas
+(DECCRA, DECERA, DECFRA, DECSERA), tabs, REP, DECALN, full SGR (truecolor, underline styles and color), alternate screen
 1049/47/1047, mouse 1000/1002/1003/1006, focus 1004, bracketed paste 2004, synchronized output
 2026, DECSCUSR, DA/DSR/CPR/DECRQM/DECRQSS/XTVERSION/XTGETTCAP/XTWINOPS 18t, OSC 0/2/4/7/10–12,
-OSC 52 (write only), OSC 9;4, OSC 133, OSC 633;E, and the Kitty keyboard protocol.
+OSC 52 (write only), OSC 5/105 (the special colors, kept and reported), ISO protected areas
+(SPA/EPA), OSC 9;4, OSC 133,
+OSC 633;E, and the Kitty keyboard protocol.
 
 `OSC 133;D` takes a parameter walk rather than one value: the first bare number is the exit
 code and the rest are `key=value`, which is how `dur=<ms>` rides along. Before Phase 8 only the
@@ -169,5 +226,4 @@ unescaping (`\\` for a backslash, `\xHH` for `;` and any control character), so 
 light up in its terminal and its scripts light up in ours. Neither is ours to define, and `dur=`
 is parameter-shaped so every other terminal ignores it.
 
-Later: OSC 8 hyperlinks (Phase 3), Sixel, Kitty graphics, iTerm2 images, DECSLRM, double-width
-lines, rectangle operations, VT52.
+Later: Sixel, Kitty graphics, iTerm2 images, double-width lines, VT52.

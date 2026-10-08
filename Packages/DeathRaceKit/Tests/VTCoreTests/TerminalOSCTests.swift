@@ -175,3 +175,74 @@ import Testing
         #expect(TerminalEvent.coalesced(t.takeEvents()) == [.bell, .titleChanged("lap 9999")])
     }
 }
+
+/// The special colors: OSC 5 by their own numbers, OSC 4 past the end of the palette, and
+/// OSC 105 to put them back.
+@Suite struct TerminalSpecialColorTests {
+    @Test func osc5SetsAndReportsASlot() {
+        let t = makeTerminal()
+        t.feed("\u{1B}]5;0;rgb:f0f0/0000/0000\u{1B}\\")
+        _ = t.takeReplies()
+        t.feed("\u{1B}]5;0;?\u{1B}\\")
+        #expect(t.takeReplyString() == "\u{1B}]5;0;rgb:f0f0/0000/0000\u{1B}\\")
+    }
+
+    /// Both forms address the same five slots: OSC 4 counts past however many indexed colors
+    /// the terminal has, which is 256 here, and OSC 5 counts from zero.
+    @Test func osc4PastThePaletteReachesTheSameSlots() {
+        let t = makeTerminal()
+        t.feed("\u{1B}]4;257;#aaaabbbbcccc\u{1B}\\")
+        _ = t.takeReplies()
+        t.feed("\u{1B}]5;1;?\u{1B}\\")
+        #expect(t.takeReplyString() == "\u{1B}]5;1;rgb:aaaa/bbbb/cccc\u{1B}\\")
+        t.feed("\u{1B}]4;257;?\u{1B}\\")
+        #expect(t.takeReplyString() == "\u{1B}]4;257;rgb:aaaa/bbbb/cccc\u{1B}\\")
+    }
+
+    @Test func aSlotNobodyHasSetReadsAsTheForeground() {
+        let t = makeTerminal()
+        t.feed("\u{1B}]5;2;?\u{1B}\\")
+        #expect(t.takeReplyString() == "\u{1B}]5;2;\(t.palette.foreground.x11)\u{1B}\\")
+    }
+
+    @Test func osc105PutsASlotBackAndNoParameterPutsThemAllBack() {
+        let t = makeTerminal()
+        let foreground = t.palette.foreground.x11
+        t.feed("\u{1B}]5;0;#111111\u{1B}\\\u{1B}]5;1;#222222\u{1B}\\")
+        t.feed("\u{1B}]105;0\u{1B}\\")
+        _ = t.takeReplies()
+        t.feed("\u{1B}]5;0;?\u{1B}\\\u{1B}]5;1;?\u{1B}\\")
+        #expect(t.takeReplyString() == "\u{1B}]5;0;\(foreground)\u{1B}\\\u{1B}]5;1;rgb:2222/2222/2222\u{1B}\\")
+        t.feed("\u{1B}]105\u{1B}\\")
+        _ = t.takeReplies()
+        t.feed("\u{1B}]5;1;?\u{1B}\\")
+        #expect(t.takeReplyString() == "\u{1B}]5;1;\(foreground)\u{1B}\\")
+    }
+
+    @Test func aSlotOutsideTheFiveIsIgnored() {
+        let t = makeTerminal()
+        t.feed("\u{1B}]5;5;#111111\u{1B}\\\u{1B}]4;261;#222222\u{1B}\\")
+        _ = t.takeReplies()
+        t.feed("\u{1B}]5;5;?\u{1B}\\\u{1B}]4;261;?\u{1B}\\")
+        #expect(t.takeReplyString() == "", "there are five special colors and no sixth to answer for")
+    }
+
+    @Test func aFullResetForgetsThem() {
+        let t = makeTerminal()
+        t.feed("\u{1B}]5;0;#111111\u{1B}\\\u{1B}c")
+        _ = t.takeReplies()
+        t.feed("\u{1B}]5;0;?\u{1B}\\")
+        #expect(t.takeReplyString() == "\u{1B}]5;0;\(t.palette.foreground.x11)\u{1B}\\")
+    }
+
+    /// Nothing draws with them, so the app is not told the colors changed — the observable half
+    /// of "kept and reported, and that is all", which is what xterm does unless its user turns
+    /// on `colorBDMode` and its siblings.
+    @Test func settingOneTellsTheAppNothing() {
+        let t = makeTerminal()
+        t.feed("\u{1B}]5;0;#111111\u{1B}\\\u{1B}]4;256;#222222\u{1B}\\")
+        #expect(t.takeEvents().isEmpty)
+        t.feed("\u{1B}]4;1;#333333\u{1B}\\")
+        #expect(t.takeEvents() == [.colorsChanged], "while a palette color still does")
+    }
+}

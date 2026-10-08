@@ -106,6 +106,11 @@ final class ScreenBuffer {
     /// The scroll region (DECSTBM), inclusive.
     var scrollTop = 0
     var scrollBottom: Int
+    /// The left and right margins (DECSLRM), inclusive. The buffer only keeps them: they
+    /// bound printing, scrolling and the cursor while DECLRMM (mode 69) is on, and the mode
+    /// is the terminal's.
+    var scrollLeft = 0
+    var scrollRight: Int
     var tabStops: [Bool]
 
     private var spareRows: [Row] = []
@@ -118,6 +123,7 @@ final class ScreenBuffer {
         self.scrollbackLimitBytes = scrollbackLimitBytes
         self.clock = clock
         self.scrollBottom = self.rows - 1
+        self.scrollRight = self.columns - 1
         self.tabStops = ScreenBuffer.defaultTabStops(columns: self.columns)
         self.active = []
         for _ in 0..<self.rows { active.append(makeRow(fill: .default)) }
@@ -160,6 +166,43 @@ final class ScreenBuffer {
 
     var isFullScreenRegion: Bool { scrollTop == 0 && scrollBottom == rows - 1 }
 
+    /// True when the margins are the whole width — which is also exactly when DECLRMM is off,
+    /// since the terminal puts them back as the mode goes off. So nothing below has to know
+    /// about the mode, and the cheap whole-row paths stay in place for every program that
+    /// never sets DECSLRM.
+    var isFullWidthMargins: Bool { scrollLeft == 0 && scrollRight == columns - 1 }
+
+    /// The last column printing and tabbing may use from a given column: the right margin,
+    /// unless that column is already past it, in which case the screen's own edge. The same
+    /// shape as the bound `cursorDown` uses against the scroll region, and it is what xterm
+    /// does.
+    func rightLimit(from x: Int) -> Int { x <= scrollRight ? scrollRight : columns - 1 }
+
+    /// The cursor's own right limit, which is what every print path asks for.
+    var rightLimit: Int { rightLimit(from: cursor.x) }
+
+    /// Where the cursor stops going left: the left margin, unless it is already left of it.
+    var leftLimit: Int { cursor.x >= scrollLeft ? scrollLeft : 0 }
+
+    /// Scrolling and the editing sequences act for a cursor between the margins and do
+    /// nothing at all for one outside them.
+    var cursorIsBetweenMargins: Bool { cursor.x >= scrollLeft && cursor.x <= scrollRight }
+
+    /// Both regions back to the whole screen, which is what RIS, DECSTR, DECALN, DECCOLM and
+    /// a resize all leave behind.
+    func resetMargins() {
+        scrollTop = 0
+        scrollBottom = rows - 1
+        resetLeftRightMargins()
+    }
+
+    /// Only the left and right margins: turning DECLRMM off puts these back and leaves the
+    /// scroll region, which is not its business, alone.
+    func resetLeftRightMargins() {
+        scrollLeft = 0
+        scrollRight = columns - 1
+    }
+
     // MARK: - Scrolling
 
     /// Scrolls the region up: lines leave at the top, blank lines enter at the bottom.
@@ -169,6 +212,10 @@ final class ScreenBuffer {
         let height = scrollBottom - scrollTop + 1
         let n = min(max(count, 0), height)
         guard n > 0 else { return }
+        guard isFullWidthMargins else {
+            scrollColumnsUp(n, in: scrollTop...scrollBottom, fill: fill)
+            return
+        }
         for _ in 0..<n {
             let leaving = active.remove(at: scrollTop)
             if scrollTop == 0 {
@@ -185,6 +232,10 @@ final class ScreenBuffer {
         let height = scrollBottom - scrollTop + 1
         let n = min(max(count, 0), height)
         guard n > 0 else { return }
+        guard isFullWidthMargins else {
+            scrollColumnsDown(n, in: scrollTop...scrollBottom, fill: fill)
+            return
+        }
         for _ in 0..<n {
             recycle(active.remove(at: scrollBottom))
             active.insert(makeRow(fill: fill), at: scrollTop)
@@ -196,6 +247,10 @@ final class ScreenBuffer {
         guard y >= scrollTop && y <= scrollBottom else { return }
         let n = min(max(count, 0), scrollBottom - y + 1)
         guard n > 0 else { return }
+        guard isFullWidthMargins else {
+            scrollColumnsDown(n, in: y...scrollBottom, fill: fill)
+            return
+        }
         for _ in 0..<n {
             recycle(active.remove(at: scrollBottom))
             active.insert(makeRow(fill: fill), at: y)
@@ -207,10 +262,85 @@ final class ScreenBuffer {
         guard y >= scrollTop && y <= scrollBottom else { return }
         let n = min(max(count, 0), scrollBottom - y + 1)
         guard n > 0 else { return }
+        guard isFullWidthMargins else {
+            scrollColumnsUp(n, in: y...scrollBottom, fill: fill)
+            return
+        }
         for _ in 0..<n {
             recycle(active.remove(at: y))
             active.insert(makeRow(fill: fill), at: scrollBottom)
         }
+    }
+
+    // MARK: - Scrolling between left and right margins
+
+    /// With left and right margins, scrolling moves the cells *between* them from row to row
+    /// rather than moving whole rows: every cell outside the margins stays exactly where it
+    /// is, and nothing reaches scrollback, because a line that only partly moved is not a
+    /// line that left the screen.
+    private func scrollColumnsUp(_ n: Int, in rows: ClosedRange<Int>, fill: Style) {
+        for y in rows {
+            if y + n <= rows.upperBound {
+                copyColumns(from: active[y + n], to: active[y])
+            } else {
+                erase(row: y, from: scrollLeft, to: scrollRight + 1, fill: fill)
+            }
+        }
+    }
+
+    private func scrollColumnsDown(_ n: Int, in rows: ClosedRange<Int>, fill: Style) {
+        for y in rows.reversed() {
+            if y - n >= rows.lowerBound {
+                copyColumns(from: active[y - n], to: active[y])
+            } else {
+                erase(row: y, from: scrollLeft, to: scrollRight + 1, fill: fill)
+            }
+        }
+    }
+
+    private func copyColumns(from source: Row, to target: Row) {
+        copyCells(from: source, columns: scrollLeft...scrollRight, to: target, at: scrollLeft)
+    }
+
+    /// Copies `columns` of one row into another, landing at `destination`. A cell's style and
+    /// its link are indexes into the table of the row that holds it, so both are looked up
+    /// again in the row the cell lands on, and a two-column character cut by either end of the
+    /// window loses the half that moved rather than leaving a head with no tail.
+    ///
+    /// A row cannot be copied onto itself: within one row the cells overlap, and shifting them
+    /// is `shiftBetweenMargins`' job. DECCRA lifts its rectangle into rows of its own first for
+    /// the same reason.
+    func copyCells(from source: Row, columns: ClosedRange<Int>, to target: Row, at destination: Int) {
+        guard source !== target, destination >= 0 else { return }
+        let width = min(columns.count, self.columns - destination)
+        guard width > 0 else { return }
+        let last = destination + width - 1
+        splitWideCharacter(in: target, at: destination)
+        splitWideCharacter(in: target, at: last + 1)
+        var lastStyle: (source: UInt16, target: UInt16)?
+        for offset in 0..<width {
+            let from = columns.lowerBound + offset
+            let to = destination + offset
+            if target.cells[to].hasGrapheme { target.graphemes[to] = nil }
+            var cell = source.cells[from]
+            if cell.styleID != 0 {
+                if let known = lastStyle, known.source == cell.styleID {
+                    cell.styleID = known.target
+                } else {
+                    let mapped = target.styleID(for: source.style(of: cell))
+                    lastStyle = (cell.styleID, mapped)
+                    cell.styleID = mapped
+                }
+            }
+            if cell.isLinked {
+                cell.linkIndex = source.link(at: from).map { target.linkIndex(for: $0) } ?? 0
+            }
+            target.cells[to] = cell
+            if cell.hasGrapheme, let scalars = source.graphemes[from] { target.graphemes[to] = scalars }
+        }
+        if target.cells[destination].width == .spacerTail { clearCell(target, destination) }
+        if target.cells[last].width == .wide { clearCell(target, last) }
+        touch(target)
     }
 
     /// A line leaves the top of the screen: into scrollback, if this screen keeps any.
@@ -259,8 +389,9 @@ final class ScreenBuffer {
 
     // MARK: - Cells
 
-    /// Blanks columns `[from, to)` of row `y` in `fill`. With `selective`, protected cells
-    /// survive (DECSED / DECSEL).
+    /// Blanks columns `[from, to)` of row `y` in `fill`. With `sparingProtected`, the cells
+    /// somebody protected survive; which erases do that is the terminal's to decide, because it
+    /// depends on whether the protection came from DECSCA or from ISO 6429's SPA.
     /// `forgetting` means the whole screen is being replaced, not redrawn, so the row's prompt
     /// marks and command record go with its text.
     ///
@@ -271,7 +402,8 @@ final class ScreenBuffer {
     /// command that had just finished, every time, because the shell writes `OSC 133;D` on
     /// exactly that row just before the prompt redraws it.
     func erase(
-        row y: Int, from start: Int, to end: Int, fill: Style, selective: Bool = false, forgetting: Bool = false
+        row y: Int, from start: Int, to end: Int, fill: Style, sparingProtected: Bool = false,
+        forgetting: Bool = false
     ) {
         let row = active[y]
         let lower = max(0, start)
@@ -281,12 +413,13 @@ final class ScreenBuffer {
         splitWideCharacter(in: row, at: upper)
         let blank = Cell.blank(styleID: row.styleID(for: fill))
         if !row.graphemes.isEmpty {
-            for x in lower..<upper where row.cells[x].hasGrapheme && !(selective && row.cells[x].isProtected) {
+            for x in lower..<upper where row.cells[x].hasGrapheme {
+                guard !(sparingProtected && row.cells[x].isProtected) else { continue }
                 row.graphemes[x] = nil
             }
         }
         row.cells.withUnsafeMutableBufferPointer { cells in
-            if selective {
+            if sparingProtected {
                 for x in lower..<upper where !cells[x].isProtected { cells[x] = blank }
             } else {
                 UnsafeMutableBufferPointer(rebasing: cells[lower..<upper]).update(repeating: blank)
@@ -297,7 +430,7 @@ final class ScreenBuffer {
         // the text. Without it, ED 2, RIS, the 1049 clear and DECALN all left prompt marks and
         // command records on rows they had just blanked, and a block model built from those
         // marks would draw a rail around nothing.
-        if forgetting, !selective {
+        if forgetting {
             row.promptMarks = []
             row.command = nil
         }
@@ -307,6 +440,10 @@ final class ScreenBuffer {
     /// ICH: inserts blanks at `x`, shifting the rest of the line right; cells pushed past the
     /// right edge are lost.
     func insertBlanks(_ count: Int, row y: Int, at x: Int, fill: Style) {
+        guard isFullWidthMargins else {
+            shiftBetweenMargins(count, row: y, at: x, by: 1, fill: fill)
+            return
+        }
         let row = active[y]
         guard x < columns else { return }
         let n = min(max(count, 0), columns - x)
@@ -323,6 +460,10 @@ final class ScreenBuffer {
     /// DCH: deletes cells at `x`, shifting the rest of the line left and filling the right
     /// edge with blanks.
     func deleteCells(_ count: Int, row y: Int, at x: Int, fill: Style) {
+        guard isFullWidthMargins else {
+            shiftBetweenMargins(count, row: y, at: x, by: -1, fill: fill)
+            return
+        }
         let row = active[y]
         guard x < columns else { return }
         let n = min(max(count, 0), columns - x)
@@ -333,6 +474,54 @@ final class ScreenBuffer {
         row.cells.removeSubrange(x..<(x + n))
         row.cells.append(contentsOf: repeatElement(blank, count: n))
         shiftGraphemes(in: row, from: x, by: -n)
+        touch(row)
+    }
+
+    /// DECIC: blank columns pushed in at `x` in every row of the scroll region, the rows
+    /// outside it left alone. What passes the right margin is dropped rather than wrapping.
+    func insertColumns(_ count: Int, at x: Int, fill: Style) {
+        for y in scrollTop...scrollBottom { insertBlanks(count, row: y, at: x, fill: fill) }
+    }
+
+    /// DECDC: columns pulled out at `x` in every row of the scroll region.
+    func deleteColumns(_ count: Int, at x: Int, fill: Style) {
+        for y in scrollTop...scrollBottom { deleteCells(count, row: y, at: x, fill: fill) }
+    }
+
+    /// ICH and DCH between the margins: the shift runs from the cursor to the right margin
+    /// and leaves every cell beyond it alone, so what passes the margin is dropped rather
+    /// than pushing the rest of the line along. A cursor outside the margins shifts nothing.
+    /// `direction` is +1 to insert and -1 to delete.
+    private func shiftBetweenMargins(_ count: Int, row y: Int, at x: Int, by direction: Int, fill: Style) {
+        guard x >= scrollLeft, x <= scrollRight else { return }
+        let window = x...scrollRight
+        let n = min(max(count, 0), window.count)
+        guard n > 0 else { return }
+        let row = active[y]
+        splitWideCharacter(in: row, at: x)
+        splitWideCharacter(in: row, at: scrollRight + 1)
+        let blank = Cell.blank(styleID: row.styleID(for: fill))
+        let source = Array(row.cells[window])
+        let graphemes = row.graphemes
+        var updated = graphemes
+        if !graphemes.isEmpty {
+            for column in window where row.cells[column].hasGrapheme { updated[column] = nil }
+        }
+        for (offset, column) in window.enumerated() {
+            let from = offset - n * direction
+            if from >= 0 && from < source.count {
+                row.cells[column] = source[from]
+                if source[from].hasGrapheme { updated[column] = graphemes[x + from] }
+            } else {
+                row.cells[column] = blank
+            }
+        }
+        if !graphemes.isEmpty { row.graphemes = updated }
+        // A two-column character the shift cut in half loses the half that moved, as it does in
+        // `copyCells`: a head whose tail was pushed past the margin, or a tail whose head was
+        // pulled out from under it, would otherwise be drawn as a character of its own.
+        if row.cells[x].width == .spacerTail { clearCell(row, x) }
+        if row.cells[scrollRight].width == .wide { clearCell(row, scrollRight) }
         touch(row)
     }
 
@@ -370,12 +559,17 @@ final class ScreenBuffer {
 
     // MARK: - Tabs
 
+    /// Tabs stop at the right margin, as they do on a DEC terminal (ECMA-48 says nothing
+    /// about margins), and at the screen's edge for a cursor already past it.
     func nextTabStop(after x: Int) -> Int {
+        let limit = rightLimit(from: x)
         var column = x + 1
-        while column < columns - 1 && !tabStops[column] { column += 1 }
-        return min(column, columns - 1)
+        while column < limit && !tabStops[column] { column += 1 }
+        return min(column, limit)
     }
 
+    /// Backward tabs, on the other hand, go past the left margin to the first column:
+    /// esctest pins that asymmetry (`CBTTests.test_CBT_IgnoresRegion`), and so does xterm.
     func previousTabStop(before x: Int) -> Int {
         var column = x - 1
         while column > 0 && !tabStops[column] { column -= 1 }
@@ -414,8 +608,7 @@ final class ScreenBuffer {
         }
         rows = newRows
         columns = newColumns
-        scrollTop = 0
-        scrollBottom = newRows - 1
+        resetMargins()
         cursor.x = min(cursor.x, newColumns - 1)
         cursor.y = min(max(cursor.y, 0), newRows - 1)
         cursor.pendingWrap = false
@@ -429,7 +622,6 @@ final class ScreenBuffer {
         active = newActive
         for row in active { touch(row) }
         replaceScrollback(with: newScrollback)
-        scrollTop = 0
-        scrollBottom = rows - 1
+        resetMargins()
     }
 }

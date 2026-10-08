@@ -15,16 +15,16 @@ extension Terminal {
         case (0, 0, 0x44): cursorBackward(Int(p.value(at: 0, default: 1)))  // CUB, with reverse wrap as BS
         case (0, 0, 0x45):  // CNL
             cursorDown(Int(p.value(at: 0, default: 1)))
-            s.cursor.x = 0
+            carriageReturn()
         case (0, 0, 0x46):  // CPL
             cursorUp(Int(p.value(at: 0, default: 1)))
-            s.cursor.x = 0
+            carriageReturn()
         case (0, 0, 0x47), (0, 0, 0x60):  // CHA, HPA
             setCursorColumn(Int(p.value(at: 0, default: 1)) - 1)
         case (0, 0, 0x48), (0, 0, 0x66):  // CUP, HVP
             setCursorPosition(row: Int(p.value(at: 0, default: 1)) - 1, column: Int(p.value(at: 1, default: 1)) - 1)
         case (0, 0, 0x64):  // VPA
-            setCursorPosition(row: Int(p.value(at: 0, default: 1)) - 1, column: s.cursor.x)
+            setCursorRow(Int(p.value(at: 0, default: 1)) - 1)
         case (0, 0, 0x49):  // CHT; no line has more tab stops than columns
             for _ in 0..<min(Int(p.value(at: 0, default: 1)), s.columns) {
                 s.cursor.x = s.nextTabStop(after: s.cursor.x)
@@ -43,7 +43,9 @@ extension Terminal {
         case (0x3F, 0, 0x4B): eraseInLine(Int(p[0]), selective: true)  // DECSEL
         case (0, 0, 0x58):  // ECH
             let n = Int(p.value(at: 0, default: 1))
-            s.erase(row: s.cursor.y, from: s.cursor.x, to: s.cursor.x + n, fill: s.cursor.pen.erasing)
+            s.erase(
+                row: s.cursor.y, from: s.cursor.x, to: s.cursor.x + n, fill: s.cursor.pen.erasing,
+                sparingProtected: sparesProtected(.plain))
             s.cursor.pendingWrap = false
         case (0, 0, 0x40):  // ICH
             s.insertBlanks(Int(p.value(at: 0, default: 1)), row: s.cursor.y, at: s.cursor.x, fill: s.cursor.pen.erasing)
@@ -52,16 +54,16 @@ extension Terminal {
             s.deleteCells(Int(p.value(at: 0, default: 1)), row: s.cursor.y, at: s.cursor.x, fill: s.cursor.pen.erasing)
             s.cursor.pendingWrap = false
         case (0, 0, 0x4C):  // IL
-            if s.cursor.y >= s.scrollTop && s.cursor.y <= s.scrollBottom {
+            if s.cursor.y >= s.scrollTop && s.cursor.y <= s.scrollBottom && s.cursorIsBetweenMargins {
                 s.insertLines(Int(p.value(at: 0, default: 1)), at: s.cursor.y, fill: s.cursor.pen.erasing)
-                s.cursor.x = 0
-                s.cursor.pendingWrap = false
+                // The line's home position, which is the left margin — and has to be, or the
+                // cursor would land outside the margins these two now require to act at all.
+                carriageReturn()
             }
         case (0, 0, 0x4D):  // DL
-            if s.cursor.y >= s.scrollTop && s.cursor.y <= s.scrollBottom {
+            if s.cursor.y >= s.scrollTop && s.cursor.y <= s.scrollBottom && s.cursorIsBetweenMargins {
                 s.deleteLines(Int(p.value(at: 0, default: 1)), at: s.cursor.y, fill: s.cursor.pen.erasing)
-                s.cursor.x = 0
-                s.cursor.pendingWrap = false
+                carriageReturn()
             }
         case (0, 0, 0x53):  // SU
             s.scrollUp(Int(p.value(at: 0, default: 1)), fill: s.cursor.pen.erasing)
@@ -89,6 +91,18 @@ extension Terminal {
             for i in 0..<p.count {
                 if let on = savedPrivateModes[p[i]] { setPrivateMode(p[i], on) }
             }
+        // DECSLRM and SCOSC are the same sequence; mode 69 is how xterm tells them apart, and
+        // a program that asked for margins gets margins. An omitted right margin means the
+        // screen's last column; a pair that is inside out is ignored rather than guessed at,
+        // which is DEC STD 070's rule and the one DECSTBM already follows.
+        case (0, 0, 0x73) where modes.leftRightMargins:  // DECSLRM
+            let right = Int(p[1])
+            setLeftRightMargins(
+                left: Int(p.value(at: 0, default: 1)) - 1, right: (right == 0 ? s.columns : right) - 1)
+        case (0, 1, 0x7D) where csi.intermediates.isOnly(0x27):  // DECIC
+            insertColumns(Int(p.value(at: 0, default: 1)))
+        case (0, 1, 0x7E) where csi.intermediates.isOnly(0x27):  // DECDC
+            deleteColumns(Int(p.value(at: 0, default: 1)))
         case (0, 0, 0x73) where p.isEmpty: saveCursor()  // SCOSC
         case (0, 0, 0x75) where p.isEmpty: restoreCursor()  // SCORC
 
@@ -113,6 +127,7 @@ extension Terminal {
         case (0, 1, 0x71) where csi.intermediates.isOnly(0x20):  // DECSCUSR
             setCursorStyle(Int(p[0]))
         case (0, 1, 0x71) where csi.intermediates.isOnly(0x22):  // DECSCA
+            protection = .dec
             s.cursor.protected = p[0] == 1
 
         // MARK: Style
@@ -128,9 +143,9 @@ extension Terminal {
         case (0, 0, 0x6E):  // DSR
             switch p[0] {
             case 5: reply("\u{1B}[0n")
-            case 6:
-                let row = s.cursor.y - (modes.origin ? s.scrollTop : 0) + 1
-                reply("\u{1B}[\(row);\(s.cursor.x + 1)R")
+            case 6:  // CPR
+                let (row, column) = reportedCursor()
+                reply("\u{1B}[\(row);\(column)R")
             default: break
             }
         case (0x3F, 0, 0x6E):  // DSR, DEC form
@@ -139,6 +154,14 @@ extension Terminal {
             reply("\u{1B}P>|DeathRace \(configuration.version)\u{1B}\\")
         case (0, 0, 0x74):  // XTWINOPS
             windowOperation(p)
+        case (0, 1, 0x76) where csi.intermediates.isOnly(0x24):  // DECCRA
+            copyRectangle(p)
+        case (0, 1, 0x78) where csi.intermediates.isOnly(0x24):  // DECFRA
+            fillRectangle(p)
+        case (0, 1, 0x7A) where csi.intermediates.isOnly(0x24):  // DECERA
+            eraseRectangle(p, selective: false)
+        case (0, 1, 0x7B) where csi.intermediates.isOnly(0x24):  // DECSERA
+            eraseRectangle(p, selective: true)
         case (0, 1, 0x79) where csi.intermediates.isOnly(0x2A):  // DECRQCRA
             if configuration.answersChecksumRequests { checksumRectangle(p) }
 
@@ -175,7 +198,7 @@ extension Terminal {
 
     func cursorForward(_ n: Int) {
         let s = screen
-        s.cursor.x = min(s.columns - 1, s.cursor.x + max(n, 1))
+        s.cursor.x = min(s.rightLimit, s.cursor.x + max(n, 1))
         s.cursor.pendingWrap = false
     }
 
@@ -187,7 +210,7 @@ extension Terminal {
         var n = max(count, 1)
         let extended = modes.reverseWraparoundExtended
         guard modes.autowrap && (modes.reverseWraparound || extended) else {
-            s.cursor.x = max(0, s.cursor.x - n)
+            s.cursor.x = max(s.leftLimit, s.cursor.x - n)
             s.cursor.pendingWrap = false
             return
         }
@@ -199,7 +222,9 @@ extension Terminal {
         let top = inRegion ? s.scrollTop : 0
         let bottom = inRegion ? s.scrollBottom : s.rows - 1
         while true {
-            let step = min(s.cursor.x, n)
+            // Re-read each time round: a wrap can land the cursor inside the margins from
+            // outside them, and then the left margin is its limit rather than column zero.
+            let step = min(s.cursor.x - s.leftLimit, n)
             s.cursor.x -= step
             n -= step
             if n == 0 { break }
@@ -210,27 +235,58 @@ extension Terminal {
                 guard extended || s.active[s.cursor.y - 1].isWrapped else { break }
                 s.cursor.y -= 1
             }
-            s.cursor.x = s.columns - 1
+            // Reverse wrap lands on the right margin, which is where printing would have
+            // left off on the line above.
+            s.cursor.x = s.scrollRight
             n -= 1
         }
     }
 
+    /// CHA and HPA: 0-based, and in origin mode counted from the left margin and clamped to
+    /// the right one. The relative moves (CUF, CUB, HPR) are not addressing and ignore origin
+    /// mode, which is what esctest's `HPR_IgnoresOriginMode` pins.
     func setCursorColumn(_ x: Int) {
         let s = screen
-        s.cursor.x = min(max(x, 0), s.columns - 1)
+        s.cursor.x =
+            modes.origin
+            ? min(max(s.scrollLeft + x, s.scrollLeft), s.scrollRight) : min(max(x, 0), s.columns - 1)
         s.cursor.pendingWrap = false
     }
 
-    /// CUP: 0-based, relative to the scroll region in origin mode and clamped to it.
-    func setCursorPosition(row: Int, column: Int) {
+    /// VPA: the row alone, so the column is left where it is rather than being read as an
+    /// origin-relative one and shifted by the left margin.
+    func setCursorRow(_ row: Int) {
         let s = screen
-        if modes.origin {
-            s.cursor.y = min(max(s.scrollTop + row, s.scrollTop), s.scrollBottom)
-        } else {
-            s.cursor.y = min(max(row, 0), s.rows - 1)
-        }
-        s.cursor.x = min(max(column, 0), s.columns - 1)
+        s.cursor.y =
+            modes.origin
+            ? min(max(s.scrollTop + row, s.scrollTop), s.scrollBottom) : min(max(row, 0), s.rows - 1)
         s.cursor.pendingWrap = false
+    }
+
+    /// The cursor as CPR and DECXCPR report it: 1-based, and in origin mode counted from the
+    /// margins, so a program that addresses a column and reads it back gets the number it
+    /// asked for. That is what makes esctest's `HPA_IgnoresOriginMode` and
+    /// `VPA_IgnoresOriginMode` pass while HPA and VPA count from the margins like every other
+    /// absolute move: the report undoes the addressing.
+    ///
+    /// The floor is not decoration. The addressing paths all clamp into the margins, but
+    /// `restoreCursor` does not and should not — a cursor outside them is legal, and DECBI and
+    /// DECFI are defined in terms of one. So `ESC [?6h ESC 7`, margins, `ESC 8` leaves the
+    /// cursor left of the left margin with origin mode on, and the subtraction alone answered
+    /// `CSI 1;-3R`. A CSI parameter is digits, so that is not a reply a program can read at
+    /// all: a strict parser resynchronises mid-stream and swallows whatever follows. A report
+    /// never leaves the coordinate space it is written in.
+    func reportedCursor() -> (row: Int, column: Int) {
+        let s = screen
+        let row = s.cursor.y - (modes.origin ? s.scrollTop : 0)
+        let column = s.cursor.x - (modes.origin ? s.scrollLeft : 0)
+        return (max(row, 0) + 1, max(column, 0) + 1)
+    }
+
+    /// CUP and HVP: 0-based, relative to both margins in origin mode and clamped to them.
+    func setCursorPosition(row: Int, column: Int) {
+        setCursorRow(row)
+        setCursorColumn(column)
     }
 
     func setScrollRegion(top: Int, bottom: Int) {
@@ -243,28 +299,89 @@ extension Terminal {
         setCursorPosition(row: 0, column: 0)
     }
 
+    /// DECSLRM: 0-based and inclusive, clamped to the screen, and like DECSTBM it homes the
+    /// cursor and leaves a region of fewer than two columns alone.
+    func setLeftRightMargins(left: Int, right: Int) {
+        let s = screen
+        let left = max(left, 0)
+        let right = min(right, s.columns - 1)
+        guard left < right else { return }
+        s.scrollLeft = left
+        s.scrollRight = right
+        setCursorPosition(row: 0, column: 0)
+    }
+
+    /// DECIC and DECDC: columns pushed into or pulled out of every row of the scroll region
+    /// at the cursor's own column, which is why they belong with the margins. A cursor outside
+    /// either region moves nothing, as for IL and DL.
+    func insertColumns(_ count: Int) {
+        guard let s = screenForColumnEdit else { return }
+        s.insertColumns(max(count, 1), at: s.cursor.x, fill: s.cursor.pen.erasing)
+        s.cursor.pendingWrap = false
+    }
+
+    func deleteColumns(_ count: Int) {
+        guard let s = screenForColumnEdit else { return }
+        s.deleteColumns(max(count, 1), at: s.cursor.x, fill: s.cursor.pen.erasing)
+        s.cursor.pendingWrap = false
+    }
+
+    private var screenForColumnEdit: ScreenBuffer? {
+        let s = screen
+        guard s.cursor.y >= s.scrollTop, s.cursor.y <= s.scrollBottom, s.cursorIsBetweenMargins else { return nil }
+        return s
+    }
+
+    /// DECBI: one column left, or — standing on the left margin — a blank column pushed in
+    /// beside the cursor in every row of the region, which moves the text right instead of the
+    /// cursor left. At the screen's own left edge there is nowhere to go.
+    func backIndex() {
+        let s = screen
+        s.cursor.pendingWrap = false
+        if s.cursor.x == s.scrollLeft {
+            guard s.cursor.y >= s.scrollTop, s.cursor.y <= s.scrollBottom else { return }
+            s.insertColumns(1, at: s.scrollLeft, fill: s.cursor.pen.erasing)
+        } else if s.cursor.x > 0 {
+            s.cursor.x -= 1
+        }
+    }
+
+    /// DECFI: the same the other way. DEC STD 070 lets both move a cursor that is outside the
+    /// margins, and esctest pins that.
+    func forwardIndex() {
+        let s = screen
+        s.cursor.pendingWrap = false
+        if s.cursor.x == s.scrollRight {
+            guard s.cursor.y >= s.scrollTop, s.cursor.y <= s.scrollBottom else { return }
+            s.deleteColumns(1, at: s.scrollLeft, fill: s.cursor.pen.erasing)
+        } else if s.cursor.x < s.columns - 1 {
+            s.cursor.x += 1
+        }
+    }
+
     // MARK: - Erasing
 
     func eraseInDisplay(_ mode: Int, selective: Bool) {
         let s = screen
         let fill = s.cursor.pen.erasing
+        let sparing = sparesProtected(selective ? .selective : .plain)
         switch mode {
         // A row erased end to end has nothing left for its marks to be about, so it forgets
         // them; the cursor's own row keeps them, because erasing part of it is how a prompt
         // redraws itself — `\r` then erase-to-end — and that row is the one carrying the mark.
         case 0:
-            s.erase(row: s.cursor.y, from: s.cursor.x, to: s.columns, fill: fill, selective: selective)
+            s.erase(row: s.cursor.y, from: s.cursor.x, to: s.columns, fill: fill, sparingProtected: sparing)
             for y in (s.cursor.y + 1)..<max(s.cursor.y + 1, s.rows) {
-                s.erase(row: y, from: 0, to: s.columns, fill: fill, selective: selective, forgetting: true)
+                s.erase(row: y, from: 0, to: s.columns, fill: fill, sparingProtected: sparing, forgetting: !selective)
             }
         case 1:
             for y in 0..<s.cursor.y {
-                s.erase(row: y, from: 0, to: s.columns, fill: fill, selective: selective, forgetting: true)
+                s.erase(row: y, from: 0, to: s.columns, fill: fill, sparingProtected: sparing, forgetting: !selective)
             }
-            s.erase(row: s.cursor.y, from: 0, to: s.cursor.x + 1, fill: fill, selective: selective)
+            s.erase(row: s.cursor.y, from: 0, to: s.cursor.x + 1, fill: fill, sparingProtected: sparing)
         case 2:
             for y in 0..<s.rows {
-                s.erase(row: y, from: 0, to: s.columns, fill: fill, selective: selective, forgetting: true)
+                s.erase(row: y, from: 0, to: s.columns, fill: fill, sparingProtected: sparing, forgetting: !selective)
             }
         case 3:
             if !selective { s.clearScrollback() }
@@ -277,10 +394,11 @@ extension Terminal {
     func eraseInLine(_ mode: Int, selective: Bool) {
         let s = screen
         let fill = s.cursor.pen.erasing
+        let sparing = sparesProtected(selective ? .selective : .plain)
         switch mode {
-        case 0: s.erase(row: s.cursor.y, from: s.cursor.x, to: s.columns, fill: fill, selective: selective)
-        case 1: s.erase(row: s.cursor.y, from: 0, to: s.cursor.x + 1, fill: fill, selective: selective)
-        case 2: s.erase(row: s.cursor.y, from: 0, to: s.columns, fill: fill, selective: selective)
+        case 0: s.erase(row: s.cursor.y, from: s.cursor.x, to: s.columns, fill: fill, sparingProtected: sparing)
+        case 1: s.erase(row: s.cursor.y, from: 0, to: s.cursor.x + 1, fill: fill, sparingProtected: sparing)
+        case 2: s.erase(row: s.cursor.y, from: 0, to: s.columns, fill: fill, sparingProtected: sparing)
         default: break
         }
         s.cursor.pendingWrap = false
@@ -320,6 +438,14 @@ extension Terminal {
         case 6:
             modes.origin = on
             setCursorPosition(row: 0, column: 0)
+        case 69:
+            // Turning the mode off puts the margins back, as xterm does, so a program cannot
+            // leave margins behind that nothing is honouring. Both screens, because the mode is
+            // one and the margins are one pair per screen: resetting only the screen in front
+            // leaves the other one bounded with the mode off, and everything below here reads
+            // "narrower than the screen" as "the mode is on".
+            modes.leftRightMargins = on
+            if !on { for s in [primary, alternate] { s.resetLeftRightMargins() } }
         default:
             if !modes.setDEC(mode, on) { setInert(mode, dec: true, on) }
         }
@@ -333,8 +459,7 @@ extension Terminal {
         guard allowsColumnSwitch else { return }
         if !keepsScreenOnColumnSwitch { eraseInDisplay(2, selective: false) }
         let s = screen
-        s.scrollTop = 0
-        s.scrollBottom = s.rows - 1
+        s.resetMargins()
         setCursorPosition(row: 0, column: 0)
     }
 
@@ -387,8 +512,8 @@ extension Terminal {
         let s = screen
         switch p[0] {
         case 6:  // DECXCPR; no page number, since we answer DA2 as a VT220
-            let row = s.cursor.y - (modes.origin ? s.scrollTop : 0) + 1
-            reply("\u{1B}[?\(row);\(s.cursor.x + 1)R")
+            let (row, column) = reportedCursor()
+            reply("\u{1B}[?\(row);\(column)R")
         case 15: reply("\u{1B}[?13n")  // no printer
         case 25: reply("\u{1B}[?20n")  // user-defined keys unlocked
         case 26: reply("\u{1B}[?27;1n")  // North American keyboard
@@ -496,10 +621,11 @@ extension Terminal {
         let s = screen
         let id = p[0]
         let originRow = modes.origin ? s.scrollTop : 0
+        let originColumn = modes.origin ? s.scrollLeft : 0
         let top = originRow + Int(p.value(at: 2, default: 1)) - 1
-        let left = Int(p.value(at: 3, default: 1)) - 1
+        let left = originColumn + Int(p.value(at: 3, default: 1)) - 1
         let bottom = min(originRow + Int(p.value(at: 4, default: UInt16(clamping: s.rows))) - 1, s.rows - 1)
-        let right = min(Int(p.value(at: 5, default: UInt16(clamping: s.columns))) - 1, s.columns - 1)
+        let right = min(originColumn + Int(p.value(at: 5, default: UInt16(clamping: s.columns))) - 1, s.columns - 1)
         var sum: UInt32 = 0
         if top <= bottom && left <= right {
             for y in max(top, 0)...bottom {

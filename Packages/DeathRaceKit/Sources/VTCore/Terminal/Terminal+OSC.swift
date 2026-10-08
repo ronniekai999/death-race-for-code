@@ -25,8 +25,12 @@ extension Terminal {
             emit(.titleChanged(text))
         case 4:
             paletteColors(text, terminator: terminator)
+        case 5:
+            specialColors(text, terminator: terminator)
         case 104:
             resetPaletteColors(text)
+        case 105:
+            resetSpecialColors(text)
         case 7:
             workingDirectory = text
             emit(.workingDirectoryChanged(text))
@@ -109,8 +113,9 @@ extension Terminal {
         var changed = false
         var i = 0
         while i + 1 < parts.count {
-            if let index = Int(parts[i]), (0..<256).contains(index) {
-                let spec = parts[i + 1]
+            let spec = parts[i + 1]
+            let index = Int(parts[i]) ?? -1
+            if (0..<256).contains(index) {
                 if spec == "?" {
                     reply("\u{1B}]4;\(index);\(palette.colors[index].x11)\(terminator)")
                 } else if let color = RGB(colorSpec: spec) {
@@ -118,10 +123,55 @@ extension Terminal {
                     paletteOverrides.insert(index)
                     changed = true
                 }
+            } else if (256..<(256 + Self.specialColorCount)).contains(index) {
+                // Past the palette are the special colors, which is how a program that knows
+                // how many indexed colors a terminal has addresses them with OSC 4. Nothing
+                // draws with them, so no one needs telling they changed.
+                let slot = index - 256
+                if spec == "?" {
+                    reply("\u{1B}]4;\(index);\(specialColor(slot).x11)\(terminator)")
+                } else if let color = RGB(colorSpec: spec) {
+                    specialColors[slot] = color
+                }
             }
             i += 2
         }
         if changed { emit(.colorsChanged) }
+    }
+
+    /// The special color in a slot: what a program put there, or the foreground, which is what
+    /// they default to.
+    func specialColor(_ slot: Int) -> RGB {
+        specialColors[slot] ?? palette.foreground
+    }
+
+    /// OSC 5: the special colors by their own numbers, the form that needs no guess at how many
+    /// indexed colors there are.
+    private func specialColors(_ text: String, terminator: String) {
+        let parts = text.split(separator: ";", omittingEmptySubsequences: false)
+        var i = 0
+        while i + 1 < parts.count {
+            if let slot = Int(parts[i]), (0..<Self.specialColorCount).contains(slot) {
+                let spec = parts[i + 1]
+                if spec == "?" {
+                    reply("\u{1B}]5;\(slot);\(specialColor(slot).x11)\(terminator)")
+                } else if let color = RGB(colorSpec: spec) {
+                    specialColors[slot] = color
+                }
+            }
+            i += 2
+        }
+    }
+
+    /// OSC 105: the slots named, or every one of them when none is.
+    private func resetSpecialColors(_ text: String) {
+        guard !text.isEmpty else {
+            specialColors = [RGB?](repeating: nil, count: Self.specialColorCount)
+            return
+        }
+        for part in text.split(separator: ";") {
+            if let slot = Int(part), (0..<Self.specialColorCount).contains(slot) { specialColors[slot] = nil }
+        }
     }
 
     private func resetPaletteColors(_ text: String) {
@@ -342,6 +392,7 @@ extension Terminal {
             }
             answer = "\(base + (cursorBlinks == false ? 1 : 0)) q"
         case "r": answer = "\(s.scrollTop + 1);\(s.scrollBottom + 1)r"
+        case "s": answer = "\(s.scrollLeft + 1);\(s.scrollRight + 1)s"
         case "\"q": answer = "\(s.cursor.protected ? 1 : 0)\"q"
         case "\"p": answer = "62;1\"p"
         case "*x": answer = "0*x"  // DECSACE: attribute changes run as a stream

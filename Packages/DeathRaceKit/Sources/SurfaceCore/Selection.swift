@@ -79,8 +79,12 @@ public enum WordRules {
         while start > 0, sameKind(start - 1) { start -= 1 }
         var end = column
         while end + 1 < cells.count, sameKind(end + 1) { end += 1 }
-        // A word never starts on the right half of a wide character.
-        if cells[start].width == .spacerTail { start += 1 }
+        // A word never starts on the right half of a wide character — unless that half is
+        // the whole of it, which an orphaned tail can be. Stepping past it then would build
+        // an inverted range and trap, on the main thread, from a double click: the cells
+        // come from the engine's own screen or, once a daemon holds the session, from a
+        // `RowSnapshot` another process encoded.
+        if cells[start].width == .spacerTail, start < end { start += 1 }
         return start...end
     }
 }

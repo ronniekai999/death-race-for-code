@@ -23,7 +23,8 @@ extension Terminal {
             }
             let row = s.active[s.cursor.y]
             let x = s.cursor.x
-            let n = min(s.columns - x, count - index)
+            let right = s.rightLimit
+            let n = min(right + 1 - x, count - index)
             let styleID = row.styleID(for: s.cursor.pen)
             let link = currentLink.map { row.linkIndex(for: $0) } ?? 0
             let flags = protectedBits | (link != 0 ? Cell.hyperlinkBit : 0)
@@ -40,14 +41,14 @@ extension Terminal {
                 }
             }
             index += n
-            if x + n >= s.columns {
-                s.cursor.x = s.columns - 1
+            if x + n > right {
+                s.cursor.x = right
                 if modes.autowrap {
                     s.cursor.pendingWrap = true
                 } else if index < count {
-                    // Without autowrap the rest overwrites the last column; only the final
-                    // character remains.
-                    row.cells[s.columns - 1] = Cell(
+                    // Without autowrap the rest overwrites the last column within the margin;
+                    // only the final character remains.
+                    row.cells[right] = Cell(
                         content: UInt32(base[count - 1]) | flags, styleID: styleID, reserved: link)
                     index = count
                 }
@@ -92,23 +93,29 @@ extension Terminal {
                     s.cursor.pendingWrap = false
                 }
             }
-            if width == 2 && s.cursor.x == s.columns - 1 && s.columns > 1 {
+            if width == 2 && s.cursor.x == s.rightLimit && s.columns > 1 {
                 if modes.autowrap {
-                    // Too wide for the last column: leave a spacer head and wrap.
+                    // Too wide for the last column: leave a spacer head and wrap. Both
+                    // boundaries of the cell being overwritten are split, because with a
+                    // right margin there is a column after it: a wide character whose head
+                    // stands here would otherwise leave its tail outside the margins with
+                    // nothing to its left.
                     let row = s.active[s.cursor.y]
                     s.splitWideCharacter(in: row, at: s.cursor.x)
+                    s.splitWideCharacter(in: row, at: s.cursor.x + 1)
                     s.clearCell(row, s.cursor.x)
                     row.cells[s.cursor.x].width = .spacerHead
                     s.touch(row)
                     wrapLine(s)
                 } else {
-                    s.cursor.x = s.columns - 2
+                    s.cursor.x = s.rightLimit - 1
                 }
             }
             let row = s.active[s.cursor.y]
             let x = s.cursor.x
-            let cellWidth = min(width, s.columns - x)
-            let n = min(remaining, max((s.columns - x) / cellWidth, 1))
+            let right = s.rightLimit
+            let cellWidth = min(width, right + 1 - x)
+            let n = min(remaining, max((right + 1 - x) / cellWidth, 1))
             let end = x + n * cellWidth
             s.splitWideCharacter(in: row, at: x)
             s.splitWideCharacter(in: row, at: end)
@@ -132,8 +139,8 @@ extension Terminal {
             }
             s.touch(row)
             remaining -= n
-            if end >= s.columns {
-                s.cursor.x = s.columns - 1
+            if end > right {
+                s.cursor.x = right
                 s.cursor.pendingWrap = modes.autowrap
                 // Without autowrap the rest would only rewrite the last character.
                 if !modes.autowrap { break }
@@ -171,26 +178,30 @@ extension Terminal {
             }
         }
 
-        if width == 2 && s.cursor.x == s.columns - 1 {
+        if width == 2 && s.cursor.x == s.rightLimit {
             if modes.autowrap && s.columns > 1 {
-                // Too wide for the last column: leave a spacer head and wrap.
+                // Too wide for the last column: leave a spacer head and wrap. Split both
+                // boundaries, as `printRepeated` does and for the same reason: a right margin
+                // means there is a column after this one to orphan a tail in.
                 let row = s.active[s.cursor.y]
                 s.splitWideCharacter(in: row, at: s.cursor.x)
+                s.splitWideCharacter(in: row, at: s.cursor.x + 1)
                 s.clearCell(row, s.cursor.x)
                 row.cells[s.cursor.x].width = .spacerHead
                 s.touch(row)
                 wrapLine(s)
             } else if s.columns > 1 {
-                s.cursor.x = s.columns - 2
+                s.cursor.x = s.rightLimit - 1
             }
         }
 
         let row = s.active[s.cursor.y]
         let x = s.cursor.x
+        let right = s.rightLimit
         if modes.insert {
             s.insertBlanks(width, row: s.cursor.y, at: x, fill: s.cursor.pen)
         }
-        let cellWidth = min(width, s.columns - x)
+        let cellWidth = min(width, right + 1 - x)
         s.splitWideCharacter(in: row, at: x)
         s.splitWideCharacter(in: row, at: x + cellWidth)
         let styleID = row.styleID(for: s.cursor.pen)
@@ -206,8 +217,8 @@ extension Terminal {
         }
         s.touch(row)
 
-        if x + cellWidth >= s.columns {
-            s.cursor.x = s.columns - 1
+        if x + cellWidth > right {
+            s.cursor.x = right
             s.cursor.pendingWrap = modes.autowrap
         } else {
             s.cursor.x = x + cellWidth
@@ -270,8 +281,9 @@ extension Terminal {
 
         // VS16 asks for emoji presentation: a narrow base becomes two columns wide when the
         // cursor sits right after it and there is room.
+        let right = s.rightLimit
         if scalar == CharacterWidth.variationSelector16 && modes.graphemeClustering
-            && row.cells[x].width == .narrow && x + 1 < s.columns
+            && row.cells[x].width == .narrow && x + 1 <= right
             && target.y == s.cursor.y && s.cursor.x == x + 1 && !s.cursor.pendingWrap
         {
             row.cells[x].width = .wide
@@ -280,8 +292,8 @@ extension Terminal {
             row.cells[x + 1] = Cell(
                 scalar: 0, width: .spacerTail, styleID: row.cells[x].styleID, protected: row.cells[x].isProtected,
                 link: row.cells[x].linkIndex)
-            if x + 2 >= s.columns {
-                s.cursor.x = s.columns - 1
+            if x + 2 > right {
+                s.cursor.x = right
                 s.cursor.pendingWrap = modes.autowrap
             } else {
                 s.cursor.x = x + 2
@@ -295,12 +307,19 @@ extension Terminal {
     /// Moves to the start of the next line after a character filled the last column,
     /// marking the row as soft-wrapped so reflow can join it again.
     func wrapLine(_ s: ScreenBuffer) {
-        let row = s.active[s.cursor.y]
-        row.isWrapped = true
-        s.touch(row)
+        // Only a wrap at the screen's own edge continues the line. One at a right margin
+        // continues the columns between the margins, and a reflow that joined those two rows
+        // would splice the text outside the margins together with it.
+        if s.cursor.x == s.columns - 1 {
+            let row = s.active[s.cursor.y]
+            row.isWrapped = true
+            s.touch(row)
+        }
         s.cursor.pendingWrap = false
-        s.cursor.x = 0
+        // The index comes first, so whether it scrolls is decided by the column the character
+        // was printed in; the new line then starts at the left margin, wherever that is.
         index()
+        s.cursor.x = s.scrollLeft
     }
 
     /// IND / LF: down one line, scrolling the region when the cursor sits on its bottom.
@@ -308,7 +327,10 @@ extension Terminal {
         let s = screen
         s.cursor.pendingWrap = false
         if s.cursor.y == s.scrollBottom {
-            s.scrollUp(1, fill: s.cursor.pen.erasing)
+            // Scrolling is for a cursor between the left and right margins. Outside them IND
+            // moves nothing at all, which is how a program is kept from scrolling a region
+            // its cursor is not in; without margins the cursor is always between them.
+            if s.cursorIsBetweenMargins { s.scrollUp(1, fill: s.cursor.pen.erasing) }
         } else if s.cursor.y < s.rows - 1 {
             s.cursor.y += 1
         }
@@ -319,7 +341,7 @@ extension Terminal {
         let s = screen
         s.cursor.pendingWrap = false
         if s.cursor.y == s.scrollTop {
-            s.scrollDown(1, fill: s.cursor.pen.erasing)
+            if s.cursorIsBetweenMargins { s.scrollDown(1, fill: s.cursor.pen.erasing) }
         } else if s.cursor.y > 0 {
             s.cursor.y -= 1
         }

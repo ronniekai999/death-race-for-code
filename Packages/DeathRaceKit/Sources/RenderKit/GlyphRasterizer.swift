@@ -18,31 +18,20 @@ public struct GlyphRasterizer: GlyphRasterizing, Sendable {
     public let cell: CellMetrics
     public let thicken: Bool
     let language: String?
-    /// The four faces with the run features on, in `FontSet.face(bold:italic:)`'s order.
+    /// The same four faces with the run features on.
     ///
     /// Built once here rather than per question. The scanner asks about every candidate in
-    /// every row it rebuilds, and each question used to make a feature-settings array, a font
-    /// descriptor and a font copy — thousands of them in one frame on a screen of punctuation,
-    /// all recomputing four values that depend on nothing but the faces.
-    private let runFaces: [CTFont]
+    /// every row it rebuilds, and each question would otherwise make a feature-settings array,
+    /// a font descriptor and a font copy — thousands of them in one frame on a screen of
+    /// punctuation, all recomputing four values that depend on nothing but the faces.
+    let runFaces: RunFaces
 
     public init(fonts: FontSet, cell: CellMetrics, thicken: Bool = false, language: String? = nil) {
         self.fonts = fonts
         self.cell = cell
         self.thicken = thicken
         self.language = language ?? Locale.preferredLanguages.first
-        runFaces = [
-            Self.shaping(fonts.regular), Self.shaping(fonts.bold), Self.shaping(fonts.italic),
-            Self.shaping(fonts.boldItalic),
-        ]
-    }
-
-    /// The run-shaping face for a style, in the same order `FontSet.face(bold:italic:)` uses.
-    ///
-    /// A run is never a private-use character, so unlike `face(for:)` this needs no symbols
-    /// font: the alphabet is punctuation, which every monospaced face has.
-    func runFace(bold: Bool, italic: Bool) -> CTFont {
-        runFaces[(bold ? 1 : 0) + (italic ? 2 : 0)]
+        runFaces = RunFaces(fonts)
     }
 
     public func rasterize(_ key: GlyphKey) -> RasterizedGlyph {
@@ -98,19 +87,20 @@ public struct GlyphRasterizer: GlyphRasterizing, Sendable {
         "liga", "calt", "ss01", "ss02", "ss03", "ss04", "ss05", "ss06", "ss07", "ss08", "ss09",
     ]
 
-    /// The descriptor that turns the run features on: the same every time, so made once.
-    private static let runDescriptor: CTFontDescriptor = {
+    /// `font` with the run features on. Size 0 and no matrix keep the font's own, as the
+    /// cascade-list copy in `FontSet` does, so a face slanted into an italic stays slanted.
+    ///
+    /// The descriptor is built here rather than held as a constant. It would be the same every
+    /// time, but `CTFontDescriptor` is not `Sendable`, so a static of one is a concurrency hole
+    /// that would have to be excused — and this runs four times when a rasterizer is made
+    /// rather than once per question, which is what `RunFaces` is for.
+    static func shaping(_ font: CTFont) -> CTFont {
         let settings: [[String: Any]] = runFeatures.map {
             [kCTFontOpenTypeFeatureTag as String: $0, kCTFontOpenTypeFeatureValue as String: 1]
         }
-        return CTFontDescriptorCreateWithAttributes(
+        let descriptor = CTFontDescriptorCreateWithAttributes(
             [kCTFontFeatureSettingsAttribute: settings] as CFDictionary)
-    }()
-
-    /// `font` with the run features on. Size 0 and no matrix keep the font's own, as the
-    /// cascade-list copy in `FontSet` does, so a face slanted into an italic stays slanted.
-    static func shaping(_ font: CTFont) -> CTFont {
-        CTFontCreateCopyWithAttributes(font, 0, nil, runDescriptor)
+        return CTFontCreateCopyWithAttributes(font, 0, nil, descriptor)
     }
 
     /// The shaped line for a key.
@@ -121,7 +111,7 @@ public struct GlyphRasterizer: GlyphRasterizing, Sendable {
     /// looks unligated while being spaced as though it were — with nothing failing anywhere,
     /// on any platform that can run the tests.
     func line(for key: GlyphKey) -> CTLine? {
-        let font = key.isRun ? runFace(bold: key.bold, italic: key.italic) : face(for: key)
+        let font = key.isRun ? runFaces.face(bold: key.bold, italic: key.italic) : face(for: key)
         var attributes: [CFString: Any] = [
             kCTFontAttributeName: font,
             kCTForegroundColorFromContextAttributeName: true,
@@ -275,6 +265,40 @@ public struct GlyphRasterizer: GlyphRasterizing, Sendable {
             if CTFontGetSymbolicTraits(font).contains(.traitColorGlyphs) { return true }
         }
         return false
+    }
+}
+
+/// The four faces a run is shaped with: `FontSet`'s, with the run features turned on.
+///
+/// Its own type for the reason `FontSet` is one, and with the same answer. `CTFont` is not
+/// `Sendable`, and a `Sendable` type cannot store one without saying it has checked — so the
+/// claim lives here, on four immutable letting-go fields, rather than being made for the whole
+/// rasterizer. CoreText's documentation states that a CTFont is immutable and safe to use from
+/// any thread, which is the whole of the justification.
+struct RunFaces: @unchecked Sendable {
+    let regular: CTFont
+    let bold: CTFont
+    let italic: CTFont
+    let boldItalic: CTFont
+
+    init(_ fonts: FontSet) {
+        regular = GlyphRasterizer.shaping(fonts.regular)
+        bold = GlyphRasterizer.shaping(fonts.bold)
+        italic = GlyphRasterizer.shaping(fonts.italic)
+        boldItalic = GlyphRasterizer.shaping(fonts.boldItalic)
+    }
+
+    /// The face for a style, in the order `FontSet.face(bold:italic:)` uses.
+    ///
+    /// A run is never a private-use character, so unlike `GlyphRasterizer.face(for:)` this needs
+    /// no symbols font: the alphabet is punctuation, which every monospaced face has.
+    func face(bold isBold: Bool, italic isItalic: Bool) -> CTFont {
+        switch (isBold, isItalic) {
+        case (false, false): regular
+        case (true, false): bold
+        case (false, true): italic
+        case (true, true): boldItalic
+        }
     }
 }
 

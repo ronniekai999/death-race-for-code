@@ -888,6 +888,18 @@ seam depends on the answer.
   `Comment`, and, written per change rather than committed, a probe naming the portable API the
   macOS code uses and type-checked against the built modules — which is what `PaneID.value`,
   a member that does not exist, needed to be caught before a runner found it.
+- **Swift 6 concurrency checking on macOS-only code is the same gap, and it has bitten twice.**
+  Phase 5 was a `@Sendable` closure capturing a non-`Sendable` `NSView`; Phase 9 was a static of
+  a `CTFontDescriptor` and a stored `[CTFont]` inside a `Sendable` struct. Neither is syntax, so
+  `swiftc -parse` passes both, and neither type exists on Linux to type-check against. **But the
+  rule does.** Write the probe with a stand-in: a bare `final class` has exactly CoreText's and
+  AppKit's relevant property, which is that it does not conform to `Sendable`, so mirroring the
+  storage's *shape* around one and type-checking with `-swift-version 6` gives the same answer
+  the runner will. The Phase 9 probe reported the same two errors CI did, and zero for the fix —
+  which is how that fix went up proved rather than hoped. The repo's own precedent for holding a
+  CoreText class is `FontSet`, which is `@unchecked Sendable` with the justification written
+  down; the mistake both times was storing such a type without making that claim where it
+  belongs.
 
 ## Roadmap
 

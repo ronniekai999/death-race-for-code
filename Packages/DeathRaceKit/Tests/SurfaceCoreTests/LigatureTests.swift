@@ -310,3 +310,132 @@ private func plainFace(_ column: Int) -> (bold: Bool, italic: Bool) { (false, fa
         #expect(memo.count == 2)
     }
 }
+
+/// A replay session and the pieces a frame needs around it, with a shaper that can be nil.
+private struct ShapedSurface {
+    let session: ReplaySession
+    let model: SurfaceModel
+    let builder = FrameBuilder()
+    let glyphs = FakeGlyphs()
+    static let cell = CellMetrics(
+        width: 9, height: 18, baseline: 14, underlineTop: 15, underlineThickness: 1, strikethroughTop: 9,
+        strikethroughThickness: 1, scale: 1)
+
+    init(columns: Int = 12, rows: Int = 2) {
+        session = ReplaySession(Terminal.Configuration(columns: columns, rows: rows))
+        model = SurfaceModel(session: session)
+    }
+
+    @discardableResult func feed(_ text: String) -> SurfaceModel.Update {
+        session.feed(text)
+        return model.drain()
+    }
+
+    func frame(
+        shaper: (any RunShaping)? = nil, selection: TextRegion? = nil, starfield: Bool = false
+    ) -> Frame {
+        builder.build(
+            mirror: model.mirror, theme: .legendsNeverDie, cell: Self.cell, selection: selection,
+            glyphs: glyphs, starfield: starfield, shaper: shaper)
+    }
+}
+
+@Suite struct ShapedFrameTests {
+    /// The run is asked for as one key, and the characters under it are never asked for on
+    /// their own — which is what says the cache holds one bitmap rather than three.
+    @Test func aRunIsOneKeyAndOneInstance() {
+        let surface = ShapedSurface()
+        surface.feed("a != b")
+        let frame = surface.frame(shaper: TableShaper())
+        let asked = surface.glyphs.requests.map(\.string)
+        #expect(asked.contains("!="))
+        #expect(!asked.contains("!"), "the run's characters are not also asked for alone")
+        #expect(asked.filter { $0 == "=" }.isEmpty)
+        // a, the run, b — three instances, at columns 0, 2 and 5.
+        #expect(frame.glyphs.map(\.cellX) == [0, 2, 5])
+    }
+
+    /// An underline crosses a ligature as one decoration rather than breaking at its seam.
+    @Test func anUnderlineCrossesARunUnbroken() {
+        let surface = ShapedSurface()
+        surface.feed("\u{1B}[4ma != b")
+        let frame = surface.frame(shaper: TableShaper())
+        let underlines = frame.decorations.filter { $0.kind == DecorationKind.underline.rawValue }
+        #expect(underlines.count == 1, "one instance for the whole row, the ligature included")
+        #expect(underlines.first?.cellX == 0)
+        #expect(underlines.first?.cellCount == 6, "a, space, the run's two columns, space, b")
+    }
+
+    /// A star must never draw under a run's second column, where it would pass for punctuation.
+    @Test func noStarDrawsUnderARunsTail() {
+        let surface = ShapedSurface(columns: 6)
+        surface.feed("abcd=>")
+        let frame = surface.frame(shaper: TableShaper(), starfield: true)
+        let starry = frame.backgrounds[0..<6].enumerated().filter { $0.element >> 24 == FrameBuilder.starryAlpha }
+        #expect(starry.isEmpty, "the run reaches the row's end, so there is no empty tail at all")
+    }
+
+    /// A selection edge inside a run falls back to drawing its cells one by one, so the
+    /// highlight lands on cell boundaries rather than on half a bitmap.
+    @Test func aSelectionEdgeInsideARunDrawsItsCells() {
+        let surface = ShapedSurface()
+        surface.feed("a != b")
+        let region = TextRegion(TextPoint(line: 0, column: 0), TextPoint(line: 0, column: 2))
+        let frame = surface.frame(shaper: TableShaper(), selection: region)
+        let asked = surface.glyphs.requests.map(\.string)
+        #expect(!asked.contains("!="), "no run key is even asked for")
+        #expect(frame.glyphs.map(\.cellX) == [0, 2, 3, 5], "the run's columns draw separately")
+    }
+
+    /// A run the rasterizer refuses — its bitmap wider than it will draw — must not blank the
+    /// characters. Empty is unambiguously a failure for visible punctuation, so the cells draw
+    /// one at a time instead.
+    @Test func aRunTheAtlasRefusesFallsBackToItsCells() {
+        let surface = ShapedSurface()
+        surface.feed("a != b")
+        let runKey = GlyphKey(run: Array("!=".unicodeScalars.map(\.value)), bold: false, italic: false)
+        surface.glyphs.placements[runKey] = GlyphPlacement(
+            atlas: .mask, x: 0, y: 0, width: 0, height: 0, offsetX: 0, offsetY: 0, shelf: 0)
+        let frame = surface.frame(shaper: TableShaper())
+        #expect(frame.glyphs.map(\.cellX) == [0, 2, 3, 5], "every character still on screen")
+    }
+
+    /// The off-proof, and it is stronger than a golden: `Frame.summary` records only a glyph's
+    /// column and color and merges entries across small gaps, so a two-column ligature leaves
+    /// a golden byte-identical. This compares the instances themselves.
+    @Test func shapingOffLeavesTheFrameExactlyAsItWas() {
+        let plain = ShapedSurface()
+        plain.feed("a != b === c")
+        let before = plain.frame()
+        let withNil = ShapedSurface()
+        withNil.feed("a != b === c")
+        let after = withNil.frame(shaper: nil)
+        #expect(before.glyphs == after.glyphs)
+        #expect(before.decorations == after.decorations)
+        #expect(before.backgrounds == after.backgrounds)
+    }
+
+    /// Turning the setting on has to invalidate the row cache, or every row stays as it was
+    /// drawn under the old answer.
+    @Test func turningShapingOnRebuildsEveryRow() {
+        let surface = ShapedSurface(columns: 12, rows: 3)
+        surface.feed("a != b")
+        _ = surface.frame()
+        #expect(surface.builder.rebuiltRows == 3)
+        _ = surface.frame()
+        #expect(surface.builder.rebuiltRows == 0, "nothing changed, so nothing is rebuilt")
+        _ = surface.frame(shaper: TableShaper())
+        #expect(surface.builder.rebuiltRows == 3, "the shaper changed, so every row is")
+        _ = surface.frame(shaper: TableShaper())
+        #expect(surface.builder.rebuiltRows == 0, "and it stays stable while it is on")
+    }
+
+    /// Three columns, to be sure the skip is a span and not a hardcoded pair.
+    @Test func aThreeColumnRunCoversThreeColumns() {
+        let surface = ShapedSurface()
+        surface.feed("a === b")
+        let frame = surface.frame(shaper: TableShaper())
+        #expect(frame.glyphs.map(\.cellX) == [0, 2, 6])
+        #expect(surface.glyphs.requests.map(\.string).contains("==="))
+    }
+}

@@ -117,6 +117,9 @@ public final class FrameBuilder {
         var cell: CellMetrics
         var epoch: UInt64
         var starfield: Bool
+        /// Whether runs are being shaped. Without it, turning the setting on or off would
+        /// leave every cached row as it was drawn under the old answer.
+        var shaping: Bool
     }
 
     /// The alpha byte that marks a background as starry: a row's empty end, where the
@@ -148,11 +151,11 @@ public final class FrameBuilder {
     public func build(
         mirror: MirrorGrid, theme: Theme, cell: CellMetrics, selection: TextRegion?, glyphs: any GlyphSource,
         preedit: PreeditLayout? = nil, starfield: Bool = false, link: LinkHit? = nil,
-        blocks: BlockChrome? = nil
+        blocks: BlockChrome? = nil, shaper: (any RunShaping)? = nil
     ) -> Frame {
         let current = Inputs(
             palette: mirror.palette, theme: theme, reverseVideo: mirror.modes.reverseVideo, cell: cell,
-            epoch: glyphs.epoch, starfield: starfield)
+            epoch: glyphs.epoch, starfield: starfield, shaping: shaper != nil)
         if current != inputs {
             cache.removeAll(keepingCapacity: true)
             inputs = current
@@ -174,7 +177,7 @@ public final class FrameBuilder {
             if cached == nil || cached!.version != row.version || cached!.selection != selected || !cached!.complete {
                 cached = buildRow(
                     row, columns: columns, selected: selected, resolver: resolver, cell: cell, glyphs: glyphs,
-                    starfield: starfield)
+                    starfield: starfield, shaper: shaper)
                 cache[row.id] = cached
                 rebuiltRows += 1
             }
@@ -322,7 +325,7 @@ public final class FrameBuilder {
 
     private func buildRow(
         _ row: RowSnapshot, columns: Int, selected: ClosedRange<Int>?, resolver: ColorResolver, cell: CellMetrics,
-        glyphs: any GlyphSource, starfield: Bool
+        glyphs: any GlyphSource, starfield: Bool, shaper: (any RunShaping)? = nil
     ) -> CachedRow {
         var plain: [ResolvedStyle?] = Array(repeating: nil, count: row.styles.count)
         var highlighted: [ResolvedStyle?] = Array(repeating: nil, count: row.styles.count)
@@ -349,6 +352,33 @@ public final class FrameBuilder {
         /// The last column with anything on it: a glyph, a line, a background of its own.
         var lastInk = -1
 
+        // Scanned here rather than in `build`, because `buildRow` runs only for rows that are
+        // dirty: scanning in `build` would walk every row on screen every frame and quietly
+        // undo the row cache.
+        let runs: [GlyphRun] =
+            shaper.map {
+                RunScanner(cell: cell).runs(
+                    in: row, columns: columns, selected: selected,
+                    face: { x in
+                        let id = Int(row.cells[x].styleID) < row.styles.count ? Int(row.cells[x].styleID) : 0
+                        let resolved = style(id, selected: selected?.contains(x) ?? false)
+                        return (resolved.bold, resolved.italic)
+                    }, shaper: $0)
+            } ?? []
+        func emit(_ placement: GlyphPlacement, at x: Int, _ resolved: ResolvedStyle) {
+            out.glyphs.append(
+                GlyphInstance(
+                    cellX: UInt16(clamping: x), cellY: 0, atlasX: placement.x, atlasY: placement.y,
+                    width: placement.width, height: placement.height, offsetX: placement.offsetX,
+                    offsetY: placement.offsetY, color: resolved.foreground.packed,
+                    flags: placement.atlas == .color ? GlyphInstance.colorAtlasFlag : 0))
+            shelves.insert(placement.shelf)
+        }
+        var nextRun = runs.startIndex
+        // The last column of a run already drawn, so its other columns emit no glyph of their
+        // own; -1 while there is none.
+        var runEnd = -1
+
         for x in 0..<columns {
             guard x < row.cells.count else {
                 out.backgrounds.append(clear)
@@ -363,26 +393,45 @@ public final class FrameBuilder {
             guard cellValue.width != .spacerTail, cellValue.width != .spacerHead else { continue }
 
             if !resolved.invisible {
-                let span = cellValue.width == .wide ? 2 : 1
+                while nextRun < runs.endIndex, runs[nextRun].column < x { nextRun += 1 }
+                // A column a run already covers: its background is appended above, as every
+                // column's is, and the run's one instance has already been emitted.
+                if x <= runEnd { continue }
+                var span = cellValue.width == .wide ? 2 : 1
+                // A run is taken only if the atlas actually has a bitmap for it. An empty
+                // placement for a run means the rasterizer refused it — its bitmap is wider
+                // than it will draw — and since the alphabet is visible punctuation, empty is
+                // unambiguously a failure there rather than a space. Falling back to the cells
+                // one at a time keeps the characters on screen instead of blanking them for as
+                // long as the atlas holds that answer.
+                var run: GlyphRun?
+                if nextRun < runs.endIndex, runs[nextRun].column == x {
+                    let candidate = runs[nextRun]
+                    nextRun += 1
+                    let key = GlyphKey(run: candidate.scalars, bold: resolved.bold, italic: resolved.italic)
+                    if let placement = glyphs.placement(for: key), !placement.isEmpty {
+                        run = candidate
+                        span = candidate.cells
+                        runEnd = x + candidate.cells - 1
+                        emit(placement, at: x, resolved)
+                    }
+                }
                 decorations.add(resolved, column: x, cells: span)
                 if resolved.underline != .none || resolved.strikethrough || resolved.overline {
                     lastInk = max(lastInk, x + span - 1)
+                }
+                if run != nil {
+                    lastInk = max(lastInk, x + span - 1)
+                    continue
                 }
                 let scalars = row.scalars(at: x)
                 if !scalars.isEmpty && !(scalars.count == 1 && scalars[0] == 0x20) {
                     lastInk = max(lastInk, x + span - 1)
                     let key = GlyphKey(
-                        scalars: scalars, bold: resolved.bold, italic: resolved.italic, wide: cellValue.width == .wide)
+                        scalars: scalars, bold: resolved.bold, italic: resolved.italic,
+                        wide: cellValue.width == .wide)
                     if let placement = glyphs.placement(for: key) {
-                        if !placement.isEmpty {
-                            out.glyphs.append(
-                                GlyphInstance(
-                                    cellX: UInt16(clamping: x), cellY: 0, atlasX: placement.x, atlasY: placement.y,
-                                    width: placement.width, height: placement.height, offsetX: placement.offsetX,
-                                    offsetY: placement.offsetY, color: resolved.foreground.packed,
-                                    flags: placement.atlas == .color ? GlyphInstance.colorAtlasFlag : 0))
-                            shelves.insert(placement.shelf)
-                        }
+                        if !placement.isEmpty { emit(placement, at: x, resolved) }
                     } else {
                         out.complete = false
                     }

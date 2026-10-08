@@ -220,9 +220,40 @@ The Phase 2 budgets above are checked by hand on the M5, with a debug build
     link, where OpenSSH's own `sftp` pipelines 64 requests and saturates the link. The client
     already correlates replies by request id, so a window of outstanding chunks is the change;
     it waits on a measurement from a real transfer on the M5 rather than a guess here.
-- **Phase 9's effects ride existing frames.** Text glow and XDR Neon will draw only on frames
-  that output, typing or scrolling already caused, and Low Power Mode, battery and thermal
-  pressure will turn them off.
+- **Phase 9's effects ride existing frames.** Text glow and XDR Neon draw only on frames that
+  output, typing or scrolling already caused, and Low Power Mode or thermal pressure at
+  `serious` or worse turns them off, through `EffectsPolicy` beside `FrameRatePolicy` so the two
+  agree about what "spend less" and "hot" mean.
+
+  **Not battery**, and that is a narrowing of what this line used to promise rather than a gap
+  left open. There is no power-source API anywhere in the repo and adding one would mean IOKit
+  and a second notification source, for behaviour nobody asked for, that would ship unexercised
+  — a runner has no battery. Low Power Mode is the explicit "spend less" signal and is already
+  read; a MacBook on battery at full charge has power to spare, and silently removing the app's
+  signature visual because a cable came out would surprise people more than it would save them.
+
+  `recentInput` is deliberately **not** an input to the effects policy, though it is to the
+  frame rate's: the conditions are rebuilt on every key press, so a glow keyed off it would
+  blink on and off as you type. A test pins that it changes nothing under every other condition.
+
+- **The glow costs fragments and no CPU at all, which is why `frameTime` will not move.** Said
+  plainly rather than papered over: it is one more instanced draw over the `frame.glyphs` buffer
+  the next draw already uses, so there is nothing new to build, no row to rebuild and no buffer
+  to fill. `FrameStats` measures main-thread work per frame, so it cannot see this at all and
+  the energy criterion is written against `powermetrics` and Instruments' GPU timeline instead.
+  A `gpuTime` counter fed from `MTLCommandBuffer.gpuStartTime` is the cheap follow-up, and is
+  deliberately not in this change.
+
+  What it does cost: a vertex-stage test per glyph, which culls a non-emitting glyph to a
+  zero-area quad outside the clip volume so no fragment runs for it, and 13 texel reads per
+  fragment for the glyphs that do emit, over a quad grown by the radius plus one. Measured
+  against the alternative rather than assumed: a half-resolution separable blur costs about
+  6.4M texel reads *regardless of content*, plus four more encoders, two viewport textures and
+  a sampler this renderer does not otherwise have; the scatter costs about 2.2M in the realistic
+  case of a tenth of the screen being bright, and about 22M only when every cell is. So the
+  separable route is three times worse normally and better only in the pathological case. It is
+  the documented fallback if a real profile on the M5 demands it, along with a pre-blurred atlas
+  — about fifty times cheaper on the GPU, at the cost of a wider `GlyphInstance`.
 - **Ligatures cost atlas, not frames.** A run is scanned in `buildRow`, which runs only for rows
   that are dirty, so a screen that is not changing does no shaping work at all and the frame
   count is untouched. What it does cost is the atlas: a run is its own key, its bitmap is two to

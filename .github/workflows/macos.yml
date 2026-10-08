@@ -62,6 +62,27 @@ jobs:
       - name: Smoke test the pseudo-terminal outside the test runner
         timeout-minutes: 2
         run: swift run --package-path Packages/DeathRaceKit --skip-build vthost smoke --verbose
+      # The shaders are a Swift string compiled at runtime, so nothing in a Linux push can see a
+      # mistake in them and `RendererTests` only compiles them where the runner has a Metal
+      # device. This compiles them with the real Metal front end and reports the errors with
+      # their line numbers, which a runtime failure does not.
+      #
+      # Guarded, and skipped rather than failed when the tool is absent: Xcode 26 ships its
+      # Metal toolchain as a separate download, which is the same fact that makes these shaders
+      # runtime-compiled in the first place. A silently skipped step beats a red build for a
+      # tool that was never promised.
+      - name: Compile the shaders with the Metal front end, if it is installed
+        timeout-minutes: 3
+        run: |
+          if ! xcrun --find metal >/dev/null 2>&1; then
+            echo "no Metal toolchain on this runner (a separate Xcode download); skipping"
+            exit 0
+          fi
+          mkdir -p build
+          Packages/DeathRaceKit/.build/debug/DeathRace --print-shader-source > build/shaders.metal
+          # No -std: the runtime compiles with the default language version too, so this has to
+          # judge the source the same way `makeLibrary(source:)` will.
+          xcrun metal -c build/shaders.metal -o build/shaders.air
       # swift-testing ends its run with a summary line. A test process that exits early,
       # midway through a test, can still exit 0, so the summary is required too. The window
       # tests drive AppKit and go first, on their own, so the rest report even if they stop.

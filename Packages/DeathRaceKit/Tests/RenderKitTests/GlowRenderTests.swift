@@ -152,7 +152,12 @@ struct GlowRenderTests {
         rasterizer.shapes[0x42] = (2, 12, .mask)
         let glyphs = GlyphCache(rasterizer: rasterizer)
         // Insert the block first, so the sliver lands beside it rather than at the shelf's start.
+        // `beginFrame()` before each, as every real caller does: a frame has a rasterizing
+        // budget and only its *first* glyph is drawn unconditionally, so two bare calls on a
+        // busy runner get a nil for the second and nothing says why.
+        glyphs.beginFrame()
         let block = try #require(glyphs.placement(for: GlyphKey(scalar: 0x41)))
+        glyphs.beginFrame()
         let sliver = try #require(glyphs.placement(for: GlyphKey(scalar: 0x42)))
         // The premise, asserted rather than assumed: if the packer ever stops putting these two
         // side by side, this test proves nothing and should say so instead of passing.

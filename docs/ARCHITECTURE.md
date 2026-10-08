@@ -355,8 +355,87 @@ the same weight in the next cell at six cell sizes. Frame goldens replay real pr
 recordings through the whole path (engine, deltas, mirror, colors, frame builder) and compare
 the colors drawn. Shaders compile at runtime from source, because Xcode 26 ships its Metal
 toolchain as a separate download and builds can hang silently without it.
-Glow, XDR Neon (EDR) and images are a late polish phase, and they only ever draw on frames
+XDR Neon (EDR) and images are still a late polish phase, and they only ever draw on frames
 that are happening anyway.
+
+### Text glow: a fourth draw, and chroma decides
+
+`text-glow` makes a bright-coloured character throw light around itself, in its own colour. Two
+decisions carry the whole design.
+
+**A fourth draw in the one pass, not a second pass.** There is no intermediate texture anywhere
+in this renderer, no `MTLSamplerState` at all, and `framebufferOnly` is true, so a separable
+blur — the textbook answer — would mean giving up all three. The glow is instanced over **the
+same `frame.glyphs` buffer** the glyph draw uses, between the backgrounds and the glyphs,
+blended additively with an RGB-only write mask. So `Frame`, `FrameBuilder`, `GlyphInstance`,
+`DecorationInstance`, `GlyphCache`, `ShelfAtlas` and the row cache are all untouched, the frame
+goldens cannot move, and the `MemoryLayout` pins stay as they are. The cost is 13 texel reads
+per fragment over a quad grown by the radius; measured against the alternative, a half-res
+separable blur costs about 6.4M reads *regardless of content* while the scatter costs about 2.2M
+realistically and 22M only when every cell is bright — three times worse normally, better only
+in the pathological case. `docs/PERF.md` holds the numbers and the fallbacks.
+
+The light is drawn **under** the glyphs, which is what makes it light rather than an outline: a
+fully covered pixel is exactly the colour it would be without the draw, and only an antialiased
+edge picks the halo up through its own `1 - coverage`. Additive *over* the text would brighten
+each character's own ink and wash a saturated colour toward white.
+
+**Which glyphs emit is decided in the vertex stage, from the glyph's own colour.** One test per
+glyph rather than per pixel: a glyph that does not emit gets four vertices at the same point
+outside the clip volume, so both triangles are culled and no fragment runs at all. That is what
+makes a screen of ordinary output free, and `ordinaryTextIsBitIdenticalWithTheGlowOn` compares
+the bytes rather than taking it on trust. Two exclusions ride the same branch: a colour-atlas
+glyph, which carries its own colour and is not in the mask atlas the scatter reads, and any
+glyph in a faded pane — which gives "only the pane you are working in glows" for nothing.
+
+**Chroma decides, not brightness, and that came out of measuring all eight palettes.** On a dark
+ground the default foreground is the *brightest* thing on the screen, luma 0.92 to 0.97 across
+the seven dark themes, so a brightness rule — the obvious one — would have glowed every line of
+output. Saturation is what separates a colour a program chose: the themes' reds, greens,
+yellows, blues, magentas and cyans sit at chroma 0.33 to 0.82 against a foreground's 0.01 to
+0.12 and white's 0.00. Brightness survives only as a floor, and it earns its place rather than
+being decoration: The Party Never Ends' ANSI black is at chroma 0.286, just above the floor, so
+without the brightness floor the one colour nothing should ever light up would.
+
+A pair of `smoothstep`s rather than two thresholds, because the bands genuinely overlap — the
+greys reach chroma 0.282 and a pastel bright magenta starts at 0.275, so no pair of numbers
+classifies 128 palette entries correctly. A colour in the overlap glows *faintly* instead of
+being miscategorised loudly, which turns a correctness problem into a taste one. The greys get
+the benefit of the doubt, because an ordinary `ESC[37m` line glowing is a worse mistake than a
+pastel magenta staying dark — and the consequence is recorded rather than glossed: Fighting
+Demons' bright magenta does not glow.
+
+**The rule exists twice and nothing can prove the two agree,** because one of them is a Metal
+string compiled at runtime. `Glow.emissiveStrength` in SurfaceCore and `emissive()` in
+`Shaders.source` each name the other as its twin, both read the sRGB bytes as plain numbers
+without linearizing, and `GlowTests`' per-theme table is what a retune has to update. The four
+thresholds are provisional: only a calibrated display can judge them and the runner's GPU is
+paravirtual.
+
+**Taps clamp to the glyph's own rectangle.** `access::read` returns zero outside the *texture*,
+but `ShelfAtlas` pads a glyph by one pixel, so a tap three pixels out lands squarely in whatever
+was packed beside it on the same shelf. `GlowOut` carries the rectangle as flat interpolants and
+a tap outside it reads nothing. This was the highest-probability real bug in the change and it
+has its own test, whose premise — that the packer puts two bitmaps of one height side by side —
+is checked on Linux so a change in the packer turns it into a failure rather than into a test
+that passes while proving nothing.
+
+**`Uniforms` is 48 bytes with the padding given a name.** With `glow` alone, Swift's `size` is
+44 while its `stride` is 48, and the encoder sends the stride — so the shader would read four
+bytes the app never wrote. The named `reserved` word fixes that and is where XDR's second word
+will go. `UniformsLayoutTests` pins size, stride and both offsets, which finally makes
+`Shaders.swift`'s own header true: `GlyphInstance` and `DecorationInstance` have had layout pins
+since Phase 2 and `Uniforms` could not, for the structural reason that it is internal to
+RenderKit while that suite lives in SurfaceCoreTests.
+
+**The energy gate is a split, not an addition.** `applyFrameRate()` returned early at `guard let
+link else { return }` *before* reading ProcessInfo, and no pane on CI or in `ChromePreview` ever
+has a display link — the window is never on screen. A glow settled after that guard would have
+reached none of the paths CI can see, and the chrome pictures would have come back without it
+and said nothing. `applyEnergyConditions()` builds the conditions once, settles the glow, and
+only then falls through. `EffectsPolicy` reuses `FrameRatePolicy.Conditions` so the two policies
+cannot be told different things, and ignores `recentInput` on purpose: the conditions are
+rebuilt on every key press.
 
 ### Ligatures: runs, not cells
 
@@ -914,4 +993,4 @@ seam depends on the answer.
 | 6 | Maze: the SFTP browser — SFTPKit (our own SFTP v3), a window per host, transfers with a queue and bars, core drag-and-drop (dragging out to Finder deferred) |
 | 7 | Legends Never Die: `legendsd` holds the pseudo-terminals and engines, so local shells outlive the app and come back where they were (sessions on a host are not kept) |
 | 8 | Conversations, Fast and Ring Ring: shell integration, blocks, timers, alerts |
-| 9 | Renderer polish: glow, XDR Neon, ligatures, inline images |
+| 9 | Renderer polish: ligatures (in), text glow (in), XDR Neon and inline images (not yet) |

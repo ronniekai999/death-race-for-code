@@ -189,7 +189,12 @@ private final class SolidBitmaps: GlyphRasterizing {
     @Test func theAtlasPacksTwoBitmapsOfOneHeightSideBySide() throws {
         let rasterizer = SolidBitmaps(shapes: [0x41: (8, 12), 0x42: (2, 12)])
         let cache = GlyphCache(rasterizer: rasterizer)
+        // `beginFrame()` before each, as every real caller does: a frame has a rasterizing
+        // budget, and only its *first* glyph is drawn unconditionally. Two bare calls on a busy
+        // machine get a nil for the second and nothing says why.
+        cache.beginFrame()
         let block = try #require(cache.placement(for: GlyphKey(scalar: 0x41)))
+        cache.beginFrame()
         let sliver = try #require(cache.placement(for: GlyphKey(scalar: 0x42)))
         #expect(block.y == sliver.y)
         #expect(block.shelf == sliver.shelf)

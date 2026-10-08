@@ -939,7 +939,7 @@ public final class TerminalSurfaceView: NSView {
     /// settled before the frame rate**: the frame-rate half returns early without a display
     /// link, which is every pane on CI and in `ChromePreview`, so a glow applied after it
     /// would never reach the paths that have no link to drive.
-    func applyEnergyConditions() {
+    public func applyEnergyConditions() {
         let recent = CACurrentMediaTime() - lastInputTime < FrameRatePolicy.inputWindow
         inputBoosted = recent
         var conditions = energyState()

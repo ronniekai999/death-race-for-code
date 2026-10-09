@@ -60,9 +60,11 @@ public final class OffscreenRenderer {
     }
 
     /// Draws `frame` with its grid at `layout` in a target of `layout`'s size, and waits for it;
-    /// `dim` fades it as a pane not in use.
+    /// `dim` fades it as a pane not in use, and `glow` is how strongly its bright colours throw
+    /// light (`Glow.packed`; 0 draws none).
     public func render(
-        _ frame: Frame, cell: CellMetrics, layout: PixelLayout, glyphs: GlyphCache, dim: PackedColor = 0
+        _ frame: Frame, cell: CellMetrics, layout: PixelLayout, glyphs: GlyphCache, dim: PackedColor = 0,
+        glow: PackedColor = 0
     ) throws -> RenderedImage {
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .bgra8Unorm, width: layout.width, height: layout.height, mipmapped: false)
@@ -78,7 +80,7 @@ public final class OffscreenRenderer {
         guard
             renderer.encode(
                 frame, cell: cell, layout: layout, glyphs: glyphs, target: target, commandBuffer: commandBuffer,
-                dim: dim)
+                dim: dim, glow: glow)
         else { throw RenderError.resources("a frame") }
         guard let blit = commandBuffer.makeBlitCommandEncoder() else { throw RenderError.resources("a blit") }
         blit.copy(

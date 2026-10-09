@@ -198,3 +198,31 @@ public struct FrameRatePolicy: Sendable, Equatable {
         return Range(minimum: (maximum / 2).rounded(.down), maximum: maximum, preferred: maximum)
     }
 }
+
+/// Whether the extra light Phase 9 draws may be drawn at all, from the same conditions the frame
+/// rate is clamped by — so the two policies agree about what "spend less" and "hot" mean.
+///
+/// It reuses `FrameRatePolicy.Conditions` rather than declaring a second condition type, and
+/// deliberately does **not** read `recentInput`: the conditions are rebuilt on every key press,
+/// so a glow keyed off recent input would blink on and off as you type.
+public struct EffectsPolicy: Sendable, Equatable {
+    /// The same setting the frame rate follows (`follow-low-power-mode`): Low Power Mode is the
+    /// explicit "spend less" signal, and it is the only power signal this app reads.
+    public var followsLowPowerMode: Bool
+
+    public init(followsLowPowerMode: Bool = true) {
+        self.followsLowPowerMode = followsLowPowerMode
+    }
+
+    /// Thermal pressure at or above this turns the effects off. The same threshold
+    /// `FrameRatePolicy` clamps to 30 frames a second at.
+    public static let tooHot = FrameRatePolicy.Thermal.serious
+
+    /// False when the Mac is asking to be left alone. Whether the effect is wanted at all is the
+    /// setting's business and the theme's; this only says whether it may be afforded.
+    public func allowsGlow(_ conditions: FrameRatePolicy.Conditions) -> Bool {
+        if followsLowPowerMode && conditions.lowPowerMode { return false }
+        if conditions.thermal >= Self.tooHot { return false }
+        return true
+    }
+}

@@ -29,7 +29,10 @@ The brand hues are the exact colors of MenuGlance's 999 icon. Every text color h
 
 - The gradient fills the hero NeonBorder, stat and progress bars, the active tab pill and the
   999 wordmark. Never body text, never large fills.
-- One glow per view: the element that leads (the focused pane, the hero card, the cursor).
+- One chrome glow per view: the element that leads (the focused pane, the hero card, the
+  cursor). The terminal grid is not chrome — a bright colour in it glows as a material, in the
+  character's own colour and never the brand's, never on body text, and only in the pane you are
+  working in.
 - Success is cyan and danger is pink-red; both always come with a word or a ✓ / ✗ glyph.
 - Nothing animates at idle. Equalizer bars move only while a tab has output.
 - Copy is plain and helpful, like MenuGlance's. The theme lives in names, never in sentences.
@@ -108,6 +111,50 @@ in all eight themes without a screen recording permission, and CI keeps them as 
 - The traffic lights and the glow's blur are the window server's, so they are missing.
 - The SwiftUI windows (Settings, Hear Me Calling) are left out. Their text doesn't survive
   being drawn this way, so they are reviewed on the Mac.
+
+## Text glow
+
+`text-glow` is on by default. A bright-coloured character throws a little light around itself,
+in its own colour: bright red glows red, cyan glows cyan. Never the brand's gradient — that
+belongs to the chrome, and this is the terminal's material.
+
+- **Bright colours only, and brightness is not what decides.** On a dark ground ordinary text
+  is the brightest thing on the screen, so saturation is what separates a colour a program
+  chose from the default foreground. The result: red, green, yellow, blue, magenta and cyan
+  glow; the default foreground, white, black and the greys never do. `ESC[37m` is ordinary
+  output and stays dark.
+- A colour on the edge glows *faintly* rather than being sorted into the wrong box. The bands
+  overlap — the greys reach the same saturation as a pastel magenta — so there is no pair of
+  numbers that is simply right, and the greys get the benefit of the doubt.
+- **Only the pane you are working in.** A pane that is faded has no glow at all, so a split
+  never has two of them competing.
+- Drawn *under* the characters, so a letter's own ink is exactly the colour it would be without
+  it and only the antialiased edge brightens. The themes' contrast is WCAG-tested on every push
+  and this cannot move it.
+- Each theme decides how strong, from the same `glowOpacity` the chrome's glow uses: 0.12 for
+  Goodbye & Good Riddance, up to 0.35 for Legends Never Die and The Party Never Ends. There is
+  no intensity setting.
+- **Righteous has none**, and the reason is mechanical rather than taste: it is dark text on
+  white, and light added around a dark glyph brightens white — invisible at best, and at worst
+  it eats the antialiased edge that gives the letter its shape.
+- Low Power Mode and a Mac at `serious` thermal pressure or worse turn it off. Typing does not:
+  a glow that came and went as you type would be worse than none.
+- Emoji never glow. They carry their own colour already.
+
+## Ligatures
+
+`font-ligatures` is off by default. With it on and a font that has them — Monaspace Neon does,
+SF Mono does not — a run of punctuation is drawn the way the font draws it together: `!=` joins
+into one mark, `->` becomes an arrow, `===` a triple bar. Each character still occupies its own
+column, so the ligature is the same width as the characters under it and nothing else on screen
+moves.
+
+- Only punctuation joins. Letters are drawn as they always were, side by side.
+- A selection edge inside a ligature breaks it: the two characters draw separately so the
+  highlight lands on the cell boundary, and they join again when the selection moves off.
+- The block cursor shows the character it is on, not the half of a ligature behind it.
+- The `--render-chrome` pictures are drawn in Monaspace Neon with ligatures on, so the operators
+  in them are the real thing rather than the default font's.
 
 ## Conversations
 

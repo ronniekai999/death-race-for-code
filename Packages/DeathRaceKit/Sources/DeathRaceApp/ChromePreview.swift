@@ -203,6 +203,11 @@
             config.themeID = theme.id
             // The pills and headers name the shell the mockups show, whatever the runner's is.
             config.command = "/bin/zsh"
+            // The bundled family and its ligatures, because a picture of the default font would
+            // show neither — and these pictures are how the chrome is reviewed without a build.
+            config.fontFamily = "Monaspace Neon"
+            config.fontFamilyItalic = "Monaspace Radon"
+            config.fontLigatures = true
             let host = Host()
             host.scripts = scripts
             let controller = PitLaneWindowController(config: config, host: host, directory: directory)
@@ -384,9 +389,25 @@
             context.restoreGState()
             if let renderer, let tab = controller.model.activeTab {
                 for id in tab.panes {
-                    guard let surface = controller.panes[id]?.surface, !surface.isHiddenOrHasHiddenAncestor,
-                        let image = try surface.snapshot(using: renderer)?.cgImage()
+                    guard let surface = controller.panes[id]?.surface, !surface.isHiddenOrHasHiddenAncestor
                     else { continue }
+                    // These pictures are for review, so what they show must not depend on how
+                    // hot the machine that drew them was: a glow-free artifact because the
+                    // runner hit `serious` thermal pressure, with nothing saying so, would be
+                    // read as the feature not working.
+                    //
+                    // Put back afterwards. Left overridden, the pane would stop following real
+                    // Low Power Mode and thermal state for the rest of its life — this is a
+                    // `--render-chrome` path so nobody would meet it, but a one-way override of
+                    // another object's behaviour is a trap whichever path it is on.
+                    let energy = surface.energyState
+                    surface.energyState = { FrameRatePolicy.Conditions(recentInput: false) }
+                    surface.applyEnergyConditions()
+                    defer {
+                        surface.energyState = energy
+                        surface.applyEnergyConditions()
+                    }
+                    guard let image = try surface.snapshot(using: renderer)?.cgImage() else { continue }
                     context.draw(image, in: surface.convert(surface.bounds, to: nil))
                     surface.drawCursor(in: context)
                     // Badges are layers, which an offscreen frame leaves out, so a picture of a

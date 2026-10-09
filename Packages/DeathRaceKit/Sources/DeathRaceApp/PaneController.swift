@@ -571,6 +571,7 @@ final class PaneController {
         surface.theme = config.theme
         surface.padding = (config.windowPaddingX, config.windowPaddingY)
         surface.fontThicken = config.fontThicken
+        surface.fontLigatures = config.fontLigatures
         surface.cursorStyle = config.cursorStyle
         surface.cursorBlink = config.cursorStyleBlink
         surface.optionAsMeta = config.optionAsMeta
@@ -579,6 +580,12 @@ final class PaneController {
         surface.pasteProtection = config.pasteProtection
         surface.copyOnSelect = config.copyOnSelect
         surface.starfield = config.starfield && config.namedTheme.hasStars
+        // How strong is the theme's, not a setting of its own: `glowOpacity` is already tuned
+        // per theme for the chrome's glow, and an intensity slider is a knob nobody can judge
+        // by eye. If a level reads wrong the fix is a number in `scripts/gen-themes.py`.
+        let theme = config.namedTheme
+        surface.textGlow =
+            config.textGlow && theme.hasGlow ? Glow(strength: theme.chrome.glowOpacity) : nil
         applyConversations()
         surface.frameRatePolicy = FrameRatePolicy(
             followsLowPowerMode: config.followLowPowerMode, capsOutput: config.outputFrameRateCap)

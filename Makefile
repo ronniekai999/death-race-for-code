@@ -15,7 +15,7 @@
 PKG := Packages/DeathRaceKit
 APP := build/Death Race for Code.app
 
-.PHONY: test test-render esctest fuzz bench vtdiff lint check-imports check-expect-messages format run smoke bundle clean install-swift-linux
+.PHONY: test test-render esctest fuzz bench vtdiff lint check-imports check-expect-messages check-any-optional format run smoke bundle clean install-swift-linux
 
 FUZZ := Tools/VTFuzz
 DIFF := Tools/VTDiff
@@ -53,7 +53,7 @@ vtdiff:
 SWIFT_SOURCES := $(PKG)/Sources $(PKG)/Tests $(PKG)/Tools $(PKG)/Package.swift $(FUZZ)/Sources $(FUZZ)/Package.swift \
 	$(DIFF)/Sources $(DIFF)/Package.swift
 
-lint: check-imports check-expect-messages
+lint: check-imports check-expect-messages check-any-optional
 	swift format lint --recursive --strict $(SWIFT_SOURCES)
 
 # A type the macOS-only sources name but cannot reach. `swiftc -parse` is syntax only, so
@@ -66,6 +66,9 @@ check-imports:
 # above: only a macOS runner compiles DeathRaceAppTests, so this would otherwise cost a round.
 check-expect-messages:
 	python3 scripts/check-expect-messages.py
+
+check-any-optional:
+	python3 scripts/check-any-optional.py
 
 format:
 	swift format --in-place --recursive $(SWIFT_SOURCES)

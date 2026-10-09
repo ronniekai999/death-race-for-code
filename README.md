@@ -20,7 +20,10 @@ launch, jump-to-prompt and whole-block selection, progress in a tab's pill, and 
 long command finishes while you are looking elsewhere. The engine has since taken the
 roadmap's own conformance list — left and right margins and everything defined in terms of
 them, the rectangular areas, the special colours and ISO protected areas — so nothing on that
-list is scheduled for later.
+list is scheduled for later. **Phase 9** is under way, on the two halves a push can be held to:
+ligatures draw `!=` and `=>` the way the font draws them together, and a bright-coloured
+character throws a little light around itself in its own colour, which ordinary text and the
+greys never do. XDR Neon and inline images are what is left of it.
 
 - **WRLD, your hosts:** kept in `wrld.json` next to the settings file, which never holds a
   secret. Hosts in your `~/.ssh/config` join with one click and keep using that file, which

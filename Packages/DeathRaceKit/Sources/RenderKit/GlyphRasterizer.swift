@@ -18,12 +18,20 @@ public struct GlyphRasterizer: GlyphRasterizing, Sendable {
     public let cell: CellMetrics
     public let thicken: Bool
     let language: String?
+    /// The same four faces with the run features on.
+    ///
+    /// Built once here rather than per question. The scanner asks about every candidate in
+    /// every row it rebuilds, and each question would otherwise make a feature-settings array,
+    /// a font descriptor and a font copy — thousands of them in one frame on a screen of
+    /// punctuation, all recomputing four values that depend on nothing but the faces.
+    let runFaces: RunFaces
 
     public init(fonts: FontSet, cell: CellMetrics, thicken: Bool = false, language: String? = nil) {
         self.fonts = fonts
         self.cell = cell
         self.thicken = thicken
         self.language = language ?? Locale.preferredLanguages.first
+        runFaces = RunFaces(fonts)
     }
 
     public func rasterize(_ key: GlyphKey) -> RasterizedGlyph {
@@ -60,8 +68,50 @@ public struct GlyphRasterizer: GlyphRasterizing, Sendable {
             || (0x10_0000...0x10_FFFD).contains(scalar)
     }
 
-    private func drawText(_ key: GlyphKey) -> RasterizedGlyph {
-        let font = face(for: key)
+    /// The OpenType features a run is shaped with — and only a run.
+    ///
+    /// Read from the bundled fonts' own `GSUB` tables rather than from anyone's documentation,
+    /// by applying each feature's lookups to every pair and triple of the run alphabet. In
+    /// Monaspace Neon and Radon: `calt` draws 36 punctuation pairs differently and ligates
+    /// none of them — that is texture healing — `liga` ligates four (`!!`, `!=`, `//`, `||`),
+    /// and every operator anyone would name is in a stylistic set instead, one family each:
+    /// `!= ===` in `ss01`, `<= >=` in `ss02`, `-> <- -->` in `ss03`, `</ />` in `ss04`, `|>`
+    /// in `ss05`, `&& ++` in `ss06`, `::` in `ss07`, `...` in `ss08`, `=> << >>` in `ss09`.
+    /// `ss10` changes nothing in this alphabet, so it is not here.
+    ///
+    /// Two consequences worth stating. `liga` and `calt` alone would leave the font this app
+    /// bundles and offers by name looking as though the setting did nothing — which is the
+    /// mistake this list exists to avoid. And `calt` is here all the same, because fonts like
+    /// Fira Code put every ligature they have in it and no stylistic set at all.
+    static let runFeatures = [
+        "liga", "calt", "ss01", "ss02", "ss03", "ss04", "ss05", "ss06", "ss07", "ss08", "ss09",
+    ]
+
+    /// `font` with the run features on. Size 0 and no matrix keep the font's own, as the
+    /// cascade-list copy in `FontSet` does, so a face slanted into an italic stays slanted.
+    ///
+    /// The descriptor is built here rather than held as a constant. It would be the same every
+    /// time, but `CTFontDescriptor` is not `Sendable`, so a static of one is a concurrency hole
+    /// that would have to be excused — and this runs four times when a rasterizer is made
+    /// rather than once per question, which is what `RunFaces` is for.
+    static func shaping(_ font: CTFont) -> CTFont {
+        let settings: [[String: Any]] = runFeatures.map {
+            [kCTFontOpenTypeFeatureTag as String: $0, kCTFontOpenTypeFeatureValue as String: 1]
+        }
+        let descriptor = CTFontDescriptorCreateWithAttributes(
+            [kCTFontFeatureSettingsAttribute: settings] as CFDictionary)
+        return CTFontCreateCopyWithAttributes(font, 0, nil, descriptor)
+    }
+
+    /// The shaped line for a key.
+    ///
+    /// The one place an attributed string is built, so that "does this face draw these
+    /// characters differently as a unit" and the bitmap that answer leads to are asked of the
+    /// same line. Two of them could differ by one attribute and the result would be text that
+    /// looks unligated while being spaced as though it were — with nothing failing anywhere,
+    /// on any platform that can run the tests.
+    func line(for key: GlyphKey) -> CTLine? {
+        let font = key.isRun ? runFaces.face(bold: key.bold, italic: key.italic) : face(for: key)
         var attributes: [CFString: Any] = [
             kCTFontAttributeName: font,
             kCTForegroundColorFromContextAttributeName: true,
@@ -70,8 +120,64 @@ public struct GlyphRasterizer: GlyphRasterizing, Sendable {
         guard
             let attributed = CFAttributedStringCreate(
                 kCFAllocatorDefault, key.string as CFString, attributes as CFDictionary)
-        else { return .empty }
-        let line = CTLineCreateWithAttributedString(attributed)
+        else { return nil }
+        return CTLineCreateWithAttributedString(attributed)
+    }
+
+    /// Whether this face draws these characters differently as a unit, with every one of them
+    /// still exactly one cell wide.
+    ///
+    /// **Not fewer glyphs than characters**, which is the obvious test and the wrong one. Every
+    /// ligature in both bundled families is N glyphs in and N glyphs *out* — the font keeps one
+    /// glyph per column precisely so the advance stays monospaced, and puts the connected shape
+    /// across them. Measured, not assumed: of 2,128 punctuation sequences, 1,096 shape
+    /// differently and **not one** changes its glyph count. A count test would have answered
+    /// "no" to every ligature this app ships with, and only a Mac would ever have said so.
+    ///
+    /// Comparing the glyphs instead costs nothing and covers both styles: a font that really
+    /// does substitute N glyphs for one answers yes here too, since one glyph is not the N it
+    /// started with, and the advance check below is what makes that safe to draw.
+    ///
+    /// The advance is checked rather than trusted because nothing downstream can save us from a
+    /// font that does not keep it: the shrink-to-fit in `drawText` is for colour and
+    /// double-width glyphs, a run is neither, and so a run's bitmap is drawn at the font's own
+    /// advance and would simply lie across the cells beside it.
+    public func shapesAsOne(_ scalars: [UInt32], bold: Bool, italic: Bool) -> Bool {
+        guard scalars.count >= 2 else { return false }
+        let key = GlyphKey(run: scalars, bold: bold, italic: italic)
+        let plain = face(for: key)
+        var characters: [UniChar] = []
+        for scalar in scalars {
+            guard let value = Unicode.Scalar(scalar), value.value < 0x1_0000 else { return false }
+            characters.append(UniChar(value.value))
+        }
+        // The glyphs these characters have on their own, in this face. False here means the
+        // face is missing one of them, so the line would be drawn by a fallback font.
+        var alone = [CGGlyph](repeating: 0, count: characters.count)
+        guard CTFontGetGlyphsForCharacters(plain, characters, &alone, characters.count) else { return false }
+        guard let line = line(for: key), let runs = CTLineGetGlyphRuns(line) as? [CTRun] else { return false }
+        let name = CTFontCopyPostScriptName(plain) as String
+        var shaped: [CGGlyph] = []
+        for run in runs {
+            let attributes = CTRunGetAttributes(run) as NSDictionary
+            guard let value = attributes[kCTFontAttributeName as String] else { return false }
+            // A run CoreText drew from another font is a fallback rather than a ligature, and
+            // its glyph numbers are another font's: they mean nothing beside ours.
+            guard CTFontCopyPostScriptName(value as! CTFont) as String == name else { return false }
+            let count = CTRunGetGlyphCount(run)
+            var glyphs = [CGGlyph](repeating: 0, count: count)
+            CTRunGetGlyphs(run, CFRange(location: 0, length: count), &glyphs)
+            shaped.append(contentsOf: glyphs)
+        }
+        guard shaped != alone else { return false }
+        var advances = [CGSize](repeating: .zero, count: alone.count)
+        let apart = CTFontGetAdvancesForGlyphs(plain, .horizontal, alone, &advances, alone.count)
+        let together = CTLineGetTypographicBounds(line, nil, nil, nil)
+        return apart > 0 && abs(together - apart) < 0.5
+    }
+
+    private func drawText(_ key: GlyphKey) -> RasterizedGlyph {
+        guard let line = line(for: key) else { return .empty }
         let isColor = Self.usesColorFont(line)
 
         let scale = CGFloat(cell.scale)
@@ -109,7 +215,8 @@ public struct GlyphRasterizer: GlyphRasterizing, Sendable {
         ).integral.insetBy(dx: -1, dy: -1)
         let width = Int(pixelBounds.width)
         let height = Int(pixelBounds.height)
-        guard width > 0, height > 0, width <= 1024, height <= 1024 else { return .empty }
+        let bound = GlyphKey.maxRunPixels
+        guard width > 0, height > 0, width <= bound, height <= bound else { return .empty }
 
         let bytesPerPixel = isColor ? 4 : 1
         let context: CGContext?
@@ -158,5 +265,57 @@ public struct GlyphRasterizer: GlyphRasterizing, Sendable {
             if CTFontGetSymbolicTraits(font).contains(.traitColorGlyphs) { return true }
         }
         return false
+    }
+}
+
+/// The four faces a run is shaped with: `FontSet`'s, with the run features turned on.
+///
+/// Its own type for the reason `FontSet` is one, and with the same answer. `CTFont` is not
+/// `Sendable`, and a `Sendable` type cannot store one without saying it has checked — so the
+/// claim lives here, on four immutable letting-go fields, rather than being made for the whole
+/// rasterizer. CoreText's documentation states that a CTFont is immutable and safe to use from
+/// any thread, which is the whole of the justification.
+struct RunFaces: @unchecked Sendable {
+    let regular: CTFont
+    let bold: CTFont
+    let italic: CTFont
+    let boldItalic: CTFont
+
+    init(_ fonts: FontSet) {
+        regular = GlyphRasterizer.shaping(fonts.regular)
+        bold = GlyphRasterizer.shaping(fonts.bold)
+        italic = GlyphRasterizer.shaping(fonts.italic)
+        boldItalic = GlyphRasterizer.shaping(fonts.boldItalic)
+    }
+
+    /// The face for a style, in the order `FontSet.face(bold:italic:)` uses.
+    ///
+    /// A run is never a private-use character, so unlike `GlyphRasterizer.face(for:)` this needs
+    /// no symbols font: the alphabet is punctuation, which every monospaced face has.
+    func face(bold isBold: Bool, italic isItalic: Bool) -> CTFont {
+        switch (isBold, isItalic) {
+        case (false, false): regular
+        case (true, false): bold
+        case (false, true): italic
+        case (true, true): boldItalic
+        }
+    }
+}
+
+/// The oracle `RunScanner` asks, answered by the rasterizer that will draw the answer.
+///
+/// `RunShaping` is a class protocol because a conformer memoizes, and `GlyphRasterizer` is a
+/// `Sendable` value that must not. So the conformance lives here: a reference a view can hold,
+/// which shapes nothing itself and asks the rasterizer instead. That is the whole point of it.
+/// A shaper that built its own line could answer "these ligate" while the rasterizer drew them
+/// unligated into a bitmap still N cells wide, and the result — text that looks unligated and
+/// is spaced as though it were — fails no test on any machine that can run the tests.
+public final class RunShaper: RunShaping {
+    private let rasterizer: GlyphRasterizer
+
+    public init(_ rasterizer: GlyphRasterizer) { self.rasterizer = rasterizer }
+
+    public func shapesAsOne(_ scalars: [UInt32], bold: Bool, italic: Bool) -> Bool {
+        rasterizer.shapesAsOne(scalars, bold: bold, italic: italic)
     }
 }

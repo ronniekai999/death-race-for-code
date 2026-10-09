@@ -42,6 +42,24 @@ struct RenderGoldenTests {
 
     @Test(arguments: names)
     func screensMatchGoldens(_ name: String) throws {
+        try check(name, glow: 0, as: name)
+    }
+
+    /// The colour test pattern with the glow on, which is the one render the feature can be seen
+    /// in — and, for a session that has no Mac, the only picture of it there will ever be: CI
+    /// writes it under `DEATHRACE_RENDER_PREVIEW` beside the others, so the glow can be looked
+    /// at without a build.
+    ///
+    /// Its own case rather than a sixth name, so the five renders above are born and stay with
+    /// the glow off and this one carries it. Worth doing now, while
+    /// `Tests/Fixtures/render/` still does not exist: once goldens are committed, a feature they
+    /// do not cover is a feature they will never cover.
+    @Test func theColourScreenWithTheGlowOn() throws {
+        let glow = Glow(strength: ThemeCatalog.legendsNeverDie.chrome.glowOpacity)
+        try check("vttest-colors", glow: glow.packed, as: "vttest-colors-glow")
+    }
+
+    private func check(_ name: String, glow: PackedColor, as goldenName: String) throws {
         let recording = try #require(FileManager.default.contents(atPath: Self.fixtures + "corpus/\(name).bin"))
         let theme = Theme.legendsNeverDie
         let session = ReplaySession(Terminal.Configuration(columns: 80, rows: 24, palette: theme.palette))
@@ -58,27 +76,28 @@ struct RenderGoldenTests {
         #expect(built.frame.isComplete)
         let layout = PixelLayout(
             width: 80 * cell.width + 32, height: 24 * cell.height + 24, originX: 16, originY: 12)
-        let image = try OffscreenRenderer().render(built.frame, cell: cell, layout: layout, glyphs: glyphs)
+        let image = try OffscreenRenderer().render(
+            built.frame, cell: cell, layout: layout, glyphs: glyphs, glow: glow)
         let png = try #require(image.pngData())
         if let directory = renderPreviewDirectory {
             try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
-            try png.write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(name).png"))
+            try png.write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(goldenName).png"))
             return
         }
 
-        let goldenPath = Self.fixtures + "render/\(name).png"
+        let goldenPath = Self.fixtures + "render/\(goldenName).png"
         guard let golden = Self.decode(goldenPath) else {
             try FileManager.default.createDirectory(
                 atPath: Self.fixtures + "render", withIntermediateDirectories: true)
             try png.write(to: URL(fileURLWithPath: goldenPath))
             Issue.record(
-                "\(name): there was no golden, so this render was written to \(goldenPath). Look at it, then commit it."
+                "\(goldenName): there was no golden, so this render was written to \(goldenPath). Look at it, then commit it."
             )
             return
         }
         try #require(
             golden.width == image.width && golden.height == image.height,
-            "\(name): \(image.width)×\(image.height), the golden is \(golden.width)×\(golden.height)")
+            "\(goldenName): \(image.width)×\(image.height), the golden is \(golden.width)×\(golden.height)")
 
         var differing = 0
         var first: (x: Int, y: Int)?
@@ -92,10 +111,10 @@ struct RenderGoldenTests {
         }
         let allowed = Int(Double(image.width * image.height) * Self.allowedFraction)
         guard differing > allowed, let first else { return }
-        let actualPath = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).actual.png")
+        let actualPath = FileManager.default.temporaryDirectory.appendingPathComponent("\(goldenName).actual.png")
         try? png.write(to: actualPath)
         Issue.record(
-            "\(name): \(differing) pixels differ from the golden (at most \(allowed) may), the first at \(first.x),\(first.y). This render is at \(actualPath.path)."
+            "\(goldenName): \(differing) pixels differ from the golden (at most \(allowed) may), the first at \(first.x),\(first.y). This render is at \(actualPath.path)."
         )
     }
 

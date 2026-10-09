@@ -4,8 +4,52 @@ What CI cannot check, because it needs a real Mac, a real GPU, a keyboard, input
 your eyes. Run it with a debug build (`CONFIG=debug make run`) before closing a phase, and
 note the macOS build (`sw_vers`) with the results.
 
-Phase 8's checks come first; Phase 7's, Phase 6's, Phase 5's, Phase 4's, Phase 3's and Phase
-2's follow, and still apply.
+Phase 9's checks come first; Phase 8's, Phase 7's, Phase 6's, Phase 5's, Phase 4's, Phase 3's
+and Phase 2's follow, and still apply.
+
+## Phase 9 exit criteria
+
+Phase 9 is the only phase whose exit criterion the roadmap states — *"budgets hold with polish
+on (on AC power)"* — and that one sentence cannot be checked here: six of the eight budgets in
+[PERF.md](PERF.md) are Mac-only measurements, and the runner's GPU is paravirtual. These are
+the checkable form of it, for the two items that have shipped. **XDR Neon and inline images are
+not in, so the phase is not closed by these alone.**
+
+1. **The glow reads as light, in all seven dark themes.** Run `printf '\e[31mred \e[36mcyan
+   \e[35mmagenta \e[0mordinary\n'` in each. The three coloured words have a soft halo in their
+   own colour; "ordinary" has none at all. Compare against the `--render-chrome` pictures, which
+   now carry it — the chrome's own glow is a window-server blur and has never appeared in those,
+   so this is the first glow in them that is really there.
+2. **Ordinary output never glows, at any size.** `ls -la` and a build log look exactly as they
+   did. In particular `printf '\e[37mwhite \e[90mgrey\n'` stays dark: those are ordinary output,
+   and the rule gives the greys the benefit of the doubt on purpose.
+3. **Legibility holds where it is hardest.** `font-size = 9` with a 256-colour chart
+   (`for i in $(seq 0 255); do printf "\e[38;5;${i}m%3d " $i; done`), and a split with one pane
+   dimmed beside one that is not. Small bright text is still crisp, and the dimmed pane has no
+   glow at all.
+4. **Righteous is unchanged.** `theme = righteous`: no glow anywhere, and nothing about the text
+   moves. This is the theme the feature is switched off for, so a difference here is a bug.
+5. **`text-glow = false` puts it back exactly.** On a config reload rather than a relaunch, and
+   the terminal is what it was. There is a GPU test that asserts the frame is bit-identical for
+   ordinary text, so a visible difference here means something outside the glow draw moved.
+6. **It costs no frames and no main-thread time.** Idle with a screen of coloured text:
+   `powermetrics` still shows 0 frames and ≤ 0.5 wakeups a second, and Log Frame Stats'
+   `frameTime` is unchanged — the design has no CPU cost at all, so a move there would itself be
+   the finding. The GPU cost is the thing to look at, in Instruments' Metal System Trace, with
+   `vttest`'s colour screens and a 256-colour chart as the worst realistic case.
+7. **Low Power Mode and heat turn it off, and typing does not.** Switch Low Power Mode on: the
+   glow goes, immediately, without a relaunch. Then hold a key down or paste a long block: the
+   glow must not flicker — the conditions are rebuilt on every key press and `recentInput` is
+   deliberately not one of them.
+8. **The two thresholds are right, or they are not.** This is the one judgement only a
+   calibrated display can make, and the numbers are provisional
+   (`Glow.chromaFloor`/`chromaFull`/`lumaFloor`/`lumaFull`, with the same four in
+   `Shaders.source` — change one, change the other). Look for two failures in particular: a
+   colour that glows and should not, and Fighting Demons' bright magenta (`ESC[95m`), which
+   measures just under the floor and does not glow. `GlowTests`' per-theme table is what has to
+   be updated with them.
+9. **Ligatures.** The `## Fonts and icons` checks below, with `font-ligatures = true` and
+   `font-family = Monaspace Neon`.
 
 ## Phase 8 exit criteria
 
@@ -410,6 +454,21 @@ Phase 3 is done when all of these hold on the M5:
       `printf '\e[3mitalic\e[0m'` draws in Radon.
 - [ ] About credits the bundled fonts.
 - [ ] The Dock, Finder and ⌘⇥ show icon B with no gray plate around it.
+- [ ] `font-ligatures = true` with `font-family = Monaspace Neon`: `!=`, `=>`, `->` and `===`
+      are drawn joined, and each still occupies its own columns — put the cursor at the end of
+      the line and count them.
+- [ ] The same with SF Mono draws exactly as it did before. The default font has no ligatures,
+      so nothing should change and nothing should break.
+- [ ] `font-ligatures = false` after it was on: the text goes back on the config reload, not on
+      a relaunch.
+- [ ] Drag a selection across `=>`: the highlight lands on cell boundaries and the two
+      characters draw separately while they are inside it, joining again when it moves off.
+- [ ] `printf '\e[4ma != b\n'`: the underline runs through the ligature unbroken.
+- [ ] At `font-size = 72` or more, `!=` is still drawn rather than blank. Blank there means the
+      cap taken from the cell is wrong, and it would stay blank for as long as the atlas held it.
+- [ ] The block cursor on the second column of `!=` — this one is written down because the
+      answer is known and not addressed: it draws a plain `=` inverted while the row behind it
+      shows the ligature's right half. Worth deciding whether you can live with it.
 
 ## Links
 
@@ -450,7 +509,10 @@ Phase 2 is done when all of these hold on the M5:
    the reasoning instead, with a fallback for the answer going the wrong way; this is the one
    criterion a later phase did not make moot, and Phase 7's criterion 4 is the same question
    asked of what shipped.
-5. `make test-render` passes, with its goldens committed.
+5. `make test-render` passes, with its goldens committed. **Six of them now**, not five:
+   `vttest-colors` is rendered a second time with the glow on, as `vttest-colors-glow`, so the
+   goldens cover the feature. `Tests/Fixtures/render/` has never existed, so the first run on a
+   Mac writes all six and fails all six by design — look at each, then commit them.
 
 ## Rendering
 

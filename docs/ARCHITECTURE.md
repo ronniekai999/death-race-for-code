@@ -355,8 +355,159 @@ the same weight in the next cell at six cell sizes. Frame goldens replay real pr
 recordings through the whole path (engine, deltas, mirror, colors, frame builder) and compare
 the colors drawn. Shaders compile at runtime from source, because Xcode 26 ships its Metal
 toolchain as a separate download and builds can hang silently without it.
-Glow, XDR Neon (EDR), ligature shaping and images are a late polish phase, and they only ever
-draw on frames that are happening anyway.
+XDR Neon (EDR) and images are still a late polish phase, and they only ever draw on frames
+that are happening anyway.
+
+### Text glow: a fourth draw, and chroma decides
+
+`text-glow` makes a bright-coloured character throw light around itself, in its own colour. Two
+decisions carry the whole design.
+
+**A fourth draw in the one pass, not a second pass.** There is no intermediate texture anywhere
+in this renderer, no `MTLSamplerState` at all, and `framebufferOnly` is true, so a separable
+blur — the textbook answer — would mean giving up all three. The glow is instanced over **the
+same `frame.glyphs` buffer** the glyph draw uses, between the backgrounds and the glyphs,
+blended additively with an RGB-only write mask. So `Frame`, `FrameBuilder`, `GlyphInstance`,
+`DecorationInstance`, `GlyphCache`, `ShelfAtlas` and the row cache are all untouched, the frame
+goldens cannot move, and the `MemoryLayout` pins stay as they are. The cost is 13 texel reads
+per fragment over a quad grown by the radius; measured against the alternative, a half-res
+separable blur costs about 6.4M reads *regardless of content* while the scatter costs about 2.2M
+realistically and 22M only when every cell is bright — three times worse normally, better only
+in the pathological case. `docs/PERF.md` holds the numbers and the fallbacks.
+
+The light is drawn **under** the glyphs, which is what makes it light rather than an outline: a
+fully covered pixel is exactly the colour it would be without the draw, and only an antialiased
+edge picks the halo up through its own `1 - coverage`. Additive *over* the text would brighten
+each character's own ink and wash a saturated colour toward white.
+
+**Which glyphs emit is decided in the vertex stage, from the glyph's own colour.** One test per
+glyph rather than per pixel: a glyph that does not emit gets four vertices at the same point
+outside the clip volume, so both triangles are culled and no fragment runs at all. That is what
+makes a screen of ordinary output free, and `ordinaryTextIsBitIdenticalWithTheGlowOn` compares
+the bytes rather than taking it on trust. Two exclusions ride the same branch: a colour-atlas
+glyph, which carries its own colour and is not in the mask atlas the scatter reads, and any
+glyph in a faded pane — which gives "only the pane you are working in glows" for nothing.
+
+**Chroma decides, not brightness, and that came out of measuring all eight palettes.** On a dark
+ground the default foreground is the *brightest* thing on the screen, luma 0.92 to 0.97 across
+the seven dark themes, so a brightness rule — the obvious one — would have glowed every line of
+output. Saturation is what separates a colour a program chose: the themes' reds, greens,
+yellows, blues, magentas and cyans sit at chroma 0.33 to 0.82 against a foreground's 0.01 to
+0.12 and white's 0.00. Brightness survives only as a floor, and it earns its place rather than
+being decoration: The Party Never Ends' ANSI black is at chroma 0.286, just above the floor, so
+without the brightness floor the one colour nothing should ever light up would.
+
+A pair of `smoothstep`s rather than two thresholds, because the bands genuinely overlap — the
+greys reach chroma 0.282 and a pastel bright magenta starts at 0.275, so no pair of numbers
+classifies 128 palette entries correctly. A colour in the overlap glows *faintly* instead of
+being miscategorised loudly, which turns a correctness problem into a taste one. The greys get
+the benefit of the doubt, because an ordinary `ESC[37m` line glowing is a worse mistake than a
+pastel magenta staying dark — and the consequence is recorded rather than glossed: Fighting
+Demons' bright magenta does not glow.
+
+**The rule exists twice and nothing can prove the two agree,** because one of them is a Metal
+string compiled at runtime. `Glow.emissiveStrength` in SurfaceCore and `emissive()` in
+`Shaders.source` each name the other as its twin, both read the sRGB bytes as plain numbers
+without linearizing, and `GlowTests`' per-theme table is what a retune has to update. The four
+thresholds are provisional: only a calibrated display can judge them and the runner's GPU is
+paravirtual.
+
+**Taps clamp to the glyph's own rectangle.** `access::read` returns zero outside the *texture*,
+but `ShelfAtlas` pads a glyph by one pixel, so a tap three pixels out lands squarely in whatever
+was packed beside it on the same shelf. `GlowOut` carries the rectangle as flat interpolants and
+a tap outside it reads nothing. This was the highest-probability real bug in the change and it
+has its own test, whose premise — that the packer puts two bitmaps of one height side by side —
+is checked on Linux so a change in the packer turns it into a failure rather than into a test
+that passes while proving nothing.
+
+**`Uniforms` is 48 bytes with the padding given a name.** With `glow` alone, Swift's `size` is
+44 while its `stride` is 48, and the encoder sends the stride — so the shader would read four
+bytes the app never wrote. The named `reserved` word fixes that and is where XDR's second word
+will go. `UniformsLayoutTests` pins size, stride and both offsets, which finally makes
+`Shaders.swift`'s own header true: `GlyphInstance` and `DecorationInstance` have had layout pins
+since Phase 2 and `Uniforms` could not, for the structural reason that it is internal to
+RenderKit while that suite lives in SurfaceCoreTests.
+
+**The energy gate is a split, not an addition.** `applyFrameRate()` returned early at `guard let
+link else { return }` *before* reading ProcessInfo, and no pane on CI or in `ChromePreview` ever
+has a display link — the window is never on screen. A glow settled after that guard would have
+reached none of the paths CI can see, and the chrome pictures would have come back without it
+and said nothing. `applyEnergyConditions()` builds the conditions once, settles the glow, and
+only then falls through. `EffectsPolicy` reuses `FrameRatePolicy.Conditions` so the two policies
+cannot be told different things, and ignores `recentInput` on purpose: the conditions are
+rebuilt on every key press.
+
+### Ligatures: runs, not cells
+
+`font-ligatures` draws a run of punctuation the way the font draws it together — one bitmap
+across the columns it covers — and is off by default. Every decision below came out of reading
+the bundled fonts' own `GSUB` tables, by applying each feature's lookups to every pair and
+triple of the run alphabet. Three of them went against what we believed when the work started.
+
+**The feature is programming ligatures, and letters are untouched.** `calt` is in the feature
+list, so Monaspace's punctuation-side contextual alternates — the 36 pairs it shapes for their
+neighbours without joining them — do come along, and the oracle promotes them to runs because
+they are drawn differently as a unit, which is the question it asks. What does *not* come along
+is the texture healing people mean by the phrase: letter-side contextual alternates would need
+whole words shaped and the atlas keyed by shaped run, and
+`GlyphCache.placements` has no eviction for glyph keys — only for the shelves under them — so a
+key space that grows with the words someone types is a leak rather than a feature. The run
+alphabet is therefore fixed punctuation, `! # $ % & * + - . / : < = > ? @ \ ^ | ~`, which keeps
+the key space bounded by the alphabet and the cell cap — and the cap is five rather than eight
+because the scanner asks the shaper up to `maxCells - 1` questions per candidate and the cap is
+the exponent on that key space. Measured: a screen of varied punctuation asks about 10,800
+questions at eight and the widest ligature either bundled family has is four characters wide.
+
+**A ligature does not reduce the glyph count, so the oracle cannot ask whether it did.** In both
+bundled families every ligature is N glyphs in and N glyphs *out*: the font keeps one glyph per
+column, each with exactly one cell's advance, and puts the connected shape across them. Of 2,128
+punctuation sequences, 1,096 shape differently and not one changes its glyph count — so
+"fewer glyphs than characters", which is the obvious test, would have answered no to every
+ligature this app ships with. The oracle compares the *shaped glyphs against the glyphs the
+characters have on their own*, which is the question `RunShaping` documents, and it also checks
+that the advance is unchanged: nothing downstream can save us from a font that does not keep it,
+because the shrink-to-fit in `drawText` is for colour and double-width glyphs and a run is
+neither.
+
+**`liga` and `calt` are not where Monaspace keeps its ligatures.** `calt` draws 36 punctuation
+pairs differently and ligates none of them — that is texture healing — and `liga` ligates four.
+Every operator anyone would name is in a stylistic set instead, one family each: `!=` and `===`
+in `ss01`, `<=` in `ss02`, `->` in `ss03`, `|>` in `ss05`, `::` in `ss07`, `=>` in `ss09`. So the
+features a run is shaped with are `liga`, `calt` and `ss01` to `ss09`. `calt` stays in the list
+because fonts like Fira Code put every ligature they have in it and no stylistic set at all.
+They are applied **only to a run**, never to the single character in an ordinary cell, so a
+cell's glyph is bit-for-bit what it was before any of this existed.
+
+The rest of the design:
+
+- **The span lives in `GlyphKey`'s free bits, not in `isWide`.** The two mean different things
+  to the rasterizer: `isWide` is a double-width character, which is shrunk to fit its two cells,
+  while a run keeps the advance the font gives it. A key with no run packs bit-for-bit as it did
+  before runs existed, so a frame built without shaping is identical rather than merely similar.
+- **The portable half is where the bugs are, so it is all of the work that can be tested.** Where
+  a run could be — leftmost-longest, style boundaries, selection edges, double-width cells, the
+  row's end, the length a bitmap may reach — is text and width arithmetic in `SurfaceCore`.
+  Whether a face draws these characters differently as a unit is one protocol method, answered
+  by CoreText on macOS and by a table in tests.
+- **The oracle is its own protocol rather than a question put to `GlyphSource`,** whose two
+  negative answers are both taken: `nil` means "not ready, keep the row dirty and ask again" and
+  `.empty` means "draws nothing, like a space". A font saying *I do not ligate this* is neither.
+- **The oracle and the rasterizer are one shaping call.** `GlyphRasterizer.line(for:)` is the
+  only place an attributed string is built, and both the question and the bitmap come from it.
+  Two lines differing by one attribute would give text that looks unligated while being spaced
+  as though it were, with nothing failing on any machine that can run the tests.
+- **Both caps are about liveness, not tidiness.** The rasterizer answers `.empty` for a bitmap
+  over 1024 px, and `.empty` is cached and means "draws nothing" — so an over-long run at a large
+  font size would turn into blank space and stay blank. And a bitmap too wide for the atlas to
+  place leaves the row incomplete, so it is rebuilt and re-asked every frame for ever with no
+  progress. `RunScanner` takes its cap from the cell against the limit *less* the slack a run's
+  bitmap needs — a pixel of antialiasing each side, whole-pixel rounding outwards, and a slanted
+  face's ink leaning past the last column — and `buildRow` falls back to drawing the cells one at
+  a time if a run key ever comes back empty anyway.
+- **The cursor, selection and hit-testing stay per-cell**, and a selection edge inside a run
+  breaks it so both columns draw separately, which is what gives the highlight cell boundaries.
+  A block cursor parked on the second column of `!=` draws that cell's own character inverted;
+  nothing in the app addresses that and this change does not either.
 
 ### The Termius layer rides OpenSSH
 
@@ -816,6 +967,18 @@ seam depends on the answer.
   `Comment`, and, written per change rather than committed, a probe naming the portable API the
   macOS code uses and type-checked against the built modules — which is what `PaneID.value`,
   a member that does not exist, needed to be caught before a runner found it.
+- **Swift 6 concurrency checking on macOS-only code is the same gap, and it has bitten twice.**
+  Phase 5 was a `@Sendable` closure capturing a non-`Sendable` `NSView`; Phase 9 was a static of
+  a `CTFontDescriptor` and a stored `[CTFont]` inside a `Sendable` struct. Neither is syntax, so
+  `swiftc -parse` passes both, and neither type exists on Linux to type-check against. **But the
+  rule does.** Write the probe with a stand-in: a bare `final class` has exactly CoreText's and
+  AppKit's relevant property, which is that it does not conform to `Sendable`, so mirroring the
+  storage's *shape* around one and type-checking with `-swift-version 6` gives the same answer
+  the runner will. The Phase 9 probe reported the same two errors CI did, and zero for the fix —
+  which is how that fix went up proved rather than hoped. The repo's own precedent for holding a
+  CoreText class is `FontSet`, which is `@unchecked Sendable` with the justification written
+  down; the mistake both times was storing such a type without making that claim where it
+  belongs.
 
 ## Roadmap
 
@@ -830,4 +993,4 @@ seam depends on the answer.
 | 6 | Maze: the SFTP browser — SFTPKit (our own SFTP v3), a window per host, transfers with a queue and bars, core drag-and-drop (dragging out to Finder deferred) |
 | 7 | Legends Never Die: `legendsd` holds the pseudo-terminals and engines, so local shells outlive the app and come back where they were (sessions on a host are not kept) |
 | 8 | Conversations, Fast and Ring Ring: shell integration, blocks, timers, alerts |
-| 9 | Renderer polish: glow, XDR Neon, ligatures, inline images |
+| 9 | Renderer polish: ligatures (in), text glow (in), XDR Neon and inline images (not yet) |

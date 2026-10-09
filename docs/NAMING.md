@@ -20,7 +20,9 @@ modules keep descriptive names, except where a themed name stays clear (`Legends
 | Failed / passed command | Bad Energy / Righteous | "Exited with status 1" beside ✗; "Done" beside ✓ |
 | Command finished alert | Ring Ring | "swift build finished in 12.4s." |
 | Close confirmation | Goodbye & Good Riddance? | "2 sessions are still running. Close anyway?" |
-| Max-effects preset | The Party Never Ends | |
+| Max-effects preset | **No name left.** "The Party Never Ends" was reserved for it here, and Phase 3 then shipped a theme with that id (`ThemeCatalog.swift`), which is the name a person types in their settings file. The theme keeps it; a preset, if one is ever built, needs a title of its own. | |
+| Light a bright colour throws | Glow, with no title of its own | "Bright-coloured characters throw a little light around themselves, in their own colour." Say bright colours, never "neon" — the gradient is the brand's and this is the character's own colour. |
+| Joined operators | Ligatures, with no title of its own | "Draws runs like != and => the way the font draws them together." Say runs, or operators, never "texture healing": the font's `calt` does shape some punctuation pairs for their neighbours, but letters are drawn exactly as they were, which is what people mean by the phrase. |
 
 Secure Keyboard Entry has no themed name, and its copy stays literal. On the Lucid Dreams
 panel it is off until you click into the app (the panel is non-activating), so nothing there

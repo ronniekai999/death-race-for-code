@@ -73,6 +73,19 @@ public final class TerminalSurfaceView: NSView {
             if fontThicken != oldValue { resetGlyphs() }
         }
     }
+    /// Runs the font draws differently together — `!=`, `=>`, `===` — drawn that way, as one
+    /// picture across the columns they cover.
+    ///
+    /// Unlike thickening this changes no bitmap that already exists, so the glyphs are not
+    /// drawn again: the frame builder sees the shaper arrive or leave and rebuilds its rows,
+    /// which is all that has to happen.
+    public var fontLigatures = false {
+        didSet {
+            guard fontLigatures != oldValue else { return }
+            rebuildShaper()
+            redraw()
+        }
+    }
     /// A pane that is not its tab's active one fades toward the window's ground; nil draws
     /// it as it is.
     public var dimming: Dimming? {
@@ -85,6 +98,32 @@ public final class TerminalSurfaceView: NSView {
     /// Faint stars in each row's empty end, behind no text.
     public var starfield = false {
         didSet { if starfield != oldValue { redraw() } }
+    }
+    /// How strongly a bright colour throws light around its own character, before the energy
+    /// gate has had its say; nil, or a strength of zero, draws none at all.
+    ///
+    /// Which characters glow is not this property's business and never reaches the frame: the
+    /// renderer decides per glyph, from the glyph's own colour, so the rows do not have to be
+    /// built again when this changes.
+    public var textGlow: Glow? {
+        didSet {
+            guard textGlow != oldValue else { return }
+            applyEnergyConditions()
+        }
+    }
+    /// What the Mac is asking for, read from `ProcessInfo`. `recentInput` is the view's own and
+    /// is overwritten.
+    ///
+    /// A seam because two things that depend on it must not depend on how hot the runner happens
+    /// to be: a window test asserting the glow was applied, and the pictures CI keeps for
+    /// review. A `--render-chrome` artifact that came back glow-free because the runner was at
+    /// `serious` thermal pressure, with no step saying why, is worse than no artifact — and the
+    /// Phase 9 criteria tell a reviewer to compare against exactly those pictures.
+    public var energyState: () -> FrameRatePolicy.Conditions = {
+        let info = ProcessInfo.processInfo
+        return FrameRatePolicy.Conditions(
+            recentInput: false, lowPowerMode: info.isLowPowerModeEnabled,
+            thermal: FrameRatePolicy.Thermal(rawValue: info.thermalState.rawValue) ?? .nominal)
     }
     /// Lines a notch of a mouse wheel scrolls.
     public var mouseScrollMultiplier = 3.0
@@ -158,7 +197,7 @@ public final class TerminalSurfaceView: NSView {
     }
     /// How fast the view may draw (`follow-low-power-mode`, `output-frame-rate-cap`).
     public var frameRatePolicy = FrameRatePolicy() {
-        didSet { if frameRatePolicy != oldValue { applyFrameRate() } }
+        didSet { if frameRatePolicy != oldValue { applyEnergyConditions() } }
     }
 
     public private(set) var grid: GridLayout
@@ -166,6 +205,11 @@ public final class TerminalSurfaceView: NSView {
     var session: (any SurfaceSession)? { model?.session }
     private var rasterizer: GlyphRasterizer
     private var glyphs: GlyphCache
+    /// Nil while the setting is off, which is what the frame builder reads as "do not shape".
+    /// The memo is worth keeping because asking CoreText whether a face ligates two characters
+    /// costs far more than drawing the answer, and the scanner asks about every candidate in
+    /// every row it rebuilds.
+    private var shaper: MemoizedRunShaping?
     private let builder = FrameBuilder()
     private var renderer: SurfaceRenderer?
     private var pacer = FramePacer()
@@ -229,6 +273,10 @@ public final class TerminalSurfaceView: NSView {
     /// The display's full rate is on for recent input.
     private var inputBoosted = false
     private var appliedFrameRate: FrameRatePolicy.Range?
+    /// What the energy gate left of `textGlow`: the renderer is given this, never the
+    /// property, so Low Power Mode and a hot Mac take the light away without the owner's
+    /// setting being changed under it.
+    private(set) var allowedGlow: PackedColor = 0
     /// Selection state kept by the selection extension.
     var selection: Selection?
     var selectionGeneration: UInt64?
@@ -416,12 +464,14 @@ public final class TerminalSurfaceView: NSView {
             appliedFrameRate = nil
         }
         link?.isPaused = false
-        applyFrameRate()
+        applyEnergyConditions()
     }
 
     @objc private func displayLinkFired(_ link: CADisplayLink) {
         // Typing stopped a second ago: back to the rate for output.
-        if inputBoosted && CACurrentMediaTime() - lastInputTime >= FrameRatePolicy.inputWindow { applyFrameRate() }
+        if inputBoosted && CACurrentMediaTime() - lastInputTime >= FrameRatePolicy.inputWindow {
+            applyEnergyConditions()
+        }
         let changed = drain()
         let drew = (changed || needsFrame) && drawFrame()
         if !pacer.tick(drew: drew) {
@@ -456,7 +506,7 @@ public final class TerminalSurfaceView: NSView {
         let frame = builder.build(
             mirror: model.mirror, theme: theme, cell: cell, selection: selectionRange, glyphs: glyphs,
             preedit: preedit, starfield: starfield, link: hoveredLink,
-            blocks: blockColors.map { BlockChrome(runs: blockRuns, colors: $0) })
+            blocks: blockColors.map { BlockChrome(runs: blockRuns, colors: $0) }, shaper: shaper)
         guard let drawable = metalLayer.nextDrawable(), let commandBuffer = context.queue.makeCommandBuffer() else {
             needsFrame = true
             return true
@@ -467,7 +517,7 @@ public final class TerminalSurfaceView: NSView {
         guard
             renderer.encode(
                 frame, cell: cell, layout: layout, glyphs: glyphs, target: drawable.texture,
-                commandBuffer: commandBuffer, dim: dimming?.packed ?? 0)
+                commandBuffer: commandBuffer, dim: dimming?.packed ?? 0, glow: allowedGlow)
         else {
             needsFrame = true
             return true
@@ -716,16 +766,24 @@ public final class TerminalSurfaceView: NSView {
         let width = Int((Double(bounds.width) * scale).rounded())
         let height = Int((Double(bounds.height) * scale).rounded())
         guard width > 0, height > 0 else { return nil }
-        let glyphs = GlyphCache(rasterizer: GlyphRasterizer(fonts: fonts, cell: cell, thicken: fontThicken))
+        let raster = GlyphRasterizer(fonts: fonts, cell: cell, thicken: fontThicken)
+        let glyphs = GlyphCache(rasterizer: raster)
+        // A picture builds its own cache and its own builder, so it needs its own shaper too:
+        // the view's belongs to the view's rasterizer. Without one a preview and the render
+        // goldens would quietly show unligated text while the live view ligated — and the
+        // previews are what someone looks at to decide whether this feature exists at all.
+        let shaper = fontLigatures ? MemoizedRunShaping(RunShaper(raster)) : nil
         // As many frames as the glyph cache's per-frame budget needs to draw every glyph.
         let (frame, _) = FrameBuilder().buildComplete(
             mirror: model.mirror, theme: theme, cell: cell, selection: selectionRange, glyphs: glyphs,
             starfield: starfield, link: hoveredLink,
-            blocks: blockColors.map { BlockChrome(runs: Blocks.runs(in: model.mirror), colors: $0) })
+            blocks: blockColors.map { BlockChrome(runs: Blocks.runs(in: model.mirror), colors: $0) },
+            shaper: shaper)
         let layout = PixelLayout(
             width: width, height: height, originX: Int((grid.left * scale).rounded()),
             originY: Int((grid.top * scale).rounded()))
-        return try renderer.render(frame, cell: cell, layout: layout, glyphs: glyphs, dim: dimming?.packed ?? 0)
+        return try renderer.render(
+            frame, cell: cell, layout: layout, glyphs: glyphs, dim: dimming?.packed ?? 0, glow: allowedGlow)
     }
 
     /// Places a badge beside each command worth a word, at the right-hand end of the line its
@@ -871,22 +929,39 @@ public final class TerminalSurfaceView: NSView {
     /// A key press, a scroll or a selection drag: the display's full rate for a second.
     func noteInput() {
         lastInputTime = CACurrentMediaTime()
-        if !inputBoosted { applyFrameRate() }
+        if !inputBoosted { applyEnergyConditions() }
+    }
+
+    /// What the Mac is asking for, and the two things that follow from it: whether bright
+    /// colours may throw light, and how fast the display link may run.
+    ///
+    /// One function because one set of conditions decides both, and **the glow has to be
+    /// settled before the frame rate**: the frame-rate half returns early without a display
+    /// link, which is every pane on CI and in `ChromePreview`, so a glow applied after it
+    /// would never reach the paths that have no link to drive.
+    public func applyEnergyConditions() {
+        let recent = CACurrentMediaTime() - lastInputTime < FrameRatePolicy.inputWindow
+        inputBoosted = recent
+        var conditions = energyState()
+        conditions.recentInput = recent
+        // The same `follow-low-power-mode` setting the frame rate follows, so there is nothing
+        // extra to plumb and the two can never be told different things.
+        let effects = EffectsPolicy(followsLowPowerMode: frameRatePolicy.followsLowPowerMode)
+        let allowed = effects.allowsGlow(conditions) ? (textGlow?.packed ?? 0) : 0
+        if allowed != allowedGlow {
+            allowedGlow = allowed
+            redraw()
+        }
+        applyFrameRate(conditions)
     }
 
     /// Sets the display link's frame rate range from `frameRatePolicy`, only when the answer
     /// changed.
-    func applyFrameRate() {
-        let recent = CACurrentMediaTime() - lastInputTime < FrameRatePolicy.inputWindow
-        inputBoosted = recent
+    private func applyFrameRate(_ conditions: FrameRatePolicy.Conditions) {
         guard let link else { return }
         var policy = frameRatePolicy
         if let fastest = window?.screen?.maximumFramesPerSecond, fastest > 0 { policy.displayMaximum = Double(fastest) }
-        let info = ProcessInfo.processInfo
-        let range = policy.range(
-            for: FrameRatePolicy.Conditions(
-                recentInput: recent, lowPowerMode: info.isLowPowerModeEnabled,
-                thermal: FrameRatePolicy.Thermal(rawValue: info.thermalState.rawValue) ?? .nominal))
+        let range = policy.range(for: conditions)
         guard range != appliedFrameRate else { return }
         appliedFrameRate = range
         link.preferredFrameRateRange = CAFrameRateRange(
@@ -896,7 +971,7 @@ public final class TerminalSurfaceView: NSView {
     /// Posted on whatever thread noticed the change: the view hears of it on the main one.
     @objc nonisolated private func energyConditionsChanged(_ notification: Notification) {
         DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated { self?.applyFrameRate() }
+            MainActor.assumeIsolated { self?.applyEnergyConditions() }
         }
     }
 
@@ -930,8 +1005,24 @@ public final class TerminalSurfaceView: NSView {
     private func resetGlyphs() {
         rasterizer = GlyphRasterizer(fonts: fonts, cell: cell, thicken: fontThicken)
         glyphs = GlyphCache(rasterizer: rasterizer)
+        // The rows have to go with the atlas. A new cache's epoch starts at zero, so when the
+        // cell did not change — thicker strokes, or a new italic family with the same metrics —
+        // the builder's inputs look identical and it would keep rows pointing into the atlas
+        // that was just thrown away.
+        builder.forgetRows()
+        rebuildShaper()
         cursorKey = nil
         redraw()
+    }
+
+    /// The shaper, made fresh from the current rasterizer, or nil when the setting is off.
+    ///
+    /// Made again rather than merely emptied: a memo whose answers are forgotten still holds
+    /// the rasterizer it was built with, and after a font or cell change that rasterizer is
+    /// the wrong one to ask. The two must be the same object for the oracle and the bitmap to
+    /// agree, so the shaper is replaced whenever the rasterizer is.
+    private func rebuildShaper() {
+        shaper = fontLigatures ? MemoizedRunShaping(RunShaper(rasterizer)) : nil
     }
 
     override public func viewDidChangeBackingProperties() {

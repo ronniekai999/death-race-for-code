@@ -140,11 +140,13 @@ public enum SettingsCatalog {
                         Setting("font-size", "Size", .number(range: 6...144, step: 1, unit: "pt")),
                         Setting("font-family-italic", "Italics", .fontFamily(italic: true)),
                         Setting("font-thicken", "Thicken strokes", .toggle),
+                        Setting("font-ligatures", "Ligatures", .toggle),
                     ]),
                 Group(
                     title: "Window",
                     settings: [
                         Setting("starfield", "Starfield behind the terminal", .toggle),
+                        Setting("text-glow", "Bright colours glow", .toggle),
                         Setting("conversations", "Mark each command and how long it took", .toggle),
                         Setting(
                             "fast-threshold-milliseconds", "Show a command's time when it is over",

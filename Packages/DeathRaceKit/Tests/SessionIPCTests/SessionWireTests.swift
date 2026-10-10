@@ -78,7 +78,8 @@ private func everyStreamRequest() -> [StreamRequest] {
         .queryText(request: 3, region: sampleRegion, generation: 77),
         .querySearch(request: 6, query: SearchQuery("界e\u{301}"), generation: 77),
         .querySearch(
-            request: 7, query: SearchQuery("999", caseSensitive: true, startLine: 100, endLine: 400), generation: 77),
+            request: 7, query: SearchQuery("999", caseSensitive: true, startLine: 100, startColumn: 257, endLine: 400),
+            generation: 77),
         .queryForeground(request: 4),
         .queryPrompt(request: 5, line: 0, generation: 0),
         .queryPrompt(request: 5, line: .max, generation: .max),
@@ -101,7 +102,8 @@ private func everyStreamReply() -> [StreamReply] {
         .text(request: 3, ""),
         .searchPage(request: 6, nil),
         .searchPage(
-            request: 7, SearchPage(generation: 77, matches: [sampleRegion], nextLine: 2_399, limited: true)),
+            request: 7,
+            SearchPage(generation: 77, matches: [sampleRegion], nextLine: 2_399, nextColumn: 257, limited: true)),
         .foreground(request: 4, process),
         .foreground(request: 4, ForegroundProcess(pid: 1, name: "sh", workingDirectory: nil, isShell: true)),
         .foreground(request: 4, nil),
@@ -188,6 +190,16 @@ struct SessionWireTests {
 
 @Suite("The session wire, given bytes it should not trust")
 struct SessionWireDefenceTests {
+    @Test(arguments: [-1, SessionWire.widestColumn + 1])
+    func invalidSearchColumnsAreRefused(_ column: Int) {
+        let request = StreamRequest.querySearch(
+            request: 1, query: SearchQuery("x", startLine: 0, startColumn: column), generation: 0)
+        #expect(throws: SessionWire.Fault.self) { _ = try StreamRequest.decode(request.encode()) }
+        let reply = StreamReply.searchPage(
+            request: 1, SearchPage(generation: 0, matches: [], nextLine: 0, nextColumn: column))
+        #expect(throws: SessionWire.Fault.self) { _ = try StreamReply.decode(reply.encode()) }
+    }
+
     /// Every message, cut at every byte. None may decode, none may crash, and none may be
     /// read as something shorter that happens to parse.
     @Test("every truncation fails cleanly")
@@ -504,7 +516,7 @@ struct PreambleTests {
     /// running is `HandOverTests`: it is told to hand over and keeps its sessions.
     @Test("this build speaks exactly one version")
     func whatWeSpeak() {
-        #expect(SessionWire.versions == 4...4)
+        #expect(SessionWire.versions == 5...5)
         #expect(DeltaCodec.formatVersion == 5)
     }
 }

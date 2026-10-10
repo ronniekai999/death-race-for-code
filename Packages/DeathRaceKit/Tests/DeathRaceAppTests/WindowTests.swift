@@ -43,6 +43,9 @@ final class FakeSession: PaneSession, @unchecked Sendable {
     func text(in range: TextRegion, generation: UInt64) async -> String? {
         await replay.text(in: range, generation: generation)
     }
+    func search(_ query: SearchQuery, generation: UInt64) async -> SearchPage? {
+        await replay.search(query, generation: generation)
+    }
     func promptSpan(at line: UInt64, generation: UInt64) async -> PromptSpan? {
         await replay.promptSpan(at: line, generation: generation)
     }

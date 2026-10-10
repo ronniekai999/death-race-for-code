@@ -1004,8 +1004,11 @@ scope; it does not replace [MANUAL-TESTS.md](MANUAL-TESTS.md) or the privacy spi
 Search runs on the session worker over primary scrollback and visible rows. Requests are
 bounded to 1,024 UTF-16 units, 2,048 physical rows per page and 256 matches per reply; the
 find bar caps its collected results at 1,000. Soft wraps are searched as logical text and
-results retain terminal coordinates for scrolling and highlights. Accessibility exposes a
-bounded text representation of the viewport, including UTF-16 selection and line mappings.
+results retain terminal coordinates for scrolling and highlights. Page cursors include a
+column so a dense row can span replies without losing matches. The find bar and remote
+session reject oversized queries before they can invalidate the daemon connection.
+Accessibility exposes a bounded text representation of the viewport, including UTF-16
+selection and line mappings.
 
 Kitty graphics APCs accept direct base64 RGB, RGBA and PNG data with transmit, place, query
 and delete operations. Session-owned images and placements survive detach/reattach through
@@ -1016,8 +1019,9 @@ cropping, virtual placements and other terminal image protocols are outside this
 Placements use absolute grid rows; resize keeps those coordinates rather than reflowing
 image geometry with text. Images in evicted history lose their placements.
 
-The session wire is version 4 and the screen delta codec is format 5. Older daemon builds
-must use the existing incompatible-version handover; a silent optional tag is unsafe.
+The session wire is version 5 (line-and-column search cursors) and the screen delta codec
+is format 5. Older daemon builds must use the existing incompatible-version handover;
+a silent optional tag is unsafe.
 Placement metadata shape 2 preserves the split tree, ratios, focus, zoom, selected tab and
 window frame, while shape 1 remains readable. Restored frames are clamped to current screens.
 The layout cache suppresses identical metadata writes.

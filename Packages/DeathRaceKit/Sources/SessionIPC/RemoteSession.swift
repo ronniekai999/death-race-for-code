@@ -171,7 +171,12 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
     }
 
     public func search(_ query: SearchQuery, generation: UInt64) async -> SearchPage? {
-        await withCheckedContinuation { continuation in
+        // Refuse invalid input here: sending it would make the daemon drop this pane's
+        // stream, leaving a running shell that can no longer receive typing.
+        guard query.needle.utf16.count <= SearchQuery.longestNeedle,
+            (0...SessionWire.widestColumn).contains(query.startColumn)
+        else { return nil }
+        return await withCheckedContinuation { continuation in
             ask(.search(continuation)) { .querySearch(request: $0, query: query, generation: generation) }
         }
     }

@@ -3,7 +3,7 @@ import Testing
 @testable import SFTPKit
 
 actor StalledTransport: SFTPTransport {
-    enum Operation: Sendable { case handshake, stat, read, write, close }
+    enum Operation: Sendable { case handshake, stat, read, write, close, open, opendir }
     let server = FakeSFTPServer(files: ["/home/user/file": [1, 2, 3]])
     let operation: Operation
     let blockSend: Bool
@@ -20,7 +20,9 @@ actor StalledTransport: SFTPTransport {
         let packet = try SFTPPacket.decode(frame: frame)
         let hold: Bool
         switch (operation, packet) {
-        case (.handshake, .initialize), (.stat, .stat), (.read, .read), (.write, .write), (.close, .close): hold = true
+        case (.handshake, .initialize), (.stat, .stat), (.read, .read), (.write, .write), (.close, .close),
+            (.open, .open), (.opendir, .opendir):
+            hold = true
         default: hold = false
         }
         if hold {
@@ -63,7 +65,7 @@ actor StalledTransport: SFTPTransport {
             case .read: _ = try await client.read(handle, offset: 0, length: 3)
             case .write: try await client.write(handle, offset: 0, data: [4])
             case .close: try await client.close(handle)
-            case .handshake: break
+            case .handshake, .open, .opendir: break
             }
         }
         await transport.waitUntilStalled()
@@ -89,6 +91,39 @@ actor StalledTransport: SFTPTransport {
             await #expect(throws: SFTPError.timedOut) { _ = try await client.stat("/home/user/file") }
         }
         #expect(finished)
+        await client.shutDown()
+    }
+
+    @Test(arguments: [StalledTransport.Operation.open, .opendir], [false, true])
+    func abandonedOpensCloseTheirLateHandles(_ operation: StalledTransport.Operation, _ expires: Bool) async throws {
+        let transport = StalledTransport(operation)
+        let client = SFTPClient(transport: transport, requestTimeout: expires ? .milliseconds(250) : .seconds(5))
+        try await client.start()
+        let opening = Task {
+            if operation == .open {
+                return try await client.open("/home/user/file", pflags: SFTP.Open.read)
+            }
+            return try await client.openDirectory("/home/user")
+        }
+        await transport.waitUntilStalled()
+        for _ in 0..<10_000 where await client.sendingRequestCount != 0 { await Task.yield() }
+        #expect(await client.sendingRequestCount == 0)
+        if expires {
+            await #expect(throws: SFTPError.timedOut) { try await opening.value }
+        } else {
+            opening.cancel()
+            await #expect(throws: CancellationError.self) { try await opening.value }
+        }
+        try await transport.deliverLateReply()
+        // A round trip proves the late HANDLE was read. Its CLOSE must be processed by
+        // that same reader, so this also detects a cleanup that deadlocks the read loop.
+        let finished = await Finished.within(2) {
+            let path = try await client.realPath(".")
+            #expect(path == "/home/user")
+            for _ in 0..<10_000 where await transport.server.openHandleCount != 0 { await Task.yield() }
+            #expect(await transport.server.openHandleCount == 0)
+        }
+        #expect(finished, "late-handle cleanup blocked the reply reader")
         await client.shutDown()
     }
 

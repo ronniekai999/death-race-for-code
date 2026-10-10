@@ -58,4 +58,46 @@ import VTCore
         #expect(second.nextLine == nil)
         #expect(terminal.search(SearchQuery("later", startLine: query.startLine)).matches.isEmpty == false)
     }
+
+    @Test(arguments: ["a", "aa", "界", "🎧", "e\u{301}"])
+    func everyMatchInADenseFinalRowIsReturned(_ needle: String) throws {
+        let terminal = Terminal(.init(columns: 2000, rows: 1))
+        terminal.feed(String(repeating: needle, count: 600))
+        let matches = try allMatches(in: terminal, needle: needle)
+        #expect(matches.count == 600)
+        for match in matches {
+            #expect(TextExtractor.text(in: match) { terminal.line($0) } == needle)
+        }
+    }
+
+    @Test func resumingWithinASoftWrappedLineKeepsTheMatchAlignment() throws {
+        let terminal = Terminal(.init(columns: 80, rows: 4))
+        // 80 columns do not divide evenly by this needle's length. Starting a resumed
+        // search at column zero would change where its non-overlapping matches begin.
+        terminal.feed(String(repeating: "abc", count: 800))
+        let matches = try allMatches(in: terminal, needle: "abc")
+        #expect(matches.count == 800)
+        for match in matches {
+            #expect(TextExtractor.text(in: match) { terminal.line($0) } == "abc")
+        }
+    }
+
+    private func allMatches(in terminal: Terminal, needle: String) throws -> Set<TextRegion> {
+        var query = SearchQuery(needle)
+        var matches: Set<TextRegion> = []
+        var previous: TextPoint?
+        for _ in 0..<10 {
+            let page = terminal.search(query)
+            #expect(page.matches.count <= SearchPage.mostMatches)
+            matches.formUnion(page.matches)
+            guard let line = page.nextLine else { return matches }
+            let next = TextPoint(line: line, column: page.nextColumn)
+            if let previous { #expect(next > previous, "search must advance within a dense row") }
+            previous = next
+            query.startLine = line
+            query.startColumn = page.nextColumn
+        }
+        Issue.record("search did not finish its bounded history")
+        return matches
+    }
 }

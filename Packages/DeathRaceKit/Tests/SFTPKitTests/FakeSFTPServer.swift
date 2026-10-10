@@ -12,6 +12,7 @@ actor FakeSFTPServer: SFTPTransport {
     private var directories: Set<String> = ["/", "/home", "/home/user"]
     private var files: [String: [UInt8]] = [:]
     private var handles: [UInt8: OpenHandle] = [:]
+    var openHandleCount: Int { handles.count }
     private var nextHandle: UInt8 = 1
     private var outbox: [[UInt8]] = []
     private var pending: CheckedContinuation<[UInt8], any Error>?

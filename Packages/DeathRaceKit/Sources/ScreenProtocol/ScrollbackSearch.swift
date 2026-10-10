@@ -6,13 +6,19 @@ public struct SearchQuery: Sendable, Equatable {
     public var needle: String
     public var caseSensitive: Bool
     public var startLine: UInt64?
+    /// The first column to search on startLine, including when a page ends within a row.
+    public var startColumn: Int
     /// Hold the query's upper bound while new output arrives between pages.
     public var endLine: UInt64?
 
-    public init(_ needle: String, caseSensitive: Bool = false, startLine: UInt64? = nil, endLine: UInt64? = nil) {
+    public init(
+        _ needle: String, caseSensitive: Bool = false, startLine: UInt64? = nil, startColumn: Int = 0,
+        endLine: UInt64? = nil
+    ) {
         self.needle = needle
         self.caseSensitive = caseSensitive
         self.startLine = startLine
+        self.startColumn = startColumn
         self.endLine = endLine
     }
 }
@@ -22,13 +28,18 @@ public struct SearchPage: Sendable, Equatable {
     public let generation: UInt64
     public let matches: [TextRegion]
     public let nextLine: UInt64?
+    /// Pass with nextLine to resume at the first match omitted from this page.
+    public let nextColumn: Int
     /// More matches existed than this page could return.
     public let limited: Bool
 
-    public init(generation: UInt64, matches: [TextRegion], nextLine: UInt64?, limited: Bool = false) {
+    public init(
+        generation: UInt64, matches: [TextRegion], nextLine: UInt64?, nextColumn: Int = 0, limited: Bool = false
+    ) {
         self.generation = generation
         self.matches = matches
         self.nextLine = nextLine
+        self.nextColumn = nextColumn
         self.limited = limited
     }
 }
@@ -49,7 +60,8 @@ extension Terminal {
         var starts: [TextPoint] = []
         var ends: [TextPoint] = []
         var matches: [TextRegion] = []
-        var limited = false
+        var seen: Set<TextRegion> = []
+        var continuation: TextPoint?
 
         func findMatches() {
             var position = text.startIndex
@@ -60,15 +72,20 @@ extension Terminal {
                 let lower = text.utf16.distance(from: text.utf16.startIndex, to: found.lowerBound)
                 let upper = text.utf16.distance(from: text.utf16.startIndex, to: found.upperBound)
                 guard upper > lower, upper <= starts.count else { break }
-                if matches.count == SearchPage.mostMatches { limited = true; break }
-                matches.append(TextRegion(starts[lower], ends[upper - 1]))
                 position = found.upperBound
+                let match = TextRegion(starts[lower], ends[upper - 1])
+                // Repeated combining scalars and the retained overlap can describe the
+                // same cells. They must not fill a page without advancing its cursor.
+                guard seen.insert(match).inserted else { continue }
+                if matches.count == SearchPage.mostMatches { continuation = match.start; break }
+                matches.append(match)
             }
         }
 
         for number in start...end {
             guard let row = line(number) else { continue }
             for column in row.cells.indices {
+                if number == query.startLine && column < query.startColumn { continue }
                 let cell = row.cells[column]
                 if cell.width == .spacerHead || cell.width == .spacerTail { continue }
                 let scalars = row.scalars(at: column)
@@ -87,7 +104,7 @@ extension Terminal {
                     while text.last == " " { text.removeLast(); starts.removeLast(); ends.removeLast() }
                 }
                 findMatches()
-                if limited { break }
+                if continuation != nil { break }
                 if row.isWrapped && number != end {
                     // Keep enough trailing cells for a match crossing a large logical line.
                     let keep = min(SearchQuery.longestNeedle, text.utf16.count)
@@ -100,9 +117,13 @@ extension Terminal {
                 }
             }
         }
+        if let continuation {
+            return SearchPage(
+                generation: generation, matches: matches, nextLine: continuation.line,
+                nextColumn: continuation.column, limited: true)
+        }
         let overlap = UInt64(min(1024, query.needle.utf16.count * 2 / max(1, columns) + 2))
-        let consumed = limited ? (matches.last?.end.line ?? end) : end
-        let next = consumed < last ? max(start + 1, consumed + 1 - min(overlap, consumed + 1)) : nil
-        return SearchPage(generation: generation, matches: matches, nextLine: next, limited: limited)
+        let next = end < last ? max(start + 1, end + 1 - min(overlap, end + 1)) : nil
+        return SearchPage(generation: generation, matches: matches, nextLine: next)
     }
 }

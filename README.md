@@ -1,185 +1,367 @@
+<div align="center">
+
+<img src="docs/assets/death-race-banner.svg" alt="Death Race for Code — Your shells. Your servers. Your WRLD." width="100%">
+
 # Death Race for Code
 
-A native macOS terminal: Termius's host and SSH workflow, Terminal.app's native feel, and the
-best ideas from Ghostty, iTerm2 and Warp. It runs its own terminal engine and its own Metal
-renderer, draws nothing at all while idle, and wears the Juice WRLD look it shares with
-MenuGlance.
+**A native macOS terminal. A home for your servers. A workspace that keeps going.**
 
-L E G E N D S   N E V E R   D I E
+[![macOS 26+](https://img.shields.io/badge/macOS-26%2B-171126?logo=apple&logoColor=white)](#get-started)
+[![Swift 6.2+](https://img.shields.io/badge/Swift-6.2%2B-F05138?logo=swift&logoColor=white)](#development)
+[![Metal](https://img.shields.io/badge/Renderer-Metal-9673EF)](docs/ARCHITECTURE.md)
+[![Source preview](https://img.shields.io/badge/Status-Source%20preview-FF5277)](#roadmap)
+[![macOS CI](https://github.com/ronniekai999/death-race-for-code/actions/workflows/macos.yml/badge.svg)](https://github.com/ronniekai999/death-race-for-code/actions/workflows/macos.yml)
+[![Linux CI](https://github.com/ronniekai999/death-race-for-code/actions/workflows/linux.yml/badge.svg)](https://github.com/ronniekai999/death-race-for-code/actions/workflows/linux.yml)
 
-## Status
+[Features](#features) · [Get started](#get-started) · [Shortcuts](#shortcuts) · [Settings](#settings) · [Privacy & data](#privacy--data) · [Development](#development) · [Roadmap](#roadmap)
 
-Phases 1 to 8 are merged and green on both CIs: the engine, the window, the Pit Lane, the
-Termius layer, Lucid Dreams — the quick terminal that drops out of the notch — and Maze, the
-SFTP browser. Phase 7, **Legends Never Die**, is in: the daemon and both ends of its wire
-are tested on Linux as two real processes, including the `kill -9` criterion, and the app's
-half waits for the hands-on pass in [docs/MANUAL-TESTS.md](docs/MANUAL-TESTS.md). Phase 8,
-**Conversations, Fast and Ring Ring**, is in too: our own shell integration for zsh, bash
-and fish, a rail and a band and a duration beside each command, personal bests that outlive a
-launch, jump-to-prompt and whole-block selection, progress in a tab's pill, and a word when a
-long command finishes while you are looking elsewhere. The engine has since taken the
-roadmap's own conformance list — left and right margins and everything defined in terms of
-them, the rectangular areas, the special colours and ISO protected areas — so nothing on that
-list is scheduled for later. **Phase 9** is under way, on the two halves a push can be held to:
-ligatures draw `!=` and `=>` the way the font draws them together, and a bright-coloured
-character throws a little light around itself in its own colour, which ordinary text and the
-greys never do. XDR Neon and inline images are what is left of it.
+</div>
 
-- **WRLD, your hosts:** kept in `wrld.json` next to the settings file, which never holds a
-  secret. Hosts in your `~/.ssh/config` join with one click and keep using that file, which
-  WRLD never changes. The WRLD window (⌘O) has cards, groups, Legends, keys, known hosts and
-  an inspector; the sidebar (⌃⌘S) keeps them next to your panes.
-- **Connections through macOS's own OpenSSH.** Each host gets one master that the app owns,
-  so a second pane or a split on the same host opens without logging in again, and quitting
-  leaves no ssh behind. Saved passwords stay in your login Keychain and reach ssh only after
-  Touch ID; ssh's questions (passwords, codes, a new host's key) come as sheets.
-- **Secure Enclave keys,** made from the New Host sheet and put on the host over its first
-  connection. macOS asks for Touch ID at each login.
-- **Come & Go:** local, remote and SOCKS tunnels, turned on and off on a live connection,
-  with "⇄ 2 tunnels" in the status bar.
-- **Wishing Well:** snippets with `{{placeholders}}`, inserted or run from the sidebar, Hear
-  Me Calling or WRLD, and a snippet per host that is typed as each session starts.
-- **Armed and Dangerous (⇧⌘I):** typing goes to every pane in the tab, each encoding it for
-  its own program, under an orange-to-pink border. Esc still belongs to the programs.
-- **Maze,** a window per host: this Mac's folder beside the host's, with the transfers
-  between them on gradient bars. It speaks SFTP version 3 itself, as a second channel on the
-  master a pane already opened — so it opens with no new login. Upload and download, drags
-  between the panes, and Finder files dropped on the host's side.
-- **Lucid Dreams (⌥Space):** one terminal that springs out of the notch and keeps its
-  session across hide and show. It doesn't switch apps, and it yields the notch to
-  MenuGlance.
-- **Legends Never Die:** a `legendsd` the app starts holds the pseudo-terminals and the
-  engines, so local shells outlive the app — quit, crash or update — and come back in the
-  windows and tabs they were in, with their scrollback. Quitting detaches and asks nothing;
-  closing a pane still ends its shell. Sessions on a host are not kept, and the setting says
-  so. The daemon is never required: anything that goes wrong leaves you with a session in the
-  app and a line in the status bar saying as much.
-- **Hear Me Calling** finds hosts, snippets and tunnels as well.
+---
 
-Phase 3 built the Pit Lane: tabs of split panes under gradient pills, Hear Me Calling
-(⇧⌘P), a Settings window with live reload, eight themes, bundled fonts, OSC 8 links and a
-frame-rate policy. CI keeps a picture of the window in every theme (the `chrome-preview`
-artifact) for its side-by-side review, which is in the same file.
+Death Race for Code brings local shells, SSH hosts, file transfers, and persistent sessions
+into one Mac workspace. Its terminal engine and Metal renderer are written in Swift; its
+connections use macOS's OpenSSH. Tabs, split panes, a command palette, and a quick terminal
+keep the next task close. Eight original themes give it the Juice WRLD identity it shares
+with MenuGlance.
 
-Phase 2 put the engine on screen: Metal drawing, the keyboard, input methods and the Kitty
-protocol, the mouse, selection and the clipboard, Secure Keyboard Entry, and an idle
-window that draws no frames. Its Mac checks are in the same file.
+> **Source preview.** Build and run on macOS 26 or later. The implemented features are
+> covered by portable and native CI; hands-on Mac acceptance remains open. A Developer ID
+> signing and notarization workflow is prepared, with distribution acceptance still to do.
+> See the [implementation review](docs/IMPLEMENTATION-REVIEW.md) for evidence and next steps.
 
-Phase 1 built the engine. It passes 469 of the 532 esctest tests that judge a terminal against
-xterm — 88%, ratcheted in CI — and every one of the 63 it does not is named in
-[docs/CONFORMANCE.md](docs/CONFORMANCE.md): 41 behaviours it refuses on purpose, like letting a
-program resize your window, and 22 tests that encode the reference terminal's own display. It
-reflows on resize, handles Unicode 18 graphemes, encodes keys for the Kitty keyboard protocol,
-passes vttest's classic screens, and replays recorded vim, nvim, tmux, htop, fzf and nano
-sessions to their golden screens. It runs one thread per shell that publishes screen deltas,
-and it survives libFuzzer. See
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the roadmap and
-[docs/CONFORMANCE.md](docs/CONFORMANCE.md) for what is checked and how.
+| Legends Never Die | Righteous |
+| --- | --- |
+| ![Native dark-theme workspace preview](docs/assets/legends-never-die-preview.png) | ![Native light-theme workspace preview](docs/assets/righteous-preview.png) |
 
-## Settings
+Native fixture previews from macOS CI. The commands and hosts are scripted examples,
+including a failed-command example; window-server effects are omitted.
+See [asset provenance](docs/assets/README.md).
 
-Settings live in `~/.config/deathrace/config` (or `$XDG_CONFIG_HOME/deathrace/config`), one
-`name = value` per line. **Settings…** (⌘,) opens a window that changes one line of the file
-at a time and leaves the rest as you wrote it; **Open Settings File** opens it in your text
-editor, with every setting commented out at its default and explained. Saved edits apply to
-the open windows at once, from either place. A line Death Race cannot use is reported, with
-a suggestion when a name looks misspelled, and leaves that setting at its default.
+<a id="features"></a>
+## Built for the whole session
+
+### A terminal with its own engine
+
+- **Native rendering.** AppKit, SwiftUI, CoreText, and Metal, with event-driven drawing that
+  stops when the terminal is idle.
+- **Modern terminal behavior.** Unicode 18 graphemes, true color, resize reflow, OSC 8 links,
+  mouse reporting, input methods, and the Kitty keyboard protocol.
+- **Find in history.** ⌘F searches logical lines across soft wraps, highlights matches, and
+  lets you move through up to 1,000 results with ⌘G and ⇧⌘G.
+- **Accessible terminal text.** A bounded viewport text area exposes selection and line
+  coordinates to macOS accessibility. VoiceOver acceptance is tracked in the manual suite.
+- **Ligatures, glow, and images.** Font ligatures preserve cell positions; bright colors can
+  glow in dark themes. Direct Kitty RGB, RGBA, and PNG images render within explicit limits.
+- **XDR Neon.** Opt-in extended brightness for saturated colors on capable displays, with
+  SDR fallback in Low Power Mode or at serious thermal pressure. White text stays SDR.
+
+### Your servers, in WRLD
+
+- **Hosts that stay organized.** Cards, groups, favorites, keys, known hosts, and an inspector;
+  import hosts from `~/.ssh/config` without rewriting it.
+- **OpenSSH connections.** One app-owned master per host lets additional panes share the
+  login. Password, verification-code, and host-key questions appear as native sheets.
+- **Keychain and Touch ID.** Saved passwords live in the login Keychain. Secure Enclave keys
+  can be created and installed from the New Host flow.
+- **Come & Go.** Manage local, remote, and SOCKS tunnels on a live connection.
+- **Wishing Well.** Reusable snippets with `{{placeholders}}`, plus a startup snippet per host.
+- **Armed and Dangerous.** ⇧⌘I broadcasts input to the panes in a tab; the armed border makes
+  the mode visible.
+
+### Files through Maze
+
+Maze puts this Mac's folder beside the remote folder, using an SFTP channel on the existing
+SSH master. Upload, download, drag between the panes, or drop Finder files onto the host.
+
+Transfers use bounded 32 KiB chunks and an eight-request pipeline. Fresh destination checks
+and explicit replacement approval protect existing files; staged downloads publish only
+after success. Progress updates are capped at 20 Hz, and transfers support cancellation and
+request deadlines. Dragging remote files out to Finder remains deferred.
+
+### A workspace that remembers
+
+- **The Pit Lane.** Tabs, nested splits, pane zoom, a WRLD sidebar, and **Hear Me Calling**, the
+  command palette for actions, hosts, snippets, and tunnels.
+- **Legends Never Die.** A local daemon keeps shells and scrollback alive across app quit or
+  crash. Relaunch restores split directions and ratios, focus, zoom, selected tabs, and
+  window frames. Closing a pane still ends its shell; SSH sessions end with the app.
+- **Lucid Dreams.** ⌥Space reveals a quick terminal from the notch, retaining its session
+  across hide and show and coordinating with MenuGlance.
+- **Conversations.** Shell integration for zsh, bash, and fish marks command blocks, durations,
+  and exit status. Jump between prompts, select a command with its output, keep personal
+  bests, and receive a notification when a long command finishes elsewhere.
+
+The daemon's macOS privacy inheritance, physical-display behavior, and energy/performance
+budgets still require the [Mac acceptance pass](docs/MAC-ACCEPTANCE.md).
+
+<a id="get-started"></a>
+## Get started
+
+### Requirements
+
+| Requirement | What you need |
+| --- | --- |
+| Mac | macOS 26 or later with a Metal-capable GPU |
+| Toolchain | Xcode 26 with Swift 6.2 or later and command-line tools selected |
+| Build tools | Git, Make, and Python 3 |
+| First build | Network access for the pinned bundled-font downloads |
+| Signing | A stable Apple Development identity is recommended for Keychain and privacy continuity |
+
+An Apple M5 is the target for the documented absolute throughput acceptance budgets; it is
+not required to build the app.
+
+**1. Clone the repository.**
+
+```sh
+git clone https://github.com/ronniekai999/death-race-for-code.git
+cd death-race-for-code
+```
+
+**2. Build and launch.**
+
+```sh
+CONFIG=debug make run
+```
+
+This builds `build/Death Race for Code.app`, bundles fonts and helpers, signs it with an
+available Apple Development identity, and opens it. With no identity, development builds
+use ad-hoc signing. The debug build adds frame statistics and privacy-spike tools.
+
+**3. Make it yours.**
+
+Open **Settings…** with ⌘, to choose a theme and font. Open **WRLD** with ⌘O to add a host,
+or start with the local shell. Use `make run` for a release-optimized development build;
+`make bundle` builds the app without opening it. You can copy the bundle into Applications.
+
+To select a specific development identity:
+
+```sh
+SIGN_IDENTITY='Apple Development: Your Name (TEAMID)' make run
+```
+
+For distribution signing and notarization, follow [the release guide](docs/RELEASE.md).
+
+<a id="shortcuts"></a>
+## Keep your hands on the keyboard
+
+| Action | Default shortcut |
+| --- | --- |
+| New window / new tab | ⌘N / ⌘T |
+| Split right / split down | ⌘D / ⇧⌘D |
+| Close pane | ⌘W |
+| Zoom pane | ⇧⌘Return |
+| Command palette — Hear Me Calling | ⇧⌘P |
+| Open WRLD / toggle its sidebar | ⌘O / ⌃⌘S |
+| Quick terminal — Lucid Dreams | ⌥Space |
+| Broadcast input — Armed and Dangerous | ⇧⌘I |
+| Find / next match / previous match | ⌘F / ⌘G / ⇧⌘G |
+| Previous prompt / next prompt | ⌘↑ / ⌘↓ |
+| Select command and output | ⇧⌘A |
+| Larger / smaller / reset text | ⌘+ / ⌘− / ⌘0 |
+| Settings | ⌘, |
+
+Menus, the palette, and **Settings › Keys** share one action catalog. Lucid Dreams' global
+shortcut is configurable.
+
+<a id="settings"></a>
+## Your settings, in a file
+
+Settings live in `~/.config/deathrace/config`, or `$XDG_CONFIG_HOME/deathrace/config` when
+set. The native settings window edits one line at a time and preserves the rest; **Open
+Settings File** opens an explained template in your editor. Both paths apply changes live.
 
 ```ini
 theme = lucid-dreams
-font-family = SF Mono
+font-family = Monaspace Neon
 font-size = 14
-# Comments go on their own line: a # later in a line is part of the value, as in colors.
-option-as-meta = left
-palette = 1=#FF5277
+font-ligatures = true
+text-glow = true
+xdr-neon = false
+legends-never-die = true
+paste-protection = true
+scrollback-limit = 50MB
 ```
 
-`~/.deathrace/run` holds what is running rather than what you keep: the session daemon's
-socket, the lock that makes it the only one, and its log. It is yours and `0700`, and it is
-empty once nothing is running.
+This is a sample configuration. XDR is opt-in; ligatures require a supporting font. Put
+comments on their own lines: a `#` inside a value is part of that value. Invalid settings
+produce a diagnostic and leave that setting at its default.
 
-WRLD lives beside the settings file, in `wrld.json`: hosts, groups, snippets, tunnels, and
-which key file each host uses (never a key itself), as JSON you can keep in a dotfiles
-repository. Edit it in the WRLD window or by hand; either way the
-open windows follow. What changes on its own (when a host last connected, what it runs, how
-quickly it answers) goes to `~/.deathrace/state.json` instead, so the file you keep doesn't
-churn. Passwords live only in the login Keychain.
+| Theme | Configuration value |
+| --- | --- |
+| Legends Never Die | `legends-never-die` |
+| Lucid Dreams | `lucid-dreams` |
+| Goodbye & Good Riddance | `goodbye-good-riddance` |
+| Death Race for Love | `death-race-for-love` |
+| Fighting Demons | `fighting-demons` |
+| Wishing Well | `wishing-well` |
+| The Party Never Ends | `the-party-never-ends` |
+| Righteous — light | `righteous` |
 
-- Mockups (12 boards): https://claude.ai/artifact/A7ti39oW56UDr8FyTqguVd
-- Design system, Legends Never Die: https://claude.ai/artifact/SYrFpKuxmKj2m6kTioXe6G
+<a id="privacy--data"></a>
+## Privacy & data
 
-## Build
+Connection traffic uses the system OpenSSH client. WRLD's configuration holds host details
+and key-file paths; private keys remain in their configured location or the Secure Enclave.
+Saved passwords live in the login Keychain.
 
-On your Mac (macOS 26 or later, Xcode 26):
+```text
+~/.config/deathrace/
+├── config          # Human-readable settings; respects XDG_CONFIG_HOME
+└── wrld.json       # Hosts, groups, snippets, tunnels, and key paths
+
+~/.deathrace/
+├── state.json      # Runtime host metadata: recent connections, OS, latency, use counts
+├── bests.json      # Personal command bests, when bests-on-disk is enabled
+├── ssh_config      # Generated connection configuration
+├── keys/           # Secure Enclave key handles
+├── cm/             # OpenSSH control sockets
+└── run/            # Daemon socket, lock, and log; owner-only directory (0700)
+```
+
+`wrld.json` is designed for dotfiles, but host names, snippets, and paths can be sensitive.
+Review them before sharing. Keychain passwords are not written to it. Local sessions can
+keep running after quit when Legends Never Die is enabled; closing their panes ends them.
+Workspace layout is stored in the running daemon's session metadata. Control sockets use
+the per-user temporary directory when the home path would exceed the Unix socket limit.
+
+The daemon's permission inheritance is an explicit acceptance item. Its investigation and
+required before/after-quit evidence are documented in [the privacy spike](docs/SPIKE.md).
+
+<a id="troubleshooting"></a>
+## When something needs attention
+
+| Symptom | Where to start |
+| --- | --- |
+| Build reports an old SDK or Swift version | Check `xcodebuild -version`, `swift --version`, and `xcode-select -p`; select Xcode 26's tools. |
+| Bundling stops while fetching fonts | Check network access and retry. The fetch script checks pinned font hashes. |
+| Keychain or privacy approval changes after rebuilding | Use the same Apple Development identity; ad-hoc signatures change with each build. |
+| Local sessions do not return | Check `legends-never-die`, the status-bar fallback message, and `~/.deathrace/run/`. Follow the privacy spike for permission issues. |
+| An SSH connection needs another answer | Use the native askpass sheet; verify the host's key and authentication settings in WRLD. |
+| A transfer asks about replacement again | Maze rechecks the destination before starting. Review the current file and approve the new request. |
+| An inline image is rejected | The current Kitty subset supports direct RGB/RGBA/PNG data within bounds. File transports, compression, animation, Sixel, and iTerm images are not supported. |
+| XDR looks like ordinary brightness | Enable `xdr-neon` on a capable display; Low Power Mode, thermal pressure, and display headroom control fallback. |
+| `make test-render` writes PNGs and fails | Review the six generated baselines before committing them; see [Mac acceptance](docs/MAC-ACCEPTANCE.md). |
+| The GUI will not build on Linux | Linux builds the portable engine, sessions, SSH/SFTP, and app logic. AppKit and Metal targets require macOS. |
+
+<a id="development"></a>
+## Development & verification
+
+Open `Packages/DeathRaceKit/Package.swift` in Xcode, or use the Make targets:
 
 ```sh
-make run          # build, bundle, sign with your Apple Development identity, open
-make test         # every test, macOS and portable
-make smoke        # bundle, then run the app's headless --smoke-test
-make test-render  # recorded programs' screens drawn by the GPU, against PNG goldens
+make test          # Package tests; portable targets on Linux, all targets on macOS
+make lint          # Swift formatting and static checks
+make smoke         # Bundle and exercise a shell, renderer, and helpers on macOS
+make test-render   # Compare six recorded-program screens with reviewed PNG baselines
+make esctest       # xterm conformance suite against VTCore; needs Python 3
+make fuzz          # libFuzzer; use the swift.org toolchain, not Xcode's
+make bench         # Release-engine throughput
+make vtdiff        # Compare throughput and corpus screens with pinned SwiftTerm
 ```
 
-`CONFIG=debug make run` adds a Debug menu: frame and latency stats, and the legendsd spike.
+On supported Ubuntu, `make install-swift-linux` installs the signature-verified Swift 6.3.3
+toolchain. The Linux CI also runs real loopback SSH/SFTP and zsh/bash/fish integration,
+fuzzing, and Thread Sanitizer. macOS CI builds the app, tests windows and both shader paths,
+renders the corpus and all eight themes, and checks the bundled app and helper signatures.
 
-On Linux (the engine, session and pseudo-terminal layers are portable):
+The engine's conformance floor is **469 of 532 esctest cases**. Each excluded case is named
+in [CONFORMANCE.md](docs/CONFORMANCE.md), including intentional window-control restrictions
+and differences tied to xterm's own display behavior. Recorded vim, nvim, tmux, htop, fzf,
+and nano sessions complement the protocol tests.
+
+`vthost` is the headless engine host: `run -- program` starts a program, `replay file` prints
+a recording's final screen, `frame file` shows a colored frame, and `bench` measures throughput.
+
+### Architecture
+
+```mermaid
+flowchart TD
+    UI[AppKit + SwiftUI workspace] --> Surface[Terminal view + screen mirror]
+    Surface --> GPU[CoreText + Metal renderer]
+    Surface --> Session[Session worker / IPC]
+    Session --> Engine[VTCore + pseudo-terminal]
+    Session --> Daemon[legendsd: persistent local sessions]
+    Daemon --> Engine
+    UI --> WRLD[WRLD + Keychain]
+    WRLD --> SSH[System OpenSSH master]
+    SSH --> Remote[Remote shell]
+    UI --> Maze[Maze + bounded transfer queue]
+    Maze --> SFTP[SFTP v3 channel]
+    SFTP --> SSH
+```
+
+| Location | Responsibility |
+| --- | --- |
+| `Packages/DeathRaceKit/Sources/VTCore` | Parser, terminal state, Unicode, reflow, input, graphics |
+| `ScreenProtocol`, `SessionKit`, `SessionIPC`, `PTYKit` | Screen deltas, workers, daemon wire, and shell lifecycle |
+| `RenderKit`, `SurfaceCore`, `TerminalUI` | Fonts, Metal, selection, accessibility, and terminal presentation |
+| `Vault`, `SSHKit`, `SFTPKit` | Host data, OpenSSH, and file-transfer protocol/IO |
+| `AppCore`, `LegendsUI`, `DeathRaceApp` | Portable app logic, visual system, and native workspace |
+| `Tools/VTFuzz`, `Tools/VTDiff` | Fuzzing and an independent terminal comparison |
+| `scripts`, `.github/workflows`, `docs` | Build, acceptance, release, CI, and design records |
+
+### Performance & acceptance
+
+Budgets are requirements to verify, not benchmark claims. Drawing should stop at idle;
+the renderer's debug statistics report GPU p50/p95 from completed command buffers. Transfer
+memory is bounded per transfer, and graphics decoding runs off the UI thread.
 
 ```sh
-make install-swift-linux   # swift.org toolchain 6.3.3, signature-verified
-make test                  # portable targets only
-eval "$(scripts/ci-sshd.sh)" && make test   # as root in a container: with a loopback sshd
-make esctest               # xterm's conformance suite against the engine (python3)
-make fuzz                  # libFuzzer, FUZZ_SECONDS=60 by default
-make bench                 # engine throughput, release build
-make vtdiff                # next to SwiftTerm: throughput, and every corpus screen
-make lint
+make perf-capture   # Repeated release measurements into build/perf-current.json
+make perf-compare   # Compare with build/perf-baseline.json from a matched baseline run
+make accept-mac     # Capture commit-bound tests, renders, machine data, and manual template
+make verify-mac     # Validate the completed evidence and numerical acceptance budgets
 ```
 
-`vthost` hosts the engine headless: `vthost run -- program` is a terminal for any program
-(`--record` saves its output), `vthost replay file` prints the screen a recording leaves,
-`vthost frame file` prints, in color, the frame the app would draw for it, and `vthost bench`
-measures.
+Capture baseline and candidate builds on the same machine and toolchain. Comparisons reject
+excessive variance; the shared Linux review host did not establish a passing performance
+result. Absolute throughput, input latency, energy, XDR, and privacy acceptance require the
+documented target hardware. See [PERF.md](docs/PERF.md) and [MAC-ACCEPTANCE.md](docs/MAC-ACCEPTANCE.md).
 
-To work in Xcode, open `Packages/DeathRaceKit/Package.swift`.
+<a id="roadmap"></a>
+## Roadmap & release readiness
 
-## Layout
+Engine, window, workspace, SSH, quick-terminal, SFTP, persistence, and command-block features
+are implemented. Phase 9 now includes ligatures, glow, a bounded Kitty graphics subset, and
+adaptive XDR. **Implementation and phase acceptance are separate.**
 
-```
-Packages/DeathRaceKit/   one SwiftPM package; macOS-only targets appear only on macOS
-  Sources/CPTY/          process spawning in C (fork/exec are not safe to drive from Swift)
-  Sources/PTYKit/        pseudo-terminals, shell launch, hang-up, the smoke test
-  Sources/VTCore/        the terminal engine: parser, screens, reflow, Unicode, input encoding
-  Sources/ScreenProtocol/ screen deltas, the app's mirror, the byte codec
-  Sources/SessionKit/    the session seam, and one thread per shell publishing deltas
-  Sources/IPCKit/        Unix sockets, frames, and who is at the other end
-  Sources/SessionIPC/    Legends Never Die: the wire, the daemon, and the app's end of it
-  Sources/legendsd/      the session daemon: it holds the shells so they outlive the app
-  Sources/ConfigKit/     the settings file: schema, parser, diagnostics, template
-  Sources/Vault/         WRLD's data: hosts, groups, snippets, tunnels, wrld.json
-  Sources/SSHKit/        OpenSSH, driven: generated config, masters, tunnels, askpass broker
-  Sources/deathrace-askpass/ the SSH_ASKPASS helper that asks the app
-  Sources/AppCore/       the app's logic apart from AppKit: windows, actions, palette, WRLD
-  Sources/SurfaceCore/   the terminal view's logic, apart from AppKit and Metal
-  Sources/LegendsUI/     the design system in SwiftUI (macOS)
-  Sources/RenderKit/     fonts and the Metal renderer (macOS)
-  Sources/TerminalUI/    the terminal view (macOS)
-  Sources/DeathRaceApp/  the app: windows, tabs, menus, settings, WRLD (macOS)
-  Sources/DeathRace/     the executable (macOS)
-  Tools/vthost/          headless host for the engine: run, replay, bench, smoke
-  Tools/legendsd-probe/  stands in for the app in the daemon's tests, which have to kill it
-Tools/VTFuzz/            libFuzzer target (a package of its own)
-Tools/VTDiff/            VTCore next to SwiftTerm, the referee (a package of its own)
-App/                     Info.plist and entitlements for the bundle
-scripts/                 bundle.sh, esctest.sh, record-corpus.sh, gen-unicode-tables.py,
-                         install-swift-linux.sh, ci-sshd.sh (a throwaway sshd for the
-                         SSH tests), wrld-homework.sh (Secure Enclave facts from your Mac)
-docs/                    architecture, design, naming, performance, conformance
-```
+The remaining plan is to:
 
-## Principles
+1. Complete the real Mac privacy, VoiceOver, input, restoration, notch, and display checks.
+2. Compare the six reviewed render baselines on the target GPU and finish large-transfer
+   and image/XDR acceptance.
+3. Record target-hardware energy, throughput, latency, memory, and GPU measurements.
+4. Verify a clean release candidate, run real Developer ID notarization, and validate the
+   stapled build on a clean Mac before publication.
 
-- **Idle is free.** No timers, no frames, no polling when nothing happens.
-- **The engine is ours and it is checked.** esctest, vttest, fuzzing and recorded sessions on
-  every change; a comparison with SwiftTerm every week.
-- **SSH crypto is not ours.** The Termius layer drives macOS's OpenSSH, including its native
-  Secure Enclave keys.
-- **The theme lives in names and visuals.** Copy stays plain and helpful.
+Full Kitty graphics extras, persistent SSH sessions, and dragging remote files out to
+Finder remain outside the current implementation. Continue extracting cohesive controller
+responsibilities as the workspace grows.
+
+| Read more | What it covers |
+| --- | --- |
+| [Implementation review & plan](docs/IMPLEMENTATION-REVIEW.md) | All six workstreams, verification evidence, findings, and remaining phases |
+| [Architecture](docs/ARCHITECTURE.md) | Component boundaries, protocols, design decisions, and phase roadmap |
+| [Manual tests](docs/MANUAL-TESTS.md) | The hands-on acceptance checklist |
+| [Mac acceptance](docs/MAC-ACCEPTANCE.md) | Evidence capture and release-candidate verification |
+| [Release guide](docs/RELEASE.md) | Developer ID, notarization, stapling, and draft release workflow |
+| [Conformance](docs/CONFORMANCE.md) | esctest, corpus fixtures, and deliberate differences |
+| [Performance](docs/PERF.md) | Measurement procedure and budgets |
+| [Design](docs/DESIGN.md) · [Naming](docs/NAMING.md) | The visual language and feature names |
+
+### Contributing & license
+
+Keep changes focused, run the applicable checks, and include evidence for behavior changes.
+UI and display changes need native verification; phase acceptance follows the documented
+checklist. The repository currently has no license file; no open-source license is implied.
+
+---
+
+<div align="center">
+
+**L E G E N D S &nbsp; N E V E R &nbsp; D I E**
+
+Built for macOS. Written in Swift. Made to keep moving.
+
+</div>

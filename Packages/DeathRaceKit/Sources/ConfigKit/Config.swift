@@ -13,6 +13,8 @@ public struct Config: Sendable, Equatable {
     /// Draws runs like `!=` as the single glyph a font makes of them. Off by default: the
     /// default font has none, and it changes how text is grouped on screen.
     public var fontLigatures = false
+    /// Saturated colours may use extended brightness on an XDR display; SDR is the default.
+    public var xdrNeon = false
     /// A family for italic text, like Monaspace Radon beside Monaspace Neon; nil uses the
     /// main family's italic.
     public var fontFamilyItalic: String?

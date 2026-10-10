@@ -1,6 +1,8 @@
 import Dispatch
 import Metal
+import ScreenProtocol
 import SurfaceCore
+import VTCore
 
 public enum RenderError: Error, CustomStringConvertible {
     case noDevice
@@ -24,6 +26,7 @@ public final class RenderPipelines: @unchecked Sendable {
     let glows: any MTLRenderPipelineState
     let glyphs: any MTLRenderPipelineState
     let decorations: any MTLRenderPipelineState
+    let images: any MTLRenderPipelineState
     public let pixelFormat: MTLPixelFormat
 
     /// How a draw reaches the target.
@@ -91,6 +94,7 @@ public final class RenderPipelines: @unchecked Sendable {
         glows = try pipeline("glowVertex", "glowFragment", .adding)
         glyphs = try pipeline("glyphVertex", "glyphFragment", .over)
         decorations = try pipeline("decorationVertex", "decorationFragment", .over)
+        images = try pipeline("imageVertex", "imageFragment", .over)
         self.pixelFormat = pixelFormat
     }
 }
@@ -139,6 +143,7 @@ struct Uniforms {
 public final class SurfaceRenderer {
     public let device: any MTLDevice
     public let pipelines: RenderPipelines
+    private let imageTextures: InlineImageTextures
     private var maskTexture: (any MTLTexture)?
     private var colorTexture: (any MTLTexture)?
     private var maskGeneration = -1
@@ -156,9 +161,12 @@ public final class SurfaceRenderer {
 
     public init(device: any MTLDevice, pipelines: RenderPipelines) {
         self.device = device
+        imageTextures = InlineImageTextures(device: device)
         self.pipelines = pipelines
         slots = Array(repeating: Slot(), count: Self.framesInFlight)
     }
+
+    func prepareImagesForReadback(_ mirror: MirrorGrid) { imageTextures.prepareForReadback(mirror.images) }
 
     /// Encodes `frame` into `commandBuffer`, drawing into `target`, faded toward `dim` by its
     /// alpha (an inactive pane) and with bright colours throwing light as strongly as `glow`'s
@@ -167,7 +175,8 @@ public final class SurfaceRenderer {
     @discardableResult
     public func encode(
         _ frame: Frame, cell: CellMetrics, layout: PixelLayout, glyphs: GlyphCache, target: any MTLTexture,
-        commandBuffer: any MTLCommandBuffer, dim: PackedColor = 0, glow: PackedColor = 0
+        commandBuffer: any MTLCommandBuffer, dim: PackedColor = 0, glow: PackedColor = 0,
+        mirror: MirrorGrid? = nil, xdrHeadroom: Float = 0, onImagesReady: @escaping @Sendable () -> Void = {}
     ) -> Bool {
         guard available.wait(timeout: .now()) == .success else { return false }
         var encoded = false
@@ -196,7 +205,7 @@ public final class SurfaceRenderer {
             gridOrigin: SIMD2(Float(layout.originX), Float(layout.originY)),
             cellSize: SIMD2(Float(cell.width), Float(cell.height)),
             columns: UInt32(frame.columns), rows: UInt32(frame.rows), clearColor: frame.clearColor, dim: dim,
-            glow: glow)
+            glow: glow, reserved: xdrHeadroom.bitPattern)
 
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = target
@@ -209,6 +218,11 @@ public final class SurfaceRenderer {
         encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
         encoder.setFragmentBuffer(backgrounds, offset: 0, index: 1)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+
+        if let mirror { imageTextures.prepare(mirror.images, onReady: onImagesReady) }
+        if let mirror {
+            drawImages(mirror, negative: true, encoder: encoder, uniforms: &uniforms, layout: layout, cell: cell)
+        }
 
         // The glow and the glyphs are the same instances from the same buffer, so they bind it
         // once: two blocks would be four redundant encoder calls a frame and, worse, two places
@@ -240,9 +254,47 @@ public final class SurfaceRenderer {
             encoder.drawPrimitives(
                 type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: frame.decorations.count)
         }
+        if let mirror {
+            drawImages(mirror, negative: false, encoder: encoder, uniforms: &uniforms, layout: layout, cell: cell)
+        }
         encoder.endEncoding()
         encoded = true
         return true
+    }
+
+    private func drawImages(
+        _ mirror: MirrorGrid, negative: Bool, encoder: any MTLRenderCommandEncoder,
+        uniforms: inout Uniforms, layout: PixelLayout, cell: CellMetrics
+    ) {
+        guard layout.originX >= 0, layout.originY >= 0 else { return }
+        let width = min(layout.width - layout.originX, mirror.columns * cell.width)
+        let height = min(layout.height - layout.originY, mirror.rows * cell.height)
+        guard width > 0, height > 0 else { return }
+        encoder.setScissorRect(MTLScissorRect(x: layout.originX, y: layout.originY, width: width, height: height))
+        for p in mirror.placements.sorted(by: { ($0.zIndex, $0.key) < ($1.zIndex, $1.key) })
+        where p.alternate == mirror.isAlternateScreen && (p.zIndex < 0) == negative {
+            let y: Int
+            if p.line >= mirror.viewportTopLine {
+                let difference = p.line - mirror.viewportTopLine
+                guard difference < UInt64(mirror.rows) else { continue }
+                y = Int(difference)
+            } else {
+                let difference = mirror.viewportTopLine - p.line
+                guard difference < UInt64(p.rows) else { continue }
+                y = -Int(difference)
+            }
+            guard let texture = imageTextures.texture(for: p.imageID) else { continue }
+            var rect = SIMD4<Float>(
+                Float(layout.originX + p.column * cell.width), Float(layout.originY + y * cell.height),
+                Float(p.columns * cell.width), Float(p.rows * cell.height))
+            encoder.setRenderPipelineState(pipelines.images)
+            encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
+            encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
+            encoder.setVertexBytes(&rect, length: MemoryLayout<SIMD4<Float>>.stride, index: 2)
+            encoder.setFragmentTexture(texture, index: 2)
+            encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+        }
+        encoder.setScissorRect(MTLScissorRect(x: 0, y: 0, width: layout.width, height: layout.height))
     }
 
     /// Copies `values` into `buffer`, making a larger one when it does not fit.

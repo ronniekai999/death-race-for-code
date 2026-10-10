@@ -191,7 +191,8 @@ private struct ForgedLine: TextLine {
         var stats = FrameStats()
         #expect(
             stats.summary
-                == "frames drawn: 0, display link starts: 0\nframe time: no samples\nkey to screen: no samples")
+                == "frames drawn: 0, display link starts: 0\nframe time: no samples\nGPU time: no samples\nkey to screen: no samples"
+        )
         stats.linkResumed()
         for ms in [0.5, 1.0, 1.5, 2.0] { stats.frameDrawn(milliseconds: ms) }
         stats.keyReachedScreen(milliseconds: 8.25)
@@ -199,6 +200,7 @@ private struct ForgedLine: TextLine {
             stats.summary == """
                 frames drawn: 4, display link starts: 1
                 frame time: p50 1.50 ms, p95 2.00 ms (latest 4)
+                GPU time: no samples
                 key to screen: p50 8.25 ms, p95 8.25 ms (latest 1)
                 """)
         #expect(FrameStats.format(0.0) == "0.00")

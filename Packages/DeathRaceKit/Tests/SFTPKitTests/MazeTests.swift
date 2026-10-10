@@ -1,10 +1,10 @@
-import ConfigKit
 import Foundation
-import LegendsUI
 import SFTPKit
 import Testing
 
-@testable import DeathRaceApp
+@testable import SFTPKit
+
+private typealias MazeModel = SFTPKit.MazeModel<Int>
 
 /// A host's files in memory. `MazeModel` drives it exactly as it drives an `SFTPClient`: an
 /// actor, so the model's transfer tasks reach it off the main actor as they really would.
@@ -73,10 +73,11 @@ actor FakeRemoteFiles: RemoteFiles {
     }
 
     func upload(
-        _ path: String, bytes: [UInt8], attributes: SFTPAttributes,
+        _ path: String, bytes: [UInt8], attributes: SFTPAttributes, overwrite: Bool,
         progress: @Sendable @escaping (UInt64, UInt64) -> Void
     ) async throws {
         try await beginTransfer()
+        guard overwrite || contents[path] == nil else { throw SFTPError.status(code: 4, message: "file exists") }
         contents[path] = bytes
         progress(UInt64(bytes.count), UInt64(bytes.count))
     }
@@ -132,9 +133,12 @@ final class FakeLocalDisk: @unchecked Sendable {
                     })
             },
             readFile: { [self] path in lock.withLock { contents[path] } },
-            writeFile: { [self] bytes, path in
-                lock.withLock { contents[path] = bytes }
-                return true
+            writeFile: { [self] bytes, path, overwrite in
+                lock.withLock {
+                    guard overwrite || contents[path] == nil else { return false }
+                    contents[path] = bytes
+                    return true
+                }
             },
             createDirectory: { _ in true })
     }
@@ -144,7 +148,7 @@ final class FakeLocalDisk: @unchecked Sendable {
 private func makeModel(_ files: FakeRemoteFiles, _ disk: FakeLocalDisk = FakeLocalDisk()) -> MazeModel {
     MazeModel(
         hostName: "prod-api", files: files, fileSystem: disk.fileSystem,
-        palette: LegendsPalette(Chrome(ThemeCatalog.default)))
+        palette: 0)
 }
 
 @MainActor
@@ -262,6 +266,37 @@ struct MazeModelTests {
         await model.upload("gone.txt")
         #expect(model.transfers.transfers.isEmpty)
         #expect(model.problem == "Could not read gone.txt from this Mac.")
+    }
+
+    @Test func missingListingRowsDoNotBypassOverwriteProtection() async {
+        let disk = FakeLocalDisk(files: ["/Users/r/Downloads/index.html": [9]])
+        let host = FakeRemoteFiles(files: ["/var/www/index.html": [1]])
+        let model = makeModel(host, disk)
+        await model.start()
+        model.remoteRows = []
+        model.isLoading = true
+        var asked = false
+        model.confirmOverwrite = { _ in
+            asked = true; return false
+        }
+        await model.upload("index.html")
+        #expect(asked)
+        #expect(await host.file("/var/www/index.html") == [1])
+        #expect(model.transfers.transfers.isEmpty)
+    }
+
+    @Test func navigationDuringADownloadQuestionDoesNotChangeTheDestination() async {
+        let disk = FakeLocalDisk(files: ["/Users/r/Downloads/index.html": [9]])
+        let host = FakeRemoteFiles(files: ["/var/www/index.html": [1]])
+        let model = makeModel(host, disk)
+        await model.start()
+        model.confirmOverwrite = { _ in
+            model.localPath = "/elsewhere"; return true
+        }
+        await model.download("index.html")
+        #expect(model.transfers.transfers.isEmpty)
+        #expect(disk.file("/elsewhere/index.html") == nil)
+        #expect(disk.file("/Users/r/Downloads/index.html") == [9])
     }
 
     @Test func replacingAFileAsksFirst() async throws {

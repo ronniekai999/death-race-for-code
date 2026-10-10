@@ -507,6 +507,8 @@ struct DaemonHostTests {
         let whole = try #require(mirror.allLines)
         let onScreen = await session.text(in: whole, generation: mirror.generation ?? 0)
         #expect(onScreen?.contains("999") == true, "\(onScreen as Any)")
+        let results = await session.search(SearchQuery("999"), generation: mirror.generation ?? 0)
+        #expect(results?.matches.isEmpty == false)
         session.close()
     }
 

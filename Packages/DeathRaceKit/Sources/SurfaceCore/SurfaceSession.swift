@@ -100,6 +100,11 @@ public final class ReplaySession: SurfaceSession, @unchecked Sendable {
         return TextExtractor.text(in: range) { terminal.line($0) }
     }
 
+    public func search(_ query: SearchQuery, generation: UInt64) async -> SearchPage? {
+        guard generation == terminal.generation else { return nil }
+        return terminal.search(query)
+    }
+
     public func promptSpan(at line: UInt64, generation: UInt64) async -> PromptSpan? {
         guard generation == terminal.generation else { return nil }
         return terminal.promptSpan(at: line)

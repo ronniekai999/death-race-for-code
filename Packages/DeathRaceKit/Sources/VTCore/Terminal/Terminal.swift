@@ -139,6 +139,7 @@ public final class Terminal {
     /// Inert modes that are set (see `Terminal.inertANSIModes`); DEC modes are offset by
     /// 0x10000.
     var inertModes: Set<UInt32> = []
+    public internal(set) var inlineGraphics = InlineGraphics()
     private var parser = VTParser()
 
     public init(_ configuration: Configuration = Configuration()) {
@@ -169,6 +170,9 @@ public final class Terminal {
         defer { swap(&running, &parser) }
         var dispatcher = Dispatcher(terminal: self)
         running.feed(bytes, into: &dispatcher)
+        if !inlineGraphics.placements.isEmpty {
+            inlineGraphics.prune(firstLine: primary.linesScrolledOff - UInt64(primary.scrollback.count))
+        }
     }
 
     public func feed(_ bytes: [UInt8]) {
@@ -344,6 +348,6 @@ struct Dispatcher: VTHandler {
         terminal.deviceControlString(header, data: data)
     }
     mutating func applicationProgramCommand(_ payload: UnsafeBufferPointer<UInt8>) {
-        // Kitty graphics arrives here (Phase 9).
+        terminal.applicationProgramCommand(payload)
     }
 }

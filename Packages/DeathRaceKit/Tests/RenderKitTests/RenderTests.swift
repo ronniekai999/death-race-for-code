@@ -1,5 +1,6 @@
 import ConfigKit
 import CoreText
+import Foundation
 import Metal
 import ScreenProtocol
 import SurfaceCore
@@ -80,6 +81,46 @@ struct RendererTests {
     @Test func theShadersCompile() throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         _ = try RenderPipelines(device: device)
+        _ = try RenderPipelines(device: device, pixelFormat: .rgba16Float)
+    }
+
+    @Test func rawAndPNGImagesDrawWithTheSameOrientationAndSurviveIDReuse() throws {
+        let renderer = try OffscreenRenderer()
+        let fonts = FontSet(family: "SF Mono", size: 13)
+        let cell = fonts.cellMetrics(scale: 2)
+        let session = ReplaySession(Terminal.Configuration(columns: 4, rows: 4))
+        let model = SurfaceModel(session: session)
+        let rgb: [UInt8] = [255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255]
+        let png = try #require(
+            RenderedImage(
+                width: 2, height: 2,
+                bgra: [
+                    0, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255, 255, 255, 255, 255,
+                ]
+            ).pngData())
+        for (format, payload) in [(24, Data(rgb)), (100, png)] {
+            session.feed(
+                "\u{1B}c\u{1B}_Ga=T,f=\(format),s=2,v=2,i=7,c=2,r=2,C=1;\(payload.base64EncodedString())\u{1B}\\")
+            _ = model.drain()
+            let glyphs = GlyphCache(rasterizer: GlyphRasterizer(fonts: fonts, cell: cell))
+            let frame = FrameBuilder().buildComplete(
+                mirror: model.mirror, theme: .legendsNeverDie, cell: cell, selection: nil, glyphs: glyphs
+            ).frame
+            let layout = PixelLayout(width: 4 * cell.width, height: 4 * cell.height, originX: 0, originY: 0)
+            let image = try renderer.render(frame, cell: cell, layout: layout, glyphs: glyphs, mirror: model.mirror)
+            let upperLeft = image.pixel(x: cell.width / 2, y: cell.height / 2)
+            let upperRight = image.pixel(x: cell.width + cell.width / 2, y: cell.height / 2)
+            let lowerLeft = image.pixel(x: cell.width / 2, y: cell.height + cell.height / 2)
+            #expect(
+                upperLeft.red > 240 && upperLeft.green < 15 && upperLeft.blue < 15,
+                "format \(format), upper-left: \(upperLeft)")
+            #expect(
+                upperRight.green > 240 && upperRight.red < 15 && upperRight.blue < 15,
+                "format \(format), upper-right: \(upperRight)")
+            #expect(
+                lowerLeft.blue > 240 && lowerLeft.red < 15 && lowerLeft.green < 15,
+                "format \(format), lower-left: \(lowerLeft)")
+        }
     }
 
     /// Text, a background and an underline drawn by the GPU, checked pixel by pixel.

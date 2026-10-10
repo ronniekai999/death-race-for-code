@@ -9,8 +9,9 @@ import VTCore
 /// error, so a malformed message cannot make the app allocate or crash.
 public enum DeltaCodec {
     static let magic: [UInt8] = Array("DRSD".utf8)
-    /// 2 added `viewportTopLine`; 3 added rows' link tables.
-    public static let formatVersion: UInt8 = 4
+    /// 2 added `viewportTopLine`; 3 added rows' link tables; 4 added command blocks;
+    /// 5 added bounded inline image assets and placements.
+    public static let formatVersion: UInt8 = 5
 
     public enum DecodeError: Error, Equatable {
         case truncated
@@ -61,6 +62,7 @@ public enum DeltaCodec {
         w.u32(UInt32(delta.events.count))
         for event in delta.events { encode(event, into: &w) }
         w.bool(delta.readingPassword)
+        w.graphics(delta)
         return w.bytes
     }
 
@@ -235,6 +237,7 @@ public enum DeltaCodec {
         events.reserveCapacity(eventCount)
         for _ in 0..<eventCount { events.append(try decodeEvent(&r)) }
         let readingPassword = try r.bool()
+        let graphics = try r.graphics()
         guard r.isAtEnd else { throw .invalid("trailing bytes") }
 
         return ScreenDelta(
@@ -245,7 +248,8 @@ public enum DeltaCodec {
             cursor: CursorSnapshot(
                 x: cursorX, y: cursorY, pendingWrap: pendingWrap, visible: visible, shape: shape, blinks: blinks),
             modes: modes, kittyFlags: kittyFlags, isAlternateScreen: isAlternateScreen, title: title,
-            palette: palette, events: events, readingPassword: readingPassword)
+            palette: palette, events: events, readingPassword: readingPassword, graphicsRevision: graphics.0,
+            images: graphics.1, placements: graphics.2)
     }
 
     private static func decodeRow(_ r: inout ByteReader) throws(DecodeError) -> RowSnapshot {

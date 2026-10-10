@@ -57,6 +57,7 @@ public protocol TerminalSession: AnyObject, Sendable {
     /// after a reattach the app has seen no history at all. Nil when the screen is no longer the
     /// one of `generation`, on the alternate screen, or when no prompt is within reach.
     func promptSpan(at line: UInt64, generation: UInt64) async -> PromptSpan?
+    func search(_ query: SearchQuery, generation: UInt64) async -> SearchPage?
 }
 
 /// What a pane needs on top of the screen: which session this is, who is in the foreground,
@@ -173,4 +174,10 @@ public struct InProcessHost: SessionHost {
     public func setMetadata(_ metadata: [UInt8], for id: SessionID) {}
 
     public func end(_ id: SessionID) {}
+}
+
+public extension TerminalSession {
+    /// Test sessions without an engine may opt out. Real in-process and daemon sessions
+    /// implement the same bounded search over the engine's history.
+    func search(_ query: SearchQuery, generation: UInt64) async -> SearchPage? { nil }
 }

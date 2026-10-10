@@ -24,13 +24,14 @@ public final class SurfaceModel {
         public var cursorChanged = false
         public var paletteChanged = false
         public var titleChanged = false
+        public var graphicsChanged = false
         /// The view scrolled through history (or back to the bottom).
         public var viewportMoved = false
         public var events: [TerminalEvent] = []
 
         public var isEmpty: Bool {
             rows.isEmpty && !replaced && !cursorChanged && !paletteChanged && !titleChanged && !viewportMoved
-                && events.isEmpty
+                && !graphicsChanged && events.isEmpty
         }
     }
 
@@ -51,6 +52,7 @@ public final class SurfaceModel {
             update.rows.formUnion(changed)
             update.events += delta.events
             if delta.isSnapshot || delta.generation != before.generation { update.replaced = true }
+            if mirror.graphicsRevision != before.graphicsRevision { update.graphicsChanged = true }
             if mirror.cursor != before.cursor { update.cursorChanged = true }
             if delta.palette != nil && mirror.palette != before.palette { update.paletteChanged = true }
             if mirror.title != before.title { update.titleChanged = true }

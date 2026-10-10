@@ -27,8 +27,9 @@ public enum SessionWire {
     /// not know the tag, and `RemoteSession.ask` resumes a waiter with nothing only when there
     /// is no connection — so a silently dropped request would leave a continuation waiting for
     /// ever. An `.incompatible` daemon is told to hand over instead, which keeps its sessions
-    /// and is the path M1's delta v4 bump already exercised for real.
-    public static let versions: ClosedRange<UInt16> = 2...2
+    /// and is the path M1's delta v4 bump already exercised for real. Version 3 added
+    /// paginated history search; version 4 pins the bounded inline graphics delta format.
+    public static let versions: ClosedRange<UInt16> = 4...4
 
     /// A spawn carries a whole environment, which on a developer's Mac is not small.
     public static let largestControlFrame = 256 * 1024
@@ -255,6 +256,16 @@ extension ByteWriter {
         if let v { u64(v) }
     }
 
+    mutating func searchPage(_ page: SearchPage?) {
+        bool(page != nil)
+        guard let page else { return }
+        u64(page.generation)
+        optionalU64(page.nextLine)
+        bool(page.limited)
+        u32(UInt32(page.matches.count))
+        for match in page.matches { region(match) }
+    }
+
     mutating func session(_ d: SessionDescription) {
         u64(d.id.value)
         status(d.status)
@@ -397,6 +408,18 @@ extension ByteReader {
         return ForegroundProcess(
             pid: Int32(bitPattern: try u32()), name: try string(), workingDirectory: try optionalString(),
             isShell: try bool())
+    }
+
+    mutating func searchPage() throws(SessionWire.Fault) -> SearchPage? {
+        guard try bool() else { return nil }
+        let generation = try u64()
+        let nextLine = try optionalU64()
+        let limited = try bool()
+        let count = try count(elementSize: 33)
+        guard count <= SearchPage.mostMatches else { throw .invalid("too many search matches") }
+        var matches: [TextRegion] = []
+        for _ in 0..<count { matches.append(try region()) }
+        return SearchPage(generation: generation, matches: matches, nextLine: nextLine, limited: limited)
     }
 
     mutating func session() throws(SessionWire.Fault) -> SessionDescription {

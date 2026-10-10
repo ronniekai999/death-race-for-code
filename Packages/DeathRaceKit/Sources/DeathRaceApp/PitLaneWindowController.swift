@@ -4,6 +4,7 @@ import ConfigKit
 import Foundation
 import LegendsUI
 import SSHKit
+import SessionIPC
 import SessionKit
 import SurfaceCore
 import TerminalUI
@@ -157,6 +158,9 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         }
     }
 
+    func restoreWorkspaceTab(_ tab: TabModel) { model.restore(tab); sync(tab.id) }
+    func selectWorkspaceTab(_ id: TabID) { model.selectTab(id); show(id) }
+
     private init(config: Config, host: any WindowHost) {
         self.config = config
         self.host = host
@@ -222,19 +226,6 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
 
     /// This window's sessions, by tab and then by pane in reading order, for the record of
     /// where each one belonged. A pane whose session has not started yet is left out.
-    var sessionLayout: [[(id: SessionID, title: String)]] {
-        model.tabs.map { tab in
-            tab.panes.compactMap { id -> (id: SessionID, title: String)? in
-                guard let pane = panes[id], let session = pane.sessionID else { return nil }
-                return (
-                    id: session,
-                    title: TabLabel.text(
-                        title: pane.title, program: pane.programName ?? pane.shellName, directory: pane.directory,
-                        home: Self.home)
-                )
-            }
-        }
-    }
 
     // MARK: - Building tabs and panes
 
@@ -374,6 +365,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         refreshCards()
         refreshTabs()
         refreshStatus()
+        host?.layoutChanged()
     }
 
     func selectTab(number: Int) -> Bool {
@@ -421,6 +413,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     private func paneActivated(_ id: PaneID) {
         let tabBefore = model.activeTabID
         model.activate(id)
+        host?.layoutChanged()
         if model.activeTabID != tabBefore, let tab = model.activeTabID { show(tab) }
         refreshCards()
         refreshTabs()
@@ -746,6 +739,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         if tab.id != model.activeTabID { select(tab.id) }
         if let zoomed = tab.zoomedPane, zoomed != id { model.toggleZoom() }
         model.activate(id)
+        host?.layoutChanged()
         focusActivePane()
     }
 
@@ -856,6 +850,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             minimum: minimumPaneSize(pane, header: showsHeaders(tabModel)))
         model.setTree(tree, of: tab)
         sync(tab)
+        host?.layoutChanged()
     }
 
     /// The least a pane may shrink to: 10 columns by 3 rows, with its card (and header)
@@ -886,6 +881,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         guard let tabModel = model.tabs.first(where: { $0.id == tab }), let area = areas[tab] else { return }
         area.tree = tabModel.tree
         area.zoomedPane = tabModel.zoomedPane
+        host?.layoutChanged()
     }
 
     /// After focus moved between panes: the views follow the model, and the keys go to the
@@ -1189,91 +1185,8 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
                 }))
     }
 
-    // MARK: - Conversations: walking between commands, and selecting one
-
-    /// Selects the block the cursor is in: the command and its output, and nothing of the next.
-    @objc func selectCommand(_ sender: Any?) {
-        guard let pane = pane(of: sender) else { return }
-        selectBlock(around: nil, in: pane)
-    }
-
-    @objc func jumpToPreviousPrompt(_ sender: Any?) { jump(back: true, in: pane(of: sender)) }
-    @objc func jumpToNextPrompt(_ sender: Any?) { jump(back: false, in: pane(of: sender)) }
-
-    /// Puts the prompt either side of the top of the view at the top of the view.
-    ///
-    /// Asked of the session rather than worked out here: the mirror holds only the viewport, so
-    /// a prompt that has scrolled away is not in it, and after a reattach none of them are. The
-    /// answer is a line number, and `scroll(by:)` has always been relative, so the move is a
-    /// subtraction — no absolute scroll is needed anywhere.
-    private func jump(back: Bool, in pane: PaneController?) {
-        guard let pane, let model = pane.surface.model, let generation = model.mirror.generation else { return }
-        let session = pane.session
-        let from = model.mirror.viewportTopLine
-        Task { @MainActor in
-            guard let span = await session?.promptSpan(at: from, generation: generation) else { return }
-            // Going back from inside a block means the top of this one, then the one before it;
-            // going forward always means the next. Nothing there is not a failure — it is the
-            // oldest or newest command, and the screen stays where it is.
-            let target: UInt64? =
-                back
-                ? (span.lines.lowerBound < from ? span.lines.lowerBound : span.previousPrompt) : span.nextPrompt
-            // The same generation check `selectBlock` makes. Line numbers survive a reflow, so
-            // that much the subtraction can take — but an alternate-screen switch landing in
-            // the await renumbers what is at the top, and a relative scroll against it is an
-            // arbitrary jump. Doing nothing is the right answer to "the screen changed".
-            guard let target, let now = pane.surface.model?.mirror, now.generation == generation else { return }
-            let lines = Blocks.scroll(toPut: target, atTopOf: now)
-            if lines != 0 { session?.scroll(by: lines) }
-        }
-    }
-
-    /// Brings the command the status bar's Fast run is about back into view.
-    ///
-    /// Scrolls and no more. Selecting it would be a second useful thing to do and the wrong one
-    /// here: `copy-on-select` is a setting people have on, and a tap on the status bar is not a
-    /// request to change the clipboard.
-    private func scrollToLastCommand() {
-        guard let pane = activePane, let line = pane.lastCommandLine, let model = pane.surface.model,
-            let generation = model.mirror.generation
-        else { return }
-        let session = pane.session
-        Task { @MainActor in
-            // A line the engine has since trimmed out of its scrollback answers nil, and the
-            // screen stays where it is rather than jumping somewhere arbitrary.
-            guard let span = await session?.promptSpan(at: line, generation: generation),
-                let now = pane.surface.model?.mirror, now.generation == generation
-            else { return }
-            let lines = Blocks.scroll(toPut: span.lines.lowerBound, atTopOf: now)
-            if lines != 0 { session?.scroll(by: lines) }
-        }
-    }
-
-    /// Selects the block at `line`, or the one the cursor is in when nil.
-    ///
-    /// The runs in view are enough for a click on a rail, which is only drawn for a block that
-    /// is on screen. The cursor's own block can be off screen, so that one is asked of the
-    /// session, which is the same query the jump uses.
-    private func selectBlock(around line: UInt64?, in pane: PaneController) {
-        guard let model = pane.surface.model, let generation = model.mirror.generation else { return }
-        if let line, let run = Blocks.runs(in: model.mirror).first(where: { $0.lines.contains(line) }) {
-            pane.surface.select(
-                Blocks.selection(of: PromptSpan(lines: run.lines, command: run.command), in: model.mirror),
-                generation: generation)
-            return
-        }
-        let session = pane.session
-        let cursor = Blocks.cursorLine(in: model.mirror)
-        Task { @MainActor in
-            guard let span = await session?.promptSpan(at: line ?? cursor, generation: generation),
-                let now = pane.surface.model?.mirror, now.generation == generation
-            else { return }
-            pane.surface.select(Blocks.selection(of: span, in: now), generation: generation)
-        }
-    }
-
     /// The pane a context menu item was for, else the active one.
-    private func pane(of sender: Any?) -> PaneController? {
+    func pane(of sender: Any?) -> PaneController? {
         if let raw = (sender as? NSMenuItem)?.representedObject as? Int, let pane = panes[PaneID(raw)] {
             return pane
         }
@@ -1519,6 +1432,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
+        host?.layoutChanged()
         for pane in panes.values { pane.surface.focusChanged() }
         refreshCards()
         host?.inputStateChanged()
@@ -1531,7 +1445,10 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         host?.inputStateChanged()
     }
 
+    func windowDidMove(_ notification: Notification) { host?.layoutChanged() }
+
     func windowDidResize(_ notification: Notification) {
+        host?.layoutChanged()
         pitLaneWindow?.placeTrafficLights()
         root.titleBar.leadingInset = pitLaneWindow?.trafficLightsEnd ?? 84
         refreshStatus()

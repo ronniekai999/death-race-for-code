@@ -65,6 +65,14 @@ public enum ConfigSchema {
 
     private static let fonts: [ConfigKey] = [
         ConfigKey(
+            "xdr-neon", .colors,
+            help: [
+                "Extended brightness for saturated colours on an XDR display; white text stays SDR.",
+                "Falls back to SDR on other displays, in Low Power Mode, or when the Mac is hot.",
+            ],
+            read: { value, config throws(ConfigValueError) in config.xdrNeon = try Value.bool(value) },
+            write: { String($0.xdrNeon) }),
+        ConfigKey(
             "font-family", .fonts,
             help: ["The font for terminal text. SF Mono is the system's monospaced font."],
             read: { value, config throws(ConfigValueError) in config.fontFamily = String(value) },

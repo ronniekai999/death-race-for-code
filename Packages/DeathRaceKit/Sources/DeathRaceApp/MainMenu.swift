@@ -1,5 +1,6 @@
 import AppCore
 import AppKit
+import TerminalUI
 
 /// The menu bar, built from `ActionCatalog`, so every title and shortcut matches what Hear
 /// Me Calling and Settings › Keys show. Every item sends its action up the responder chain
@@ -57,7 +58,7 @@ enum MainMenu {
 
     private static func edit() -> NSMenu {
         let menu = NSMenu(title: "Edit")
-        add([.copy, .paste, .selectAll, .selectCommand], to: menu)
+        add([.copy, .paste, .selectAll, .selectCommand, .find, .findNext, .findPrevious], to: menu)
         menu.addItem(.separator())
         add([.saveSelectionToWishingWell, .saveCommandToWishingWell], to: menu)
         menu.addItem(.separator())
@@ -178,6 +179,9 @@ enum MainMenu {
         case .closePane: #selector(PitLaneWindowController.closePane(_:))
         case .closeTab: #selector(PitLaneWindowController.closeTab(_:))
         case .closeWindow: #selector(PitLaneWindowController.closeWindow(_:))
+        case .find: #selector(TerminalSurfaceView.showFind(_:))
+        case .findNext: #selector(TerminalSurfaceView.findNext(_:))
+        case .findPrevious: #selector(TerminalSurfaceView.findPrevious(_:))
         case .copy: #selector(NSText.copy(_:))
         case .paste: #selector(NSText.paste(_:))
         case .selectAll: #selector(NSText.selectAll(_:))

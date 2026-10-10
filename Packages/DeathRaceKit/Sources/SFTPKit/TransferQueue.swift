@@ -99,10 +99,11 @@ public struct TransferQueue: Equatable, Sendable {
 
     /// Report progress. Ignored once the transfer has left the `transferring` state (e.g. it
     /// was cancelled), so a trailing report can't revive it.
-    public mutating func progress(_ id: TransferID, done: UInt64) {
+    public mutating func progress(_ id: TransferID, done: UInt64, total reportedTotal: UInt64? = nil) {
         update(id) {
-            if case .transferring(_, let total) = $0.state {
-                $0.state = .transferring(done: min(done, total), total: total)
+            if case .transferring(let previous, let total) = $0.state {
+                let updatedTotal = max(total, reportedTotal ?? total)
+                $0.state = .transferring(done: max(previous, min(done, updatedTotal)), total: updatedTotal)
             }
         }
     }

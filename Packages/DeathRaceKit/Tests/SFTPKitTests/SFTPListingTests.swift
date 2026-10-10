@@ -83,7 +83,7 @@ private final class Scratch {
         let scratch = Scratch()
         let fs = LocalFileSystem.local
 
-        #expect(fs.writeFile([1, 2, 3, 4], Listing.join(scratch.path, "a.bin")))
+        #expect(fs.writeFile([1, 2, 3, 4], Listing.join(scratch.path, "a.bin"), false))
         #expect(fs.createDirectory(Listing.join(scratch.path, "sub")))
 
         let rows = fs.entries(scratch.path)

@@ -127,6 +127,7 @@ extension Terminal {
 
     /// RIS: everything back to power-on, except the scrollback, which belongs to the user.
     func fullReset() {
+        inlineGraphics.reset()
         if isAlternateScreen { leaveAlternateScreen(restoreCursor: false) }
         for s in [primary, alternate] {
             for y in 0..<s.rows { s.erase(row: y, from: 0, to: s.columns, fill: .default, forgetting: true) }
@@ -218,6 +219,7 @@ extension Terminal {
         alternate.cursor.pen = pen
         isAlternateScreen = true
         if clear {
+            inlineGraphics.remove(image: nil, placement: nil, data: true, alternate: true)
             for y in 0..<alternate.rows {
                 alternate.erase(row: y, from: 0, to: alternate.columns, fill: .default, forgetting: true)
             }
@@ -232,6 +234,7 @@ extension Terminal {
             if restore { restoreCursor() }
             return
         }
+        inlineGraphics.remove(image: nil, placement: nil, data: true, alternate: true)
         isAlternateScreen = false
         primary.cursor = alternate.cursor
         primary.cursor.x = min(primary.cursor.x, primary.columns - 1)

@@ -211,7 +211,7 @@ public final class TerminalSurfaceView: NSView {
     /// every row it rebuilds.
     private var shaper: MemoizedRunShaping?
     private let builder = FrameBuilder()
-    private var renderer: SurfaceRenderer?
+    var renderer: SurfaceRenderer?
     private var pacer = FramePacer()
     private var link: CADisplayLink?
     /// The next tick must draw even if no delta arrived (a resize, a font change, glyphs
@@ -278,6 +278,16 @@ public final class TerminalSurfaceView: NSView {
     /// setting being changed under it.
     private(set) var allowedGlow: PackedColor = 0
     /// Selection state kept by the selection extension.
+    public var xdrNeon = false { didSet { applyEnergyConditions() } }
+    var allowedXDRHeadroom: Float = 0
+    var findBar: TerminalFindBar?
+    var findTask: Task<Void, Never>?
+    var searchText = ""
+    var searchMatches: [TextRegion] = []
+    var searchIndex = 0
+    var searchGeneration: UInt64?
+    let searchHighlights = CALayer()
+    var accessibilityTask: Task<Void, Never>?
     var selection: Selection?
     var selectionGeneration: UInt64?
     var autoscrollTimer: Timer?
@@ -323,6 +333,12 @@ public final class TerminalSurfaceView: NSView {
         center.addObserver(
             self, selector: #selector(energyConditionsChanged(_:)), name: ProcessInfo.thermalStateDidChangeNotification,
             object: nil)
+        center.addObserver(
+            self, selector: #selector(energyConditionsChanged(_:)),
+            name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        center.addObserver(
+            self, selector: #selector(energyConditionsChanged(_:)),
+            name: NSWindow.didChangeScreenNotification, object: nil)
     }
 
     @available(*, unavailable)
@@ -391,6 +407,8 @@ public final class TerminalSurfaceView: NSView {
 
     /// Stops drawing and lets go of the display link; closing the session is the caller's.
     public func shutDown() {
+        findTask?.cancel()
+        accessibilityTask?.cancel()
         link?.invalidate()
         link = nil
         pacer = FramePacer()
@@ -416,6 +434,8 @@ public final class TerminalSurfaceView: NSView {
         Signposts.signposter.endInterval("DeltaApply", applying)
         // A new screen (a resize, the alternate screen): the selection's lines are gone.
         if selection != nil, model.mirror.generation != selectionGeneration { clearSelection() }
+        if !update.rows.isEmpty || update.replaced || update.viewportMoved { accessibilityOutputChanged() }
+        if update.replaced, findBar?.isHidden == false { refreshFind() }
         if update.titleChanged { onTitleChange?(model.mirror.title) }
         if !update.rows.isEmpty || update.replaced { onOutput?() }
         if !update.events.isEmpty { onEvents?(update.events) }
@@ -493,7 +513,11 @@ public final class TerminalSurfaceView: NSView {
         let pixelWidth = Int(metalLayer.drawableSize.width)
         let pixelHeight = Int(metalLayer.drawableSize.height)
         guard pixelWidth > 0, pixelHeight > 0, model.mirror.generation != nil else { return false }
-        if renderer == nil { renderer = SurfaceRenderer(device: context.device, pipelines: context.pipelines) }
+        if renderer == nil {
+            let pipelines = metalLayer.pixelFormat == .rgba16Float ? context.extendedPipelines : context.pipelines
+            guard let pipelines else { return false }
+            renderer = SurfaceRenderer(device: context.device, pipelines: pipelines)
+        }
         guard let renderer else { return false }
         let started = CACurrentMediaTime()
         let signpost = Signposts.signposter.beginInterval("Frame")
@@ -517,7 +541,11 @@ public final class TerminalSurfaceView: NSView {
         guard
             renderer.encode(
                 frame, cell: cell, layout: layout, glyphs: glyphs, target: drawable.texture,
-                commandBuffer: commandBuffer, dim: dimming?.packed ?? 0, glow: allowedGlow)
+                commandBuffer: commandBuffer, dim: dimming?.packed ?? 0, glow: allowedGlow, mirror: model.mirror,
+                xdrHeadroom: allowedXDRHeadroom,
+                onImagesReady: { [weak self] in
+                    Task { @MainActor in self?.redraw() }
+                })
         else {
             needsFrame = true
             return true
@@ -535,12 +563,19 @@ public final class TerminalSurfaceView: NSView {
                 }
             }
         }
+        commandBuffer.addCompletedHandler { [weak self] buffer in
+            let start = buffer.gpuStartTime, end = buffer.gpuEndTime
+            guard start > 0, end >= start else { return }
+            let elapsed = (end - start) * 1000
+            Task { @MainActor in self?.frameStats.gpuFinished(milliseconds: elapsed) }
+        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         commandBuffer.commit()
         commandBuffer.waitUntilScheduled()
         drawable.present()
         updateCursor()
+        updateSearchHighlights()
         updateBadges(runs: blockRuns)
         CATransaction.commit()
         needsFrame = !frame.isComplete
@@ -745,6 +780,7 @@ public final class TerminalSurfaceView: NSView {
         let focused = firstResponder && window?.isKeyWindow == true && NSApp.isActive
         guard focused != isFocused else { return }
         isFocused = focused
+        applyEnergyConditions()
         onFocusChange?(focused)
         session?.setFocused(focused)
         if let mirror = model?.mirror {
@@ -783,7 +819,8 @@ public final class TerminalSurfaceView: NSView {
             width: width, height: height, originX: Int((grid.left * scale).rounded()),
             originY: Int((grid.top * scale).rounded()))
         return try renderer.render(
-            frame, cell: cell, layout: layout, glyphs: glyphs, dim: dimming?.packed ?? 0, glow: allowedGlow)
+            frame, cell: cell, layout: layout, glyphs: glyphs, dim: dimming?.packed ?? 0, glow: allowedGlow,
+            mirror: model.mirror)
     }
 
     /// Places a badge beside each command worth a word, at the right-hand end of the line its
@@ -952,6 +989,7 @@ public final class TerminalSurfaceView: NSView {
             allowedGlow = allowed
             redraw()
         }
+        applyXDR(conditions)
         applyFrameRate(conditions)
     }
 
@@ -1038,6 +1076,7 @@ public final class TerminalSurfaceView: NSView {
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        applyEnergyConditions()
         if window == nil {
             shutDown()
         } else {

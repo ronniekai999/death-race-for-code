@@ -12,8 +12,33 @@ and Phase 2's follow, and still apply.
 Phase 9 is the only phase whose exit criterion the roadmap states — *"budgets hold with polish
 on (on AC power)"* — and that one sentence cannot be checked here: six of the eight budgets in
 [PERF.md](PERF.md) are Mac-only measurements, and the runner's GPU is paravirtual. These are
-the checkable form of it, for the two items that have shipped. **XDR Neon and inline images are
-not in, so the phase is not closed by these alone.**
+the checkable form of it. **XDR Neon and bounded inline images are implemented; their real
+display checks and the performance budgets still need evidence before closing the phase.**
+
+Run [MAC-ACCEPTANCE.md](MAC-ACCEPTANCE.md) to associate the checks with a clean commit, logs,
+reviewed render baselines and hardware measurements.
+
+### New rendering and usability checks
+
+- [ ] XDR disabled: ordinary output, backgrounds, emoji and screenshots retain the SDR look.
+- [ ] XDR enabled on an XDR display: bright saturated text gains headroom while ordinary text remains readable.
+- [ ] Moving between SDR and XDR displays changes rendering safely without stale frames or missing glyphs.
+- [ ] Low Power Mode, serious thermal pressure and an inactive pane disable XDR; returning to normal restores it.
+- [ ] Direct Kitty RGB, RGBA and PNG images display with correct orientation, alpha, size and clipping.
+- [ ] Kitty chunked transfer, placement, deletion, reset, alternate screen and history eviction release or preserve the intended images.
+- [ ] Images survive app detach and daemon reattach; snapshots contain the same images as the visible grid.
+- [ ] Oversized and unsupported graphics are refused without freezing the terminal or reading files.
+- [ ] Search finds visible and older history, case-insensitive text, combining characters, wide characters and soft-wrapped matches.
+- [ ] Find next/previous scrolls to and highlights the chosen result; Escape returns keyboard focus to the terminal; reopening refreshes the existing query.
+- [ ] Closing a pane or changing generations during search cancels work without hanging the find bar; a history search finishes even while output continues.
+- [ ] VoiceOver reads terminal text, lines and selected text; output updates do not announce continuously while idle.
+- [ ] Quit and reopen restores mixed vertical/horizontal split ratios, active pane, zoom, selected tab and focused window.
+- [ ] Restore after a display disconnect clamps the window to a visible display and keeps every surviving session accessible.
+- [ ] Streaming transfers of multi-gigabyte files keep memory bounded and the window responsive.
+- [ ] A stale remote listing cannot bypass upload replacement confirmation; declining keeps the destination unchanged.
+- [ ] A local destination appearing during download is preserved unless replacement was explicitly approved.
+- [ ] Cancelling a stalled request ends the transfer promptly; temporary downloads are removed and incomplete downloads are never published.
+- [ ] Unordered transfer acknowledgements show monotonic progress, with no more than 20 updates per second.
 
 1. **The glow reads as light, in all seven dark themes.** Run `printf '\e[31mred \e[36mcyan
    \e[35mmagenta \e[0mordinary\n'` in each. The three coloured words have a soft halo in their

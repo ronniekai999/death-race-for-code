@@ -24,6 +24,7 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
     public static let inputLimit = 16 * 1024 * 1024
 
     private enum Waiter {
+        case search(CheckedContinuation<SearchPage?, Never>)
         case text(CheckedContinuation<String?, Never>)
         case foreground(CheckedContinuation<ForegroundProcess?, Never>)
         case promptSpan(CheckedContinuation<PromptSpan?, Never>)
@@ -32,6 +33,8 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
         /// that has gone counts as.
         func answer(_ reply: StreamReply?) {
             switch (self, reply) {
+            case (.search(let continuation), .searchPage(_, let page)): continuation.resume(returning: page)
+            case (.search(let continuation), _): continuation.resume(returning: nil)
             case (.text(let continuation), .text(_, let text)): continuation.resume(returning: text)
             case (.text(let continuation), _): continuation.resume(returning: nil)
             case (.foreground(let continuation), .foreground(_, let process)):
@@ -164,6 +167,12 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
     public func text(in range: TextRegion, generation: UInt64) async -> String? {
         await withCheckedContinuation { continuation in
             ask(.text(continuation)) { .queryText(request: $0, region: range, generation: generation) }
+        }
+    }
+
+    public func search(_ query: SearchQuery, generation: UInt64) async -> SearchPage? {
+        await withCheckedContinuation { continuation in
+            ask(.search(continuation)) { .querySearch(request: $0, query: query, generation: generation) }
         }
     }
 
@@ -330,7 +339,8 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
         case .status(let status):
             state.withLock { $0.status = status }
             onUpdate()
-        case .text(let request, _), .foreground(let request, _), .promptSpan(let request, _):
+        case .text(let request, _), .foreground(let request, _), .promptSpan(let request, _),
+            .searchPage(let request, _):
             let waiter = state.withLock { state -> Waiter? in
                 guard state.issued.remove(request) != nil else { return nil }
                 return state.waiters.removeValue(forKey: request)

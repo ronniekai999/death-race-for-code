@@ -282,3 +282,33 @@ The Phase 2 budgets above are checked by hand on the M5, with a debug build
   instances built with no parameter against the same frame built with an explicit nil.
 - **XDR Neon is opt-in.** Extended dynamic range uses more bandwidth and power; Apple's guidance
   is to enable it only when the user will see the difference.
+  `xdr-neon = false` is the default. The focused pane uses at most 2x available headroom;
+  SDR displays, Low Power Mode and serious thermal pressure fall back to SDR. Both paths
+  share frame pacing and emit no idle frames. Log Frame Stats now includes GPU p50/p95 from
+  completed command-buffer timestamps; Instruments remains necessary for the real budget.
+
+## Repeatable engine comparisons
+
+`make perf-capture` builds release `vthost` and captures five rounds of all four workloads
+to `build/perf-current.json`. Keep an equivalent baseline in `build/perf-baseline.json` and
+run `make perf-compare`. Runs must match OS, CPU/model, architecture, toolchain, duration and
+round count. A median regression above 10% fails; within-run spread above 15% is inconclusive
+and needs an idle-machine rerun. The script records MiB/s, matching the benchmark's actual
+byte calculation despite its historical `MB/s` label. Use the same idle physical Mac for
+release decisions. Shared cloud measurements do not establish M5 throughput or display
+latency acceptance.
+
+## Bounded transfers and image decoding
+
+SFTP streams 32 KiB chunks with eight requests in flight by default (configurable in the
+client up to 32). Upload sources use pread; downloads use pwrite into a 0600 temporary file
+beside the destination and publish atomically after success. Progress advances by completed
+bytes and is coalesced to 20 Hz plus initial/final events. Disk IO runs off the main actor.
+Every protocol request has a cancellation-aware deadline; cancellation during a partial
+send closes that channel so an incomplete frame cannot corrupt a reused stream.
+
+Inline graphics cap both encoded storage and decoded pixels at 4 MiB. The image worker
+keeps one replaceable desired set, discards stale textures and wakes rendering on completed
+active work. Export waits for that bounded decoder and GPU; normal frame submission does
+not wait for PNG decoding. Search pages run on the session worker, yielding between bounded
+queries, and accessibility builds only a bounded viewport representation.

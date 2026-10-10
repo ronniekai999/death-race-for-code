@@ -8,9 +8,11 @@ privacy spike or a manual check passed automatically.
    in [SPIKE.md](SPIKE.md) first. Keep its before/after-quit reports. If the spawned daemon
    does not inherit the app's permissions, change the daemon default or architecture before
    closing Phase 7. The acceptance script does not reset privacy permissions.
-2. Run `make test-render`. Missing PNGs are written and the tests fail deliberately. Review
-   all six images in `Packages/DeathRaceKit/Tests/Fixtures/render`, commit the approved PNGs
-   and rerun. Never approve a baseline solely because it was generated.
+2. Review the six committed PNGs in `Packages/DeathRaceKit/Tests/Fixtures/render` and run
+   `make test-render` on the target Mac. Their initial review and CI provenance are recorded
+   beside them. Missing PNGs are written and the tests fail deliberately; inspect any new
+   or changed baseline, commit approved changes and rerun. Never approve a baseline solely
+   because it was generated.
 3. From a clean committed tree, run `make accept-mac`. It captures OS, machine, toolchain,
    commit, full tests, render comparisons, throughput logs and baseline hashes in
    `build/mac-acceptance`. Build output is ignored by git. Any failed command remains failed

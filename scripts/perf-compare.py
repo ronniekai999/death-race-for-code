@@ -57,19 +57,38 @@ def capture(args):
     print(f"Wrote {args.output}")
 
 
+def read_report(path):
+    report = json.loads(path.read_text())
+    if not isinstance(report, dict) or type(report.get("schema")) is not int or report["schema"] != 1:
+        raise SystemExit("Unsupported or missing benchmark report schema.")
+    for key in ("commit", "platform", "machine", "processor", "toolchain"):
+        if not isinstance(report.get(key), str) or not report[key].strip():
+            raise SystemExit(f"Missing benchmark metadata: {key}")
+    rounds, seconds = report.get("rounds"), report.get("seconds")
+    if type(rounds) is not int or rounds < 3 or type(seconds) not in (int, float) \
+            or not math.isfinite(seconds) or not .1 <= seconds <= 60:
+        raise SystemExit("Invalid benchmark duration or round count.")
+    samples = report.get("samples_mib_s")
+    if not isinstance(samples, dict) or set(samples) != WORKLOADS:
+        raise SystemExit("All four benchmark workloads are required.")
+    for name, values in samples.items():
+        if not isinstance(values, list) or len(values) != rounds \
+                or any(type(value) not in (int, float) or not math.isfinite(value) or value <= 0 for value in values):
+            raise SystemExit(f"Missing/invalid samples for {name}")
+    return report
+
+
 def compare(args):
     if not math.isfinite(args.max_regression) or not 0 <= args.max_regression < 100:
         raise SystemExit("Regression budget must be finite and between 0 and 100 percent.")
-    baseline, current = (json.loads(path.read_text()) for path in (args.baseline, args.current))
+    baseline, current = (read_report(path) for path in (args.baseline, args.current))
     for key in ("schema", "platform", "machine", "processor", "toolchain", "seconds", "rounds"):
         if baseline.get(key) != current.get(key):
             raise SystemExit(f"Incomparable runs: {key} differs. Capture both on the same machine/toolchain.")
     failures = []
     for name in sorted(WORKLOADS):
         for report in (baseline, current):
-            values = report.get("samples_mib_s", {}).get(name, [])
-            if len(values) < 3 or any(not isinstance(value, (float, int)) or not math.isfinite(value) or value <= 0 for value in values):
-                raise SystemExit(f"Missing/invalid samples for {name}")
+            values = report["samples_mib_s"][name]
             middle = statistics.median(values)
             if (max(values) - min(values)) / middle > .15:
                 raise SystemExit(f"Inconclusive: {name} varied more than 15%; rerun on an idle machine.")

@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="440" viewBox="0 0 1280 440" role="img" aria-labelledby="title description">
+  <title id="title">Death Race for Code</title>
+  <desc id="description">A midnight purple illustration with a pink and violet wordmark, a stylized terminal, and neon road lines. Native macOS terminal, SSH and SFTP. Legends Never Die.</desc>
+  <defs>
+    <linearGradient id="night" x2="1" y2="1">
+      <stop stop-color="#090914"/>
+      <stop offset="1" stop-color="#191027"/>
+    </linearGradient>
+    <linearGradient id="neon" x2="1" y2="0">
+      <stop stop-color="#ff5277"/>
+      <stop offset=".5" stop-color="#c47dff"/>
+      <stop offset="1" stop-color="#8d91ff"/>
+    </linearGradient>
+    <linearGradient id="road" x2="1" y2="0">
+      <stop stop-color="#ff5277" stop-opacity="0"/>
+      <stop offset=".5" stop-color="#ff5277" stop-opacity=".65"/>
+      <stop offset="1" stop-color="#997dff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="halo">
+      <stop stop-color="#997dff" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#997dff" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse">
+      <path d="M44 0H0V44" fill="none" stroke="#9986cb" stroke-opacity=".055"/>
+    </pattern>
+  </defs>
+  <rect width="1280" height="440" rx="24" fill="url(#night)"/>
+  <rect width="1280" height="440" rx="24" fill="url(#grid)"/>
+  <ellipse cx="1030" cy="220" rx="320" ry="220" fill="url(#halo)"/>
+  <path d="M660 439 903 297M852 439 984 297M1100 439 1070 297M1280 398 1150 297" fill="none" stroke="#8d76c6" stroke-opacity=".18"/>
+  <path d="M600 420H1280M685 388H1280M737 360H1230M780 338H1180" fill="none" stroke="url(#road)"/>
+  <g fill="#c6b6ec" opacity=".4">
+    <circle cx="705" cy="65" r="1.5"/><circle cx="1185" cy="46" r="1.2"/>
+    <circle cx="748" cy="228" r="1.3"/><circle cx="1204" cy="328" r="1.5"/>
+    <circle cx="1130" cy="370" r="1"/><circle cx="604" cy="37" r="1"/>
+  </g>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif">
+    <rect x="48" y="47" width="225" height="29" rx="14.5" fill="#a07ae0" fill-opacity=".09" stroke="#a07ae0" stroke-opacity=".3"/>
+    <text x="68" y="66" font-size="11" letter-spacing="2.8" font-weight="600" fill="#c5b0ed">LEGENDS NEVER DIE</text>
+    <text x="45" y="167" font-size="68" letter-spacing="-2.5" font-weight="800" fill="#f4edf9">DEATH RACE</text>
+    <text x="45" y="250" font-size="83" letter-spacing="-3.5" font-weight="800" fill="url(#neon)">FOR CODE.</text>
+    <text x="49" y="300" font-size="22" fill="#e3d8f1">Your shells. Your servers. Your WRLD.</text>
+    <text x="49" y="343" font-size="15" fill="#b9a9ce">A native macOS terminal for the work that keeps moving.</text>
+    <text x="49" y="393" font-size="11" font-weight="600" letter-spacing="2.2" fill="#af9bc7">METAL  /  SSH  /  SFTP  /  PERSISTENT SESSIONS</text>
+  </g>
+  <g transform="translate(792 92)">
+    <rect width="432" height="234" rx="13" fill="#0b0a14" stroke="#a07be4" stroke-opacity=".35"/>
+    <path d="M13 0H419Q432 0 432 13V38H0V13Q0 0 13 0" fill="#1d172d"/>
+    <circle cx="19" cy="19" r="4" fill="#ff6486"/>
+    <circle cx="34" cy="19" r="4" fill="#e6b969"/>
+    <circle cx="49" cy="19" r="4" fill="#5bd5ad"/>
+    <g font-family="'SFMono-Regular', Consolas, 'Liberation Mono', monospace" font-size="12">
+      <text x="292" y="23" fill="#b7a2d5" font-size="10" letter-spacing="1.4">WRLD / LOCAL</text>
+      <text x="22" y="68" fill="#ae91ff">~/code</text><text x="82" y="68" fill="#7c718c"> on </text><text x="114" y="68" fill="#ff749a">main</text>
+      <text x="22" y="94" fill="#6be4b5">❯</text><text x="44" y="94" fill="#e1d7ee">make test</text>
+      <text x="22" y="126" fill="#756583">engine  ·  sessions  ·  connections</text>
+      <path d="M22 143H393" stroke="#332444"/>
+      <text x="22" y="169" fill="#6be4b5">✓</text><text x="44" y="169" fill="#c5b2dc">Ready for the next command.</text>
+      <text x="22" y="205" fill="#ae91ff">❯</text><rect x="44" y="192" width="8" height="16" fill="#ff6d9a"/>
+    </g>
+    <path d="M45 234H388" stroke="url(#neon)" stroke-width="2" opacity=".55"/>
+  </g>
+  <rect x=".5" y=".5" width="1279" height="439" rx="23.5" fill="none" stroke="#aa88e0" stroke-opacity=".12"/>
+</svg>

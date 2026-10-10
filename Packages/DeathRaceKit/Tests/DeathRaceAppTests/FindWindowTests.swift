@@ -14,14 +14,18 @@ extension WindowTests {
         session.replay.feed("needle")
         pane.surface.sessionDidUpdate()
         let surface = pane.surface
-        surface.searchText = String(repeating: "🎧", count: 513)
+        await eventually(within: 5) { surface.model?.mirror.generation != nil }
+        _ = try #require(surface.model?.mirror.generation)
         surface.showFind(nil)
-        #expect(surface.findBar?.count.stringValue == "Search is too long")
+        let bar = try #require(surface.findBar)
+        bar.field.stringValue = String(repeating: "🎧", count: 513)
+        bar.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: bar.field))
+        #expect(bar.count.stringValue == "Search is too long")
         #expect(surface.findTask == nil)
-        surface.searchText = "needle"
-        surface.refreshFind()
-        await eventually { surface.findTask == nil }
-        #expect(surface.findBar?.count.stringValue == "1")
+        bar.field.stringValue = "needle"
+        bar.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: bar.field))
+        await eventually(within: 5) { surface.findTask == nil }
+        #expect(bar.count.stringValue == "1")
         #expect(surface.searchMatches.count == 1)
     }
 
@@ -34,10 +38,14 @@ extension WindowTests {
         session.replay.feed(String(repeating: "x", count: 600))
         pane.surface.sessionDidUpdate()
         let surface = pane.surface
-        surface.searchText = "x"
+        await eventually(within: 5) { surface.model?.mirror.generation != nil }
+        _ = try #require(surface.model?.mirror.generation)
         surface.showFind(nil)
-        await eventually { surface.findTask == nil }
-        #expect(surface.findBar?.count.stringValue == "600")
+        let bar = try #require(surface.findBar)
+        bar.field.stringValue = "x"
+        bar.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: bar.field))
+        await eventually(within: 5) { surface.findTask == nil }
+        #expect(bar.count.stringValue == "600")
         #expect(surface.searchMatches.count == 600)
     }
 }

@@ -95,8 +95,8 @@ final class InlineImageTextures: @unchecked Sendable {
                         bitsPerComponent: 8, bytesPerRow: image.width * 4, space: colorSpace,
                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
                 else { return false }
-                context.translateBy(x: 0, y: CGFloat(image.height))
-                context.scaleBy(x: 1, y: -1)
+                // Bitmap row order matches CGImage's data provider and readback PNGs.
+                // Flipping the drawing transform would invert PNGs relative to raw RGB.
                 context.draw(decoded, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
                 return true
             }

@@ -23,7 +23,14 @@ them, the rectangular areas, the special colours and ISO protected areas — so 
 list is scheduled for later. **Phase 9** is under way, on the two halves a push can be held to:
 ligatures draw `!=` and `=>` the way the font draws them together, and a bright-coloured
 character throws a little light around itself in its own colour, which ordinary text and the
-greys never do. XDR Neon and inline images are what is left of it.
+greys never do. XDR Neon now has an opt-in, energy-aware rendering path; inline images use a
+bounded subset of the Kitty graphics protocol. Search (⌘F), terminal text accessibility,
+complete split restoration and streaming SFTP transfers are implemented too.
+
+Implementation and phase acceptance are tracked separately. Real Mac privacy, display,
+input, performance and reviewed PNG checks remain open; a green build alone does not close
+them. See [the implementation review and remaining plan](docs/IMPLEMENTATION-REVIEW.md),
+[Mac acceptance](docs/MAC-ACCEPTANCE.md) and [release packaging](docs/RELEASE.md).
 
 - **WRLD, your hosts:** kept in `wrld.json` next to the settings file, which never holds a
   secret. Hosts in your `~/.ssh/config` join with one click and keep using that file, which
@@ -45,13 +52,18 @@ greys never do. XDR Neon and inline images are what is left of it.
   between them on gradient bars. It speaks SFTP version 3 itself, as a second channel on the
   master a pane already opened — so it opens with no new login. Upload and download, drags
   between the panes, and Finder files dropped on the host's side.
+  Transfers stream through bounded, pipelined chunks, confirm replacement from a fresh
+  destination check, and support cancellation and request deadlines.
 - **Lucid Dreams (⌥Space):** one terminal that springs out of the notch and keeps its
   session across hide and show. It doesn't switch apps, and it yields the notch to
   MenuGlance.
 - **Legends Never Die:** a `legendsd` the app starts holds the pseudo-terminals and the
   engines, so local shells outlive the app — quit, crash or update — and come back in the
   windows and tabs they were in, with their scrollback. Quitting detaches and asks nothing;
-  closing a pane still ends its shell. Sessions on a host are not kept, and the setting says
+  closing a pane still ends its shell.
+  Split directions, ratios, active and zoomed panes, selected tabs and window frames are
+  restored along with the sessions.
+  Sessions on a host are not kept, and the setting says
   so. The daemon is never required: anything that goes wrong leaves you with a session in the
   app and a line in the status bar saying as much.
 - **Hear Me Calling** finds hosts, snippets and tunnels as well.

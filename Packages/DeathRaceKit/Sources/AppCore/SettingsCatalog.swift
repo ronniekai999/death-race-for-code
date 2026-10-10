@@ -147,6 +147,9 @@ public enum SettingsCatalog {
                     settings: [
                         Setting("starfield", "Starfield behind the terminal", .toggle),
                         Setting("text-glow", "Bright colours glow", .toggle),
+                        Setting(
+                            "xdr-neon", "Extended brightness on XDR displays", .toggle,
+                            note: "White text stays at SDR brightness. Off in Low Power Mode or when the Mac is hot."),
                         Setting("conversations", "Mark each command and how long it took", .toggle),
                         Setting(
                             "fast-threshold-milliseconds", "Show a command's time when it is over",

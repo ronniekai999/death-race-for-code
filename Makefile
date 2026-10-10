@@ -15,7 +15,7 @@
 PKG := Packages/DeathRaceKit
 APP := build/Death Race for Code.app
 
-.PHONY: test test-render esctest fuzz bench vtdiff lint check-imports check-expect-messages check-any-optional format run smoke bundle clean install-swift-linux
+.PHONY: test test-render accept-mac verify-mac release perf-capture perf-compare esctest fuzz bench vtdiff lint check-imports check-expect-messages check-any-optional format run smoke bundle clean install-swift-linux
 
 FUZZ := Tools/VTFuzz
 DIFF := Tools/VTDiff
@@ -28,6 +28,22 @@ test:
 # look at the PNG, commit it, and run again.
 test-render:
 	DEATHRACE_RENDER_GOLDENS=1 swift test --package-path $(PKG) --filter RenderGoldenTests
+
+accept-mac:
+	python3 scripts/mac-acceptance.py run
+
+verify-mac:
+	python3 scripts/mac-acceptance.py verify
+
+release:
+	scripts/release.sh
+
+perf-capture:
+	swift build --package-path $(PKG) -c release --product vthost
+	python3 scripts/perf-compare.py capture --binary $(PKG)/.build/release/vthost --output build/perf-current.json
+
+perf-compare:
+	python3 scripts/perf-compare.py compare build/perf-baseline.json build/perf-current.json
 
 esctest:
 	scripts/esctest.sh

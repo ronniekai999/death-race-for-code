@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import Metal
+import ScreenProtocol
 import SurfaceCore
 import UniformTypeIdentifiers
 
@@ -64,8 +65,9 @@ public final class OffscreenRenderer {
     /// light (`Glow.packed`; 0 draws none).
     public func render(
         _ frame: Frame, cell: CellMetrics, layout: PixelLayout, glyphs: GlyphCache, dim: PackedColor = 0,
-        glow: PackedColor = 0
+        glow: PackedColor = 0, mirror: MirrorGrid? = nil
     ) throws -> RenderedImage {
+        if let mirror { renderer.prepareImagesForReadback(mirror) }
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .bgra8Unorm, width: layout.width, height: layout.height, mipmapped: false)
         descriptor.usage = [.renderTarget, .shaderRead]
@@ -80,7 +82,7 @@ public final class OffscreenRenderer {
         guard
             renderer.encode(
                 frame, cell: cell, layout: layout, glyphs: glyphs, target: target, commandBuffer: commandBuffer,
-                dim: dim, glow: glow)
+                dim: dim, glow: glow, mirror: mirror)
         else { throw RenderError.resources("a frame") }
         guard let blit = commandBuffer.makeBlitCommandEncoder() else { throw RenderError.resources("a blit") }
         blit.copy(

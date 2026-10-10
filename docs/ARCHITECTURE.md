@@ -993,4 +993,31 @@ seam depends on the answer.
 | 6 | Maze: the SFTP browser — SFTPKit (our own SFTP v3), a window per host, transfers with a queue and bars, core drag-and-drop (dragging out to Finder deferred) |
 | 7 | Legends Never Die: `legendsd` holds the pseudo-terminals and engines, so local shells outlive the app and come back where they were (sessions on a host are not kept) |
 | 8 | Conversations, Fast and Ring Ring: shell integration, blocks, timers, alerts |
-| 9 | Renderer polish: ligatures (in), text glow (in), XDR Neon and inline images (not yet) |
+| 9 | Renderer polish: ligatures, text glow, opt-in XDR Neon and bounded Kitty inline images implemented; real display and performance acceptance remains open |
+
+The post-implementation status, review findings and remaining acceptance work are recorded
+in [IMPLEMENTATION-REVIEW.md](IMPLEMENTATION-REVIEW.md). The roadmap describes implementation
+scope; it does not replace [MANUAL-TESTS.md](MANUAL-TESTS.md) or the privacy spike's verdict.
+
+### Search, images and workspace state
+
+Search runs on the session worker over primary scrollback and visible rows. Requests are
+bounded to 1,024 UTF-16 units, 2,048 physical rows per page and 256 matches per reply; the
+find bar caps its collected results at 1,000. Soft wraps are searched as logical text and
+results retain terminal coordinates for scrolling and highlights. Accessibility exposes a
+bounded text representation of the viewport, including UTF-16 selection and line mappings.
+
+Kitty graphics APCs accept direct base64 RGB, RGBA and PNG data with transmit, place, query
+and delete operations. Session-owned images and placements survive detach/reattach through
+screen deltas. Limits are 32 images, 128 placements, one chunked transmission, 4 MiB of
+encoded assets and 4 MiB of decoded pixels. PNG decoding and texture upload run on a serial
+worker with coalesced pending work. File/shared-memory transport, compression, animation,
+cropping, virtual placements and other terminal image protocols are outside this subset.
+Placements use absolute grid rows; resize keeps those coordinates rather than reflowing
+image geometry with text. Images in evicted history lose their placements.
+
+The session wire is version 4 and the screen delta codec is format 5. Older daemon builds
+must use the existing incompatible-version handover; a silent optional tag is unsafe.
+Placement metadata shape 2 preserves the split tree, ratios, focus, zoom, selected tab and
+window frame, while shape 1 remains readable. Restored frames are clamped to current screens.
+The layout cache suppresses identical metadata writes.

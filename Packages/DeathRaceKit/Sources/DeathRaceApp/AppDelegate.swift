@@ -474,8 +474,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         guard let legends, !legends.hasNothingToReattach else { return newWindow(nil) }
         for window in legends.kept {
             let controller = PitLaneWindowController(
-                config: configStore.config, host: self, reattaching: window.map(\.count))
+                config: configStore.config, host: self, reattaching: window)
             show(controller)
+        }
+        if let focused = legends.kept.firstIndex(where: { tabs in
+            tabs.flatMap { $0 }.contains { SessionPlacement.decode($0.metadata)?.workspace?.focusedWindow == true }
+        }), windows.indices.contains(focused) {
+            windows[focused].window?.makeKeyAndOrderFront(nil)
         }
         legends.doneReattaching()
         // Belt and braces: the app never finishes launching with no terminal in it.
@@ -485,7 +490,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
 
     func layoutChanged() {
         guard let legends else { return }
-        legends.noteLayout(windows.map { $0.sessionLayout })
+        legends.noteWorkspace(windows.map { $0.workspaceLayout })
         for controller in windows { controller.sessionsEndWithTheApp = legends.sessionsEndWithTheApp }
     }
 

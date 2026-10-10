@@ -1,0 +1,82 @@
+name: release
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag (v0.2.0)
+        required: true
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  notarized-app:
+    runs-on: macos-26
+    environment: release
+    timeout-minutes: 60
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - name: Validate tag and credentials
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+          NOTARY_KEY: ${{ secrets.APPLE_NOTARY_PRIVATE_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          for name in CERTIFICATE CERTIFICATE_PASSWORD NOTARY_KEY NOTARY_KEY_ID NOTARY_ISSUER; do
+            [[ -n "${!name}" ]] || { echo "::error::Missing required release secret: $name"; exit 1; }
+          done
+          git rev-parse "refs/tags/$RELEASE_TAG"
+      - name: Tests
+        run: swift test --package-path Packages/DeathRaceKit
+      - name: Sign, notarize, and staple
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+          NOTARY_KEY: ${{ secrets.APPLE_NOTARY_PRIVATE_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          release_tmp="$(mktemp -d "$RUNNER_TEMP/deathrace-release.XXXXXX")"
+          keychain="$release_tmp/signing.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+          trap 'security delete-keychain "$keychain" >/dev/null 2>&1 || true; rm -rf "$release_tmp"' EXIT
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$release_tmp/certificate.p12"
+          printf '%s' "$NOTARY_KEY" > "$release_tmp/notary.p8"
+          chmod 600 "$release_tmp/certificate.p12" "$release_tmp/notary.p8"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$release_tmp/certificate.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain"
+          export SIGN_IDENTITY="$(security find-identity -v -p codesigning "$keychain" | awk -F'"' '/Developer ID Application/ { print $2; exit }')"
+          xcrun notarytool store-credentials DeathRaceRelease --keychain "$keychain" \
+            --key "$release_tmp/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER"
+          export APP_VERSION="${RELEASE_TAG#v}" BUILD_NUMBER="$GITHUB_RUN_NUMBER" NOTARY_PROFILE=DeathRaceRelease NOTARY_KEYCHAIN="$keychain"
+          scripts/release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notarized-app
+          path: |
+            build/Death-Race-for-Code-*.zip
+            build/Death-Race-for-Code-*.sha256
+            build/notarization.json
+      - name: Create a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$RELEASE_TAG" --verify-tag --draft --generate-notes \
+            --title "Death Race for Code ${RELEASE_TAG#v}" \
+            build/Death-Race-for-Code-*.zip build/Death-Race-for-Code-*.sha256

@@ -53,7 +53,7 @@ final class LegendsService {
     /// makes, but it never causes one: a program that keeps rewriting its title (a build with
     /// a count in it) would otherwise mean a socket write a second for a label that is
     /// replaced by the session's first delta anyway.
-    private var placements: [SessionID: [Int]] = [:]
+    private var placements: [SessionID: [UInt8]] = [:]
 
     init(paths: WRLDPaths, makeHost: (@MainActor (Bool) -> Legends.Choice)? = nil) {
         self.paths = paths
@@ -112,7 +112,13 @@ final class LegendsService {
             waiting = kept.flatMap { $0.flatMap { $0.map(\.id) } }
             for (window, tabs) in kept.enumerated() {
                 for (tab, panes) in tabs.enumerated() {
-                    for (slot, session) in panes.enumerated() { placements[session.id] = [window, tab, slot] }
+                    for (slot, session) in panes.enumerated() {
+                        var place =
+                            SessionPlacement.decode(session.metadata)
+                            ?? SessionPlacement(window: window, tab: tab, slot: slot, title: "")
+                        place.title = ""
+                        placements[session.id] = place.encode()
+                    }
                 }
             }
             if !waiting.isEmpty {
@@ -237,25 +243,35 @@ final class LegendsService {
     /// `layout` is the windows in the order they were opened, each a list of tabs, each a
     /// list of its panes' sessions and titles in reading order.
     func noteLayout(_ layout: [[[(id: SessionID, title: String)]]]) {
-        // `host`, for the reason it is kept when the setting goes off: the sessions it is
-        // already holding will come back, so where they sit still has to be written down.
+        noteWorkspace(
+            layout.enumerated().map { window, tabs in
+                tabs.enumerated().map { tab, panes in
+                    panes.enumerated().map { slot, pane in
+                        (id: pane.id, place: SessionPlacement(window: window, tab: tab, slot: slot, title: pane.title))
+                    }
+                }
+            })
+    }
+
+    func noteWorkspace(_ layout: [[[(id: SessionID, place: SessionPlacement)]]]) {
         guard !reattaching, let host else { return }
         var seen: Set<SessionID> = []
         for (window, tabs) in layout.enumerated() {
             for (tab, panes) in tabs.enumerated() {
-                for (slot, pane) in panes.enumerated() {
+                for pane in panes {
                     seen.insert(pane.id)
-                    let at = [window, tab, slot]
-                    guard placements[pane.id] != at else { continue }
-                    placements[pane.id] = at
-                    host.setMetadata(
-                        SessionPlacement(window: window, tab: tab, slot: slot, title: pane.title).encode(),
-                        for: pane.id)
+                    var place = pane.place
+                    place.window = window
+                    place.tab = tab
+                    var key = place
+                    key.title = ""  // Title-only output does not write metadata.
+                    let bytes = key.encode()
+                    guard placements[pane.id] != bytes else { continue }
+                    placements[pane.id] = bytes
+                    host.setMetadata(place.encode(), for: pane.id)
                 }
             }
         }
-        // A session no window holds any more is one this app has let go of; forgetting it
-        // keeps the table the size of what is on screen.
         placements = placements.filter { seen.contains($0.key) }
     }
 }

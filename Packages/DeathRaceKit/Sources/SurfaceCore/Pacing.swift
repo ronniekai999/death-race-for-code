@@ -102,6 +102,8 @@ public struct FrameStats: Sendable {
     public private(set) var frameTime = LatencyStats()
     /// Milliseconds from a key press to the next frame on screen.
     public private(set) var keyToScreen = LatencyStats()
+    /// Actual GPU execution, measured from command-buffer completion timestamps.
+    public private(set) var gpuTime = LatencyStats()
 
     public init() {}
 
@@ -118,7 +120,11 @@ public struct FrameStats: Sendable {
         keyToScreen.add(milliseconds)
     }
 
-    /// Three lines for the log.
+    public mutating func gpuFinished(milliseconds: Double) {
+        if milliseconds.isFinite && milliseconds >= 0 { gpuTime.add(milliseconds) }
+    }
+
+    /// Frame, GPU, and input timing for the log.
     public var summary: String {
         func line(_ name: String, _ stats: LatencyStats) -> String {
             guard let p50 = stats.percentile(0.5), let p95 = stats.percentile(0.95) else {
@@ -130,6 +136,7 @@ public struct FrameStats: Sendable {
         return """
             frames drawn: \(framesDrawn), display link starts: \(linkResumes)
             \(line("frame time", frameTime))
+            \(line("GPU time", gpuTime))
             \(line("key to screen", keyToScreen))
             """
     }

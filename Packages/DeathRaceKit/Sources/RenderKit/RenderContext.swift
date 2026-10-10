@@ -10,6 +10,15 @@ public final class RenderContext {
     public let device: any MTLDevice
     public let queue: any MTLCommandQueue
     public let pipelines: RenderPipelines
+    private var extendedAttempted = false
+    private var extended: RenderPipelines?
+    public var extendedPipelines: RenderPipelines? {
+        if !extendedAttempted {
+            extendedAttempted = true
+            extended = try? RenderPipelines(device: device, pixelFormat: .rgba16Float)
+        }
+        return extended
+    }
 
     public init(device: (any MTLDevice)? = MTLCreateSystemDefaultDevice()) throws {
         guard let device else { throw RenderError.noDevice }

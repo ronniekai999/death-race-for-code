@@ -172,6 +172,9 @@ final class SessionLoop {
 
     private func answer(_ query: SessionChannel.Query) {
         switch query {
+        case .search(let query, let generation, let reply):
+            guard generation == terminal.generation else { return reply.resume(returning: nil) }
+            reply.resume(returning: terminal.search(query))
         case .text(let range, let generation, let reply):
             guard generation == terminal.generation else { return reply.resume(returning: nil) }
             reply.resume(returning: TextExtractor.text(in: range) { terminal.line($0) })

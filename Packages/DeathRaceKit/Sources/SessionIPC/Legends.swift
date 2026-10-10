@@ -4,13 +4,8 @@ import ScreenProtocol
 import SessionKit
 import VTCore
 
-/// Where a session belonged, so it can be put back.
-///
-/// The daemon stores these bytes against a session and never looks inside them; this is the
-/// app's own shape for them. What it restores is **membership and order** — which window,
-/// which tab, and where in the row of panes — not the exact proportions of a split. Panes
-/// come back where they were, side by side in the order they were in; a divider someone had
-/// dragged is not remembered. Saying so is better than implying more.
+/// Membership and order, plus a versioned workspace tree, focus and window geometry.
+/// Shape 1 remains readable; sessions with unknown metadata still open safely.
 public struct SessionPlacement: Sendable, Equatable {
     /// Which window, counted in the order they were opened.
     public var window: Int
@@ -20,21 +15,25 @@ public struct SessionPlacement: Sendable, Equatable {
     public var slot: Int
     /// What to put on the tab before the session has drawn anything.
     public var title: String
+    public var workspace: SavedWorkspace?
 
-    public init(window: Int, tab: Int, slot: Int, title: String) {
+    public init(window: Int, tab: Int, slot: Int, title: String, workspace: SavedWorkspace? = nil) {
         self.window = window
         self.tab = tab
         self.slot = slot
         self.title = title
+        self.workspace = workspace
     }
 
     public func encode() -> [UInt8] {
         var w = ByteWriter()
-        w.u8(1)  // what shape this is, so an older app can tell it does not know
+        let saved = workspace.flatMap { $0.isValid ? $0 : nil }
+        w.u8(saved == nil ? 1 : 2)
         w.u32(UInt32(clamping: window))
         w.u32(UInt32(clamping: tab))
         w.u32(UInt32(clamping: slot))
         w.string(String(title.prefix(200)))
+        if let saved { w.savedWorkspace(saved) }
         return w.bytes
     }
 
@@ -42,13 +41,20 @@ public struct SessionPlacement: Sendable, Equatable {
     /// running. Its sessions are still perfectly usable; they just start in a new window.
     public static func decode(_ bytes: [UInt8]) -> SessionPlacement? {
         var r = ByteReader(bytes: bytes)
-        guard let shape = try? r.u8(), shape == 1,
+        guard let shape = try? r.u8(), (shape == 1 || shape == 2),
             let window = try? r.u32(), let tab = try? r.u32(), let slot = try? r.u32(),
-            let title = try? r.string(), r.isAtEnd
+            let title = try? r.string()
         else { return nil }
-        guard window < 1_000, tab < 1_000, slot < 1_000 else { return nil }
+        let workspace: SavedWorkspace?
+        if shape == 2 {
+            guard let saved = try? r.savedWorkspace() else { return nil }
+            workspace = saved
+        } else {
+            workspace = nil
+        }
+        guard r.isAtEnd, window < 1_000, tab < 1_000, slot < 1_000 else { return nil }
         return SessionPlacement(
-            window: Int(window), tab: Int(tab), slot: Int(slot), title: title)
+            window: Int(window), tab: Int(tab), slot: Int(slot), title: title, workspace: workspace)
     }
 }
 

@@ -17,6 +17,18 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PKG="$ROOT/Packages/DeathRaceKit"
 APP="$ROOT/build/Death Race for Code.app"
 
+RELEASE="${RELEASE:-0}"
+APP_VERSION="${APP_VERSION:-0.1.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-1}"
+[[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]] \
+  || { echo "Invalid APP_VERSION or BUILD_NUMBER." >&2; exit 1; }
+TIMESTAMP=(--timestamp=none)
+if [[ "$RELEASE" == 1 ]]; then
+  [[ "${SIGN_IDENTITY:-}" == "Developer ID Application:"* && "$CONFIG" == release && "${SPIKE:-0}" == 0 ]] \
+    || { echo "Release requires Developer ID Application, CONFIG=release, and no SPIKE helper." >&2; exit 1; }
+  TIMESTAMP=(--timestamp)
+fi
+
 SPIKE="${SPIKE:-0}"
 swift build --package-path "$PKG" -c "$CONFIG" --product DeathRace
 # ssh's SSH_ASKPASS: it hands ssh's questions to the app (SSHKit's AskpassBroker).
@@ -35,6 +47,16 @@ cp "$BIN/DeathRace" "$APP/Contents/MacOS/DeathRace"
 cp "$BIN/deathrace-askpass" "$APP/Contents/MacOS/deathrace-askpass"
 cp "$BIN/legendsd" "$APP/Contents/MacOS/legendsd"
 cp "$ROOT/App/Info.plist" "$APP/Contents/Info.plist"
+python3 - "$APP/Contents/Info.plist" "$APP_VERSION" "$BUILD_NUMBER" <<'PYPLIST'
+import plistlib, sys
+path, version, build = sys.argv[1:]
+with open(path, "rb") as file:
+    info = plistlib.load(file)
+info["CFBundleShortVersionString"] = version
+info["CFBundleVersion"] = build
+with open(path, "wb") as file:
+    plistlib.dump(info, file)
+PYPLIST
 
 # SwiftPM resource bundles: Bundle.module finds them in Contents/Resources.
 shopt -s nullglob
@@ -78,20 +100,20 @@ if [ -z "$IDENTITY" ]; then
 fi
 
 # Nested code first: the app's signature seals what is inside it.
-codesign --force --options runtime --timestamp=none \
+codesign --force --options runtime "${TIMESTAMP[@]}" \
   --identifier local.deathraceforcode.deathrace-askpass \
   --sign "$IDENTITY" "$APP/Contents/MacOS/deathrace-askpass"
 # Its identifier is what the daemon's own peer check expects of us and what legendsd is
 # pinned by in turn, so it is set here rather than left to the binary's name.
-codesign --force --options runtime --timestamp=none \
+codesign --force --options runtime "${TIMESTAMP[@]}" \
   --identifier local.deathraceforcode.legendsd \
   --sign "$IDENTITY" "$APP/Contents/MacOS/legendsd"
 if [ -f "$APP/Contents/MacOS/legendsd-spike" ]; then
-  codesign --force --options runtime --timestamp=none \
+  codesign --force --options runtime "${TIMESTAMP[@]}" \
     --identifier local.deathraceforcode.legendsd-spike \
     --sign "$IDENTITY" "$APP/Contents/MacOS/legendsd-spike"
 fi
-codesign --force --options runtime --timestamp=none \
+codesign --force --options runtime "${TIMESTAMP[@]}" \
   --entitlements "$ROOT/App/DeathRace.entitlements" \
   --sign "$IDENTITY" "$APP"
 

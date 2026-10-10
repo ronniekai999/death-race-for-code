@@ -26,6 +26,9 @@ public struct MirrorGrid: Sendable {
     /// The line number of `lines[0]`; `lines[y]` is line `viewportTopLine + y`.
     public private(set) var viewportTopLine: UInt64 = 0
     public private(set) var readingPassword = false
+    public private(set) var graphicsRevision: UInt64 = 0
+    public private(set) var images: [UInt32: InlineImage] = [:]
+    public private(set) var placements: [InlinePlacement] = []
 
     public init() {}
 
@@ -42,6 +45,9 @@ public struct MirrorGrid: Sendable {
             throw .needsSnapshot
         }
 
+        let assets =
+            delta.images.map { Dictionary($0.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new }) } ?? images
+        guard delta.placements.allSatisfy({ assets[$0.imageID] != nil }) else { throw .needsSnapshot }
         var byID: [UInt64: RowSnapshot] = [:]
         byID.reserveCapacity(lines.count + delta.changedRows.count)
         if !delta.isSnapshot {
@@ -75,6 +81,9 @@ public struct MirrorGrid: Sendable {
         scrollbackCount = delta.scrollbackCount
         viewportTopLine = delta.viewportTopLine
         readingPassword = delta.readingPassword
+        graphicsRevision = delta.graphicsRevision
+        images = assets
+        placements = delta.placements
         return changed
     }
 }

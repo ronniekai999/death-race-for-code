@@ -133,6 +133,9 @@ actor FakeSFTPServer: SFTPTransport {
             let path = normalize(path)
             let writing = pflags & SFTP.Open.write != 0
             if writing {
+                if pflags & SFTP.Open.exclusive != 0, files[path] != nil || directories.contains(path) {
+                    return [status(id, SFTP.Status.failure, "file exists")]
+                }
                 if pflags & SFTP.Open.truncate != 0 || files[path] == nil { files[path] = [] }
                 return [.handle(id: id, handle: makeHandle(.file(path: path, writing: true)))]
             }

@@ -29,6 +29,33 @@ public enum Shaders {
         };
         static_assert(sizeof(Uniforms) == 48, "Uniforms must match RenderKit's layout");
 
+        // reserved contains Float.bitPattern(headroom); 0 from older call sites means SDR.
+        static float headroom(constant Uniforms &u) { return max(1.0, as_type<float>(u.reserved)); }
+        static float3 linearRGB(float3 c) {
+            return select(pow((c + 0.055) / 1.055, float3(2.4)), c / 12.92, c <= 0.04045);
+        }
+        static float4 displayColor(float4 c, constant Uniforms &u) {
+            if (u.reserved == 0 || c.a <= 0.0) return c;
+            return float4(linearRGB(c.rgb / c.a) * c.a, c.a);
+        }
+
+        struct ImageOut { float4 position [[position]]; float2 uv; };
+        vertex ImageOut imageVertex(uint vid [[vertex_id]], constant Uniforms &u [[buffer(0)]],
+            constant float4 &rect [[buffer(2)]]) {
+            float2 corner = float2(vid & 1, vid >> 1);
+            float2 pixel = rect.xy + corner * rect.zw;
+            float2 ndc = pixel / u.viewportSize * 2.0 - 1.0;
+            return {float4(ndc.x, -ndc.y, 0.0, 1.0), corner};
+        }
+        fragment float4 imageFragment(ImageOut in [[stage_in]], constant Uniforms &u [[buffer(0)]],
+            texture2d<float> image [[texture(2)]]) {
+            constexpr sampler sampleFilter(coord::normalized, address::clamp_to_edge, filter::linear);
+            float4 color = image.sample(sampleFilter, in.uv);
+            float4 dim = unpack_unorm4x8_to_float(u.dim);
+            color.rgb = mix(color.rgb, dim.rgb * color.a, dim.a);
+            return displayColor(color, u);
+        }
+
         struct GlyphInstance {
             ushort2 cell;
             ushort2 atlasOrigin;
@@ -104,18 +131,18 @@ public enum Shaders {
             float4 dim = unpackColor(u.dim);
             float2 local = in.position.xy - u.gridOrigin;
             if (local.x < 0.0 || local.y < 0.0) {
-                return dimmed(unpackColor(u.clearColor), dim);
+                return displayColor(dimmed(unpackColor(u.clearColor), dim), u);
             }
             uint2 cell = uint2(local / u.cellSize);
             if (cell.x >= u.columns || cell.y >= u.rows) {
-                return dimmed(unpackColor(u.clearColor), dim);
+                return displayColor(dimmed(unpackColor(u.clearColor), dim), u);
             }
             uint packed = colors[cell.y * u.columns + cell.x];
             float4 color = unpackColor(packed);
             if ((packed >> 24) == 0xFEu) {
                 color = starry(in.position.xy, color);
             }
-            return dimmed(color, dim);
+            return displayColor(dimmed(color, dim), u);
         }
 
         // Glow: a bright colour's own light, scattered from the same glyph buffer the next draw
@@ -218,7 +245,7 @@ public enum Shaders {
             return mask.read(uint2(at)).r;
         }
 
-        fragment float4 glowFragment(GlowOut in [[stage_in]],
+        fragment float4 glowFragment(GlowOut in [[stage_in]], constant Uniforms &u [[buffer(0)]],
                                      texture2d<float, access::read> mask [[texture(0)]]) {
             // Thirteen taps on two rings, at whole texels (the vertex stage works the radii
             // out). A separable blur needs an intermediate texture, which is the one thing this
@@ -248,7 +275,7 @@ public enum Shaders {
             float coverage = (middle + near * 0.7 + ring * 0.25) / 5.8;
             // Additive, with an RGB-only write mask on the pipeline: the target's alpha is never
             // touched, whatever this returns.
-            return float4(in.color * (coverage * in.strength), 0.0);
+            return float4((u.reserved == 0 ? in.color : linearRGB(in.color) * headroom(u)) * (coverage * in.strength), 0.0);
         }
 
         // Glyphs: one quad per instance, read texel for texel from an atlas: coverage tinted
@@ -278,18 +305,20 @@ public enum Shaders {
             return out;
         }
 
-        fragment float4 glyphFragment(GlyphOut in [[stage_in]],
+        fragment float4 glyphFragment(GlyphOut in [[stage_in]], constant Uniforms &u [[buffer(0)]],
                                       texture2d<float, access::read> mask [[texture(0)]],
                                       texture2d<float, access::read> color [[texture(1)]]) {
             uint2 texel = uint2(in.atlasCoord);
             if ((in.flags & 1u) != 0u) {
                 // Premultiplied: fade the color, then multiply by coverage again.
                 float4 texelColor = color.read(texel);
-                return float4(texelColor.rgb * (1.0 - in.dim.a) + in.dim.rgb * (in.dim.a * texelColor.a),
-                              texelColor.a);
+                return displayColor(float4(texelColor.rgb * (1.0 - in.dim.a) + in.dim.rgb * (in.dim.a * texelColor.a),
+                              texelColor.a), u);
             }
             float coverage = mask.read(texel).r;
-            return float4(in.color.rgb * coverage, coverage);
+            float4 ink = displayColor(float4(in.color.rgb * coverage, coverage), u);
+            if (u.reserved != 0) ink.rgb *= 1.0 + (headroom(u) - 1.0) * emissive(in.color.rgb);
+            return ink;
         }
 
         // Decorations: a quad over a run of cells, the pattern drawn from absolute pixel x, so
@@ -325,7 +354,7 @@ public enum Shaders {
             return out;
         }
 
-        fragment float4 decorationFragment(DecorationOut in [[stage_in]]) {
+        fragment float4 decorationFragment(DecorationOut in [[stage_in]], constant Uniforms &u [[buffer(0)]]) {
             float t = in.thickness;
             float x = in.local.x;
             float y = in.local.y;
@@ -364,7 +393,7 @@ public enum Shaders {
             if (alpha <= 0.0) {
                 discard_fragment();
             }
-            return float4(in.color.rgb * alpha, alpha);
+            return displayColor(float4(in.color.rgb * alpha, alpha), u);
         }
         """#
 }

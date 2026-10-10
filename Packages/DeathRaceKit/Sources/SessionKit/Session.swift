@@ -169,6 +169,10 @@ public final class Session: Sendable {
         }
     }
 
+    public func search(_ query: SearchQuery, generation: UInt64) async -> SearchPage? {
+        await withCheckedContinuation { channel.send(.query(.search(query, generation: generation, $0))) }
+    }
+
     // MARK: - Results
 
     /// The waiting delta, if any. Taking it tells the session the app has it.
@@ -209,6 +213,7 @@ final class SessionChannel: Sendable {
     /// A command that answers. Every query is answered exactly once: by the session thread,
     /// or with nil when the session has ended, so no caller waits forever.
     enum Query: Sendable {
+        case search(SearchQuery, generation: UInt64, CheckedContinuation<SearchPage?, Never>)
         case text(TextRegion, generation: UInt64, CheckedContinuation<String?, Never>)
         case foregroundProcess(CheckedContinuation<ForegroundProcess?, Never>)
         case promptSpan(line: UInt64, generation: UInt64, CheckedContinuation<PromptSpan?, Never>)
@@ -216,6 +221,7 @@ final class SessionChannel: Sendable {
         /// Answers nil: there is no session to ask.
         func cancel() {
             switch self {
+            case .search(_, _, let reply): reply.resume(returning: nil)
             case .text(_, _, let reply): reply.resume(returning: nil)
             case .foregroundProcess(let reply): reply.resume(returning: nil)
             case .promptSpan(_, _, let reply): reply.resume(returning: nil)

@@ -226,6 +226,12 @@ final class SessionBridge {
             session.setBasePalette(palette)
         case .clear(let kind):
             session.clear(kind)
+        case .querySearch(let request, let query, let generation):
+            ask(request) {
+                await session.search(query, generation: generation)
+            } reply: {
+                .searchPage(request: request, $0)
+            }
         case .queryText(let request, let region, let generation):
             ask(request) {
                 await session.text(in: region, generation: generation)

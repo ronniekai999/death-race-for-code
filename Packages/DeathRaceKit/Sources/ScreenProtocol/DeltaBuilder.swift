@@ -12,6 +12,7 @@ public struct DeltaBuilder {
         var version: UInt64
         var rowIDs: Set<UInt64>
         var palette: Palette?
+        var graphicsRevision: UInt64
     }
 
     private var delivered: Delivered?
@@ -56,14 +57,17 @@ public struct DeltaBuilder {
             isAlternateScreen: terminal.isAlternateScreen,
             title: terminal.title,
             palette: snapshot || delivered?.palette != terminal.palette ? terminal.palette : nil,
-            events: events)
+            events: events, graphicsRevision: terminal.inlineGraphics.revision,
+            images: snapshot || delivered?.graphicsRevision != terminal.inlineGraphics.revision
+                ? terminal.inlineGraphics.images.values.sorted { $0.id < $1.id } : nil,
+            placements: terminal.inlineGraphics.placements.values.sorted { $0.key < $1.key })
     }
 
     /// The client took `delta`; the next one is relative to it.
     public mutating func didDeliver(_ delta: ScreenDelta) {
         delivered = Delivered(
             generation: delta.generation, version: delta.version, rowIDs: Set(delta.rowIDs),
-            palette: delta.palette ?? delivered?.palette)
+            palette: delta.palette ?? delivered?.palette, graphicsRevision: delta.graphicsRevision)
     }
 
     /// Forgets what the client has: the next delta is a snapshot.

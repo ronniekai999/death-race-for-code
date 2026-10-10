@@ -69,7 +69,7 @@ var targets: [Target] = [
     // What the app does apart from AppKit: windows of tabs of split panes, the actions and
     // their shortcuts, the palette's matching, the status line. The app's logic, tested
     // here, as SurfaceCore is the terminal view's.
-    .target(name: "AppCore", dependencies: ["ConfigKit", "PTYKit", "Vault"]),
+    .target(name: "AppCore", dependencies: ["ConfigKit", "PTYKit", "Vault", "SessionIPC"]),
     // WRLD: saved hosts, groups, snippets and keys, as the JSON file you can keep in a
     // dotfiles repo. Foundation only, and never a secret.
     .target(name: "Vault"),
@@ -111,7 +111,7 @@ var targets: [Target] = [
     .testTarget(name: "ConfigKitTests", dependencies: ["ConfigKit", "VTCore"]),
     .testTarget(
         name: "SurfaceCoreTests", dependencies: ["SurfaceCore", "VTCore", "ScreenProtocol", "SessionKit", "ConfigKit"]),
-    .testTarget(name: "AppCoreTests", dependencies: ["AppCore", "ConfigKit", "PTYKit", "Vault"]),
+    .testTarget(name: "AppCoreTests", dependencies: ["AppCore", "ConfigKit", "PTYKit", "Vault", "SessionIPC"]),
     // Real zsh, bash and fish in a pseudo-terminal, with their output fed through the engine:
     // what the scripts write and what the parser expects can only disagree where both are in
     // one test. Its own target because the suite is heavyweight and env-gated, so the Thread

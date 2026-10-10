@@ -8,6 +8,7 @@ public enum ActionID: String, CaseIterable, Sendable {
     case newWindow, newTab, newHost, openWRLD, openMaze, toggleLucidDreams, splitRight, splitDown,
         armedAndDangerous, closePane, closeTab, closeWindow
     // Edit
+    case find, findNext, findPrevious
     case copy, paste, selectAll, selectCommand, saveSelectionToWishingWell, saveCommandToWishingWell,
         clearToStart, clearScrollback
     // View. `previousPrompt`/`nextPrompt` walk between commands, which only the engine can
@@ -236,6 +237,13 @@ public enum ActionCatalog {
             .closeWindow, "Close Window", "Close window", .shell, KeyShortcut(.character("w"), [.command, .shift])),
 
         // Edit
+        Action(
+            .find, "Find…", "Find in terminal history", .edit, KeyShortcut(.character("f")),
+            keywords: ["search", "scrollback"]),
+        Action(.findNext, "Find Next", "Find next match", .edit, KeyShortcut(.character("g"))),
+        Action(
+            .findPrevious, "Find Previous", "Find previous match", .edit,
+            KeyShortcut(.character("g"), [.command, .shift])),
         Action(.copy, "Copy", "Copy", .edit, KeyShortcut(.character("c")), inPalette: false),
         Action(.paste, "Paste", "Paste", .edit, KeyShortcut(.character("v")), inPalette: false),
         Action(.selectAll, "Select All", "Select all", .edit, KeyShortcut(.character("a")), inPalette: false),

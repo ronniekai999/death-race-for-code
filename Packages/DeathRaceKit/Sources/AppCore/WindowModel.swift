@@ -33,6 +33,15 @@ public struct TabModel: Equatable, Sendable {
         focusHistory = [pane]
     }
 
+    public init(id: TabID, tree: SplitTree, activePane: PaneID, zoomedPane: PaneID? = nil) {
+        self.id = id
+        self.tree = tree
+        self.activePane = tree.contains(activePane) ? activePane : tree.panes[0]
+        self.zoomedPane = zoomedPane.flatMap { tree.contains($0) ? $0 : nil }
+        let focused = self.activePane
+        focusHistory = [focused] + tree.panes.filter { $0 != focused }
+    }
+
     public var panes: [PaneID] { tree.panes }
     public var isSplit: Bool { panes.count > 1 }
 
@@ -125,6 +134,11 @@ public struct WindowModel: Equatable, Sendable {
     public mutating func insert(_ tab: TabModel, at index: Int? = nil) {
         tabs.insert(tab, at: min(max(index ?? tabs.endIndex, 0), tabs.endIndex))
         activeTabID = tab.id
+    }
+
+    public mutating func restore(_ tab: TabModel) {
+        guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+        tabs[index] = tab
     }
 
     public mutating func selectTab(_ id: TabID) {

@@ -126,13 +126,17 @@ public struct ScreenDelta: Sendable, Equatable {
     /// A program is reading a password (a line with echo off, as sudo and ssh do): the app
     /// turns on Secure Keyboard Entry until it stops.
     public var readingPassword: Bool
+    public var graphicsRevision: UInt64
+    public var images: [InlineImage]?
+    public var placements: [InlinePlacement]
 
     public init(
         generation: UInt64, version: UInt64, baseVersion: UInt64 = 0, isSnapshot: Bool, columns: Int, rows: Int,
         viewportOffset: Int, scrollbackCount: Int, viewportTopLine: UInt64 = 0, rowIDs: [UInt64],
         changedRows: [RowSnapshot], cursor: CursorSnapshot,
         modes: TerminalModes, kittyFlags: UInt8, isAlternateScreen: Bool, title: String, palette: Palette?,
-        events: [TerminalEvent], readingPassword: Bool = false
+        events: [TerminalEvent], readingPassword: Bool = false, graphicsRevision: UInt64 = 0,
+        images: [InlineImage]? = nil, placements: [InlinePlacement] = []
     ) {
         self.generation = generation
         self.version = version
@@ -153,6 +157,9 @@ public struct ScreenDelta: Sendable, Equatable {
         self.palette = palette
         self.events = events
         self.readingPassword = readingPassword
+        self.graphicsRevision = graphicsRevision
+        self.images = images
+        self.placements = placements
     }
 
     /// This delta in place of `unsent`, which the app never took: the screen state is this
@@ -161,6 +168,7 @@ public struct ScreenDelta: Sendable, Equatable {
     public func merging(unsent: ScreenDelta) -> ScreenDelta {
         var merged = self
         merged.events = TerminalEvent.coalesced(unsent.events + events)
+        if merged.images == nil { merged.images = unsent.images }
         if merged.palette == nil { merged.palette = unsent.palette }
         return merged
     }

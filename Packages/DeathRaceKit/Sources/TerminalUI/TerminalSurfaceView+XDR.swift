@@ -9,7 +9,7 @@ extension TerminalSurfaceView {
         guard let layer = metalLayer, let context = RenderContext.shared else { return }
         let desired = XDRPolicy.headroom(
             requested: xdrNeon && isFocused,
-            displayHeadroom: Double(window?.screen?.maximumExtendedDynamicRangeColorComponent ?? 1),
+            displayHeadroom: Double(window?.screen?.maximumExtendedDynamicRangeColorComponentValue ?? 1),
             conditions: conditions)
         let extended = desired > 0 && context.extendedPipelines != nil
         let format: MTLPixelFormat = extended ? .rgba16Float : .bgra8Unorm

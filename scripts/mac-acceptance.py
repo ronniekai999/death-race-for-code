@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import math
 import platform
 import re
 import subprocess
@@ -37,6 +38,7 @@ def run(directory):
         "dirty": bool(output(["git", "status", "--porcelain"])),
         "os": output(["sw_vers"]),
         "hardware": output(["sysctl", "-n", "hw.model"]),
+        "processor": output(["sysctl", "-n", "machdep.cpu.brand_string"]),
         "toolchain": output(["swift", "--version"]),
         "checks": {},
     }
@@ -70,6 +72,10 @@ def run(directory):
             "refresh_period_ms": None,
             "idle_tab_memory_mb": None,
             "hitches_at_120hz": None,
+            "engine_ascii_mib_s": None,
+            "engine_mixed_mib_s": None,
+            "end_to_end_ratio_to_ghostty": None,
+            "benchmark_regression_percent": None,
             "checklist": manual_checks(),
         }
         manual_path.write_text(json.dumps(manual, indent=2) + "\n")
@@ -111,12 +117,21 @@ def verify(directory):
     privacy = manual.get("privacy_reports", [])
     require(bool(privacy) and all((directory / p).is_file() for p in privacy), "Privacy reports are missing")
     for key, maximum in (("idle_wakeups_per_second", .5), ("idle_frames", 0), ("hidden_frames", 0),
-                         ("idle_tab_memory_mb", 50), ("hitches_at_120hz", 0)):
+                         ("idle_tab_memory_mb", 50), ("hitches_at_120hz", 0), ("end_to_end_ratio_to_ghostty", 1.5)):
         value = manual.get(key)
         require(isinstance(value, (int, float)) and 0 <= value <= maximum, f"{key} is missing or exceeds its budget")
     latency, refresh = manual.get("key_to_screen_p95_ms"), manual.get("refresh_period_ms")
     require(isinstance(latency, (int, float)) and isinstance(refresh, (int, float))
+            and math.isfinite(latency) and math.isfinite(refresh)
             and refresh > 0 and 0 <= latency <= refresh + 3, "Key latency is missing or exceeds refresh period + 3 ms")
+    require("Apple M5" in report.get("processor", ""), "Absolute throughput acceptance needs the target Apple M5")
+    for key, minimum in (("engine_ascii_mib_s", 300), ("engine_mixed_mib_s", 100)):
+        value = manual.get(key)
+        require(isinstance(value, (int, float)) and math.isfinite(value) and value >= minimum,
+                f"{key} is missing or below its target budget")
+    regression = manual.get("benchmark_regression_percent")
+    require(isinstance(regression, (int, float)) and math.isfinite(regression) and -100 < regression <= 10,
+            "Matched repeated benchmark regression evidence is missing or exceeds 10%")
     checklist = manual.get("checklist", {})
     expected = manual_checks()
     require(bool(expected) and set(checklist) == set(expected), "Manual checklist entries are missing or stale")

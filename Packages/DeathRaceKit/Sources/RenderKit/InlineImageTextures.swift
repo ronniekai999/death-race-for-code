@@ -24,10 +24,18 @@ final class InlineImageTextures: @unchecked Sendable {
 
     func prepare(_ images: [UInt32: InlineImage], onReady: @escaping @Sendable () -> Void) {
         let start = lock.withLock {
+            state.onReady = onReady
+            // Revision checks are O(number of assets), never a comparison of image bytes.
+            // Unchanged frames (including an empty cache) do not schedule decoder work.
+            let unchanged =
+                state.wanted.count == images.count
+                && images.allSatisfy {
+                    state.wanted[$0.key]?.revision == $0.value.revision
+                }
+            if unchanged { return false }
             state.wanted = images
             state.cached = state.cached.filter { images[$0.key]?.revision == $0.value.revision }
             state.failed = state.failed.filter { images[$0.key]?.revision == $0.value }
-            state.onReady = onReady
             if state.working { return false }
             state.working = true
             return true

@@ -29,4 +29,18 @@ import VTCore
         #expect(page.limited)
         #expect(page.nextLine != nil)
     }
+
+    @Test func aWideCharacterNeedleCrossingAPageBoundaryIsNotSkipped() throws {
+        let terminal = Terminal(.init(columns: 100, rows: 2))
+        for _ in 0..<2038 { terminal.feed("x\r\n") }
+        let needle = "begin" + String(repeating: "界", count: 512) + "end"
+        terminal.feed(needle + "\r\nlast")
+        let first = terminal.search(SearchQuery(needle))
+        #expect(first.matches.isEmpty)
+        let next = try #require(first.nextLine)
+        let second = terminal.search(SearchQuery(needle, startLine: next))
+        #expect(second.matches.count == 1)
+        let match = try #require(second.matches.first)
+        #expect(TextExtractor.text(in: match) { terminal.line($0) } == needle)
+    }
 }

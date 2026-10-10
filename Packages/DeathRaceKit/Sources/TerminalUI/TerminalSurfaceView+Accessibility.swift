@@ -43,8 +43,18 @@ extension TerminalSurfaceView {
         let endRow = Int(last.line - mirror.viewportTopLine)
         let a = geometry.rect(column: first.column, row: row)
         let b = geometry.rect(column: last.column, row: endRow)
-        let rect = NSRect(x: a.x, y: a.y, width: a.width, height: a.height)
+        var rect = NSRect(x: a.x, y: a.y, width: a.width, height: a.height)
             .union(NSRect(x: b.x, y: b.y, width: b.width, height: b.height))
+        if endRow != row {
+            let left = geometry.rect(column: 0, row: row)
+            rect.origin.x = left.x
+            rect.size.width = CGFloat(Double(mirror.columns * cell.width) / cell.scale)
+        } else if mirror.lines.indices.contains(row),
+            mirror.lines[row].cells.indices.contains(last.column),
+            mirror.lines[row].cells[last.column].width == .wide
+        {
+            rect.size.width += b.width
+        }
         return window.convertToScreen(convert(rect, to: nil))
     }
 

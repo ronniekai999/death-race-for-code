@@ -20,6 +20,9 @@ privacy spike or a manual check passed automatically.
    relative to the evidence directory and measurements from [PERF.md](PERF.md). Set
    `goldens_reviewed` only after inspecting every baseline. `real_hardware` records the
    actual test environment, not a CI runner.
+   The complete throughput acceptance run uses the roadmap's Apple M5 target: record
+   repeated release medians of at least 300 MiB/s ASCII and 100 MiB/s mixed output. Other
+   Macs can collect partial/manual evidence but do not establish those absolute budgets.
 5. Run `make verify-mac`. It requires a matching clean commit, completed test logs, reviewed
    unchanged PNGs, the full current checklist, the successful privacy verdict and the
    numerical budgets. A missing/stale entry or skipped GPU comparison leaves acceptance

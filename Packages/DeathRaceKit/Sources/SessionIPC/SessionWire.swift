@@ -29,7 +29,8 @@ public enum SessionWire {
     /// ever. An `.incompatible` daemon is told to hand over instead, which keeps its sessions
     /// and is the path M1's delta v4 bump already exercised for real. Version 3 added
     /// paginated history search; version 4 pins the bounded inline graphics delta format.
-    public static let versions: ClosedRange<UInt16> = 4...4
+    /// Version 5 carries a column as well as a line in search continuation cursors.
+    public static let versions: ClosedRange<UInt16> = 5...5
 
     /// A spawn carries a whole environment, which on a developer's Mac is not small.
     public static let largestControlFrame = 256 * 1024
@@ -261,6 +262,7 @@ extension ByteWriter {
         guard let page else { return }
         u64(page.generation)
         optionalU64(page.nextLine)
+        i64(page.nextColumn)
         bool(page.limited)
         u32(UInt32(page.matches.count))
         for match in page.matches { region(match) }
@@ -414,12 +416,15 @@ extension ByteReader {
         guard try bool() else { return nil }
         let generation = try u64()
         let nextLine = try optionalU64()
+        let nextColumn = try i64()
+        guard (0...SessionWire.widestColumn).contains(nextColumn) else { throw .invalid("search column") }
         let limited = try bool()
         let count = try count(elementSize: 33)
         guard count <= SearchPage.mostMatches else { throw .invalid("too many search matches") }
         var matches: [TextRegion] = []
         for _ in 0..<count { matches.append(try region()) }
-        return SearchPage(generation: generation, matches: matches, nextLine: nextLine, limited: limited)
+        return SearchPage(
+            generation: generation, matches: matches, nextLine: nextLine, nextColumn: nextColumn, limited: limited)
     }
 
     mutating func session() throws(SessionWire.Fault) -> SessionDescription {

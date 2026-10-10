@@ -105,6 +105,7 @@ public enum StreamRequest: Sendable, Equatable {
             w.string(query.needle)
             w.bool(query.caseSensitive)
             w.optionalU64(query.startLine)
+            w.i64(query.startColumn)
             w.optionalU64(query.endLine)
             w.u64(generation)
         case .queryForeground(let request):
@@ -166,7 +167,9 @@ public enum StreamRequest: Sendable, Equatable {
             let needle = try r.string()
             guard needle.utf16.count <= SearchQuery.longestNeedle else { throw .invalid("search needle too long") }
             let query = SearchQuery(
-                needle, caseSensitive: try r.bool(), startLine: try r.optionalU64(), endLine: try r.optionalU64())
+                needle, caseSensitive: try r.bool(), startLine: try r.optionalU64(), startColumn: try r.i64(),
+                endLine: try r.optionalU64())
+            guard (0...SessionWire.widestColumn).contains(query.startColumn) else { throw .invalid("search column") }
             message = .querySearch(request: request, query: query, generation: try r.u64())
         case .queryForeground: message = .queryForeground(request: try r.u32())
         case .queryPrompt:

@@ -469,6 +469,53 @@ struct DaemonTests {
 
 @Suite("The app's end of the daemon", .serialized, .timeLimit(.minutes(1)))
 struct DaemonHostTests {
+    @Test("invalid searches leave the shell connected")
+    func invalidSearchesDoNotDisconnectThePane() async throws {
+        let rig = try DaemonRig()
+        defer { rig.finish() }
+        let host = try rig.host()
+        let session = try host.start(
+            testShell(), configuration: Terminal.Configuration(columns: 40, rows: 8), metadata: [], onUpdate: {})
+        var mirror = MirrorGrid()
+        #expect(wait(on: session, &mirror) { $0.generation != nil })
+        let generation = try #require(mirror.generation)
+        for needle in [String(repeating: "x", count: 1025), String(repeating: "🎧", count: 513)] {
+            #expect(await session.search(SearchQuery(needle), generation: generation) == nil)
+        }
+        #expect(await session.search(SearchQuery("x", startColumn: -1), generation: generation) == nil)
+        // The exact UTF-16 boundary remains valid, including supplementary characters.
+        #expect(await session.search(SearchQuery(String(repeating: "🎧", count: 512)), generation: generation) != nil)
+        #expect(session.send(Array("echo $((900+99))\n".utf8)))
+        #expect(wait(on: session, &mirror) { text($0).contains("999") })
+        #expect(await session.search(SearchQuery("999"), generation: generation)?.matches.isEmpty == false)
+        session.close()
+    }
+
+    @Test("dense search pages resume at their column through the daemon")
+    func searchContinuesWithinARow() async throws {
+        let rig = try DaemonRig()
+        defer { rig.finish() }
+        let host = try rig.host()
+        var launch = testShell()
+        launch.arguments = ["sh", "-c", "printf '%0300d' 0; sleep 30"]
+        let session = try host.start(
+            launch, configuration: Terminal.Configuration(columns: 400, rows: 2), metadata: [], onUpdate: {})
+        var mirror = MirrorGrid()
+        #expect(wait(on: session, &mirror) { text($0).contains(String(repeating: "0", count: 300)) })
+        let generation = try #require(mirror.generation)
+        let first = try #require(await session.search(SearchQuery("0"), generation: generation))
+        #expect(first.matches.count == 256)
+        #expect(first.nextColumn == 256)
+        let line = try #require(first.nextLine)
+        let second = try #require(
+            await session.search(
+                SearchQuery("0", startLine: line, startColumn: first.nextColumn), generation: generation))
+        #expect(second.matches.count == 44)
+        #expect(second.nextLine == nil)
+        #expect(Set(first.matches + second.matches).count == 300)
+        session.close()
+    }
+
     @Test("it says plainly that its sessions outlive this process")
     func itSurvives() throws {
         let rig = try DaemonRig()

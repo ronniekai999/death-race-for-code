@@ -43,15 +43,17 @@ public actor SFTPClient {
     private let transport: any SFTPTransport
     private let limits: Limits
     private var nextID: UInt32 = 0
+    private enum LateReply { case discard, closeHandle }
     private struct Pending {
         let continuation: CheckedContinuation<SFTPPacket, any Error>
+        let lateReply: LateReply
         var deadline: Task<Void, Never>?
         var sender: Task<Void, Never>?
     }
     private var pending: [UInt32: Pending] = [:]
-    // Only cancelled, already-sent requests may receive one late reply. Cap this set so a
+    // Only cancelled, already-sent requests may receive one late reply. Cap this map so a
     // server that never answers cancellation cannot consume memory indefinitely.
-    private var retired: Set<UInt32> = []
+    private var retired: [UInt32: LateReply] = [:]
     private let requestTimeout: Duration
     private var readerTask: Task<Void, Never>?
     private var sessionError: (any Error)?
@@ -105,7 +107,15 @@ public actor SFTPClient {
                 }
                 if pending[id] != nil {
                     complete(id, result: .success(packet))
-                } else if retired.remove(id) == nil {
+                } else if let lateReply = retired.removeValue(forKey: id) {
+                    if lateReply == .closeHandle, case .handle(_, let bytes) = packet {
+                        // The cancelled caller never received this handle. Do not await
+                        // CLOSE here: this reader must remain free to receive its reply.
+                        Task {
+                            do { try await self.close(Handle(bytes: bytes)) } catch { await self.shutDown() }
+                        }
+                    }
+                } else {
                     throw SFTPError.invalid("a reply to a request that was never sent")
                 }
             } catch {
@@ -132,10 +142,10 @@ public actor SFTPClient {
     private func abandon(_ id: UInt32, error: any Error) async {
         guard let request = pending[id] else { return }
         let sending = request.sender != nil
-        retired.insert(id)
+        retired[id] = request.lateReply
         complete(id, result: .failure(error))
         // A blocked write may have sent half a frame: the stream cannot safely be reused.
-        // After a complete write, only this request is cancelled; its late reply is discarded.
+        // After a complete write, only this request is cancelled; late handles are closed.
         if sending || id == 0 || retired.count >= 1024 {
             failAll(with: error)
             await transport.close()
@@ -145,7 +155,7 @@ public actor SFTPClient {
     // MARK: - Request / reply
 
     private func nextRequestID() -> UInt32 {
-        repeat { nextID &+= 1 } while nextID == 0 || pending[nextID] != nil || retired.contains(nextID)
+        repeat { nextID &+= 1 } while nextID == 0 || pending[nextID] != nil || retired[nextID] != nil
         return nextID
     }
 
@@ -153,13 +163,18 @@ public actor SFTPClient {
         try Task.checkCancellation()
         if let sessionError { throw sessionError }
         guard let id = explicitID ?? packet.id else { throw SFTPError.invalid("request without id") }
+        let lateReply: LateReply
+        switch packet {
+        case .open, .opendir: lateReply = .closeHandle
+        default: lateReply = .discard
+        }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 guard !Task.isCancelled else {
                     continuation.resume(throwing: CancellationError())
                     return
                 }
-                pending[id] = Pending(continuation: continuation)
+                pending[id] = Pending(continuation: continuation, lateReply: lateReply)
                 pending[id]?.deadline = Task {
                     do { try await Task.sleep(for: requestTimeout) } catch { return }
                     await abandon(id, error: SFTPError.timedOut)

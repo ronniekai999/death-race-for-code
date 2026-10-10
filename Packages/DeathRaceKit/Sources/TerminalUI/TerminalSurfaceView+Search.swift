@@ -49,6 +49,10 @@ extension TerminalSurfaceView {
             findBar?.count.stringValue = ""
             return
         }
+        guard searchText.utf16.count <= SearchQuery.longestNeedle else {
+            findBar?.count.stringValue = "Search is too long"
+            return
+        }
         let text = searchText
         let lastLine = mirror.viewportTopLine + UInt64(mirror.viewportOffset + max(0, mirror.rows - 1))
         findBar?.count.stringValue = "Searching…"
@@ -72,8 +76,8 @@ extension TerminalSurfaceView {
                     matches.append(match)
                     if matches.count >= 1000 { break }
                 }
-                limited = limited || page.limited
                 query.startLine = page.nextLine
+                query.startColumn = page.nextColumn
                 if matches.count >= 1000 { limited = true; break }
                 await Task.yield()
             } while query.startLine != nil

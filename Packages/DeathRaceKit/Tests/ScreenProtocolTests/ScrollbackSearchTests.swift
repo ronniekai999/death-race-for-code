@@ -43,4 +43,19 @@ import VTCore
         let match = try #require(second.matches.first)
         #expect(TextExtractor.text(in: match) { terminal.line($0) } == needle)
     }
+
+    @Test func aPagedSearchFinishesAtItsOriginalHistoryBoundWhileOutputContinues() throws {
+        let terminal = Terminal(.init(columns: 20, rows: 2))
+        for _ in 0..<3000 { terminal.feed("old\r\n") }
+        let lastLine = terminal.linesScrolledOff + UInt64(terminal.rows - 1)
+        var query = SearchQuery("later", endLine: lastLine)
+        let first = terminal.search(query)
+        query.startLine = try #require(first.nextLine)
+        terminal.feed("\r\n\r\n")
+        for _ in 0..<3000 { terminal.feed("later\r\n") }
+        let second = terminal.search(query)
+        #expect(second.matches.isEmpty)
+        #expect(second.nextLine == nil)
+        #expect(terminal.search(SearchQuery("later", startLine: query.startLine)).matches.isEmpty == false)
+    }
 }

@@ -76,6 +76,9 @@ private func everyStreamRequest() -> [StreamRequest] {
         .clear(.toStart),
         .clear(.scrollback),
         .queryText(request: 3, region: sampleRegion, generation: 77),
+        .querySearch(request: 6, query: SearchQuery("界e\u{301}"), generation: 77),
+        .querySearch(
+            request: 7, query: SearchQuery("999", caseSensitive: true, startLine: 100, endLine: 400), generation: 77),
         .queryForeground(request: 4),
         .queryPrompt(request: 5, line: 0, generation: 0),
         .queryPrompt(request: 5, line: .max, generation: .max),
@@ -96,6 +99,9 @@ private func everyStreamReply() -> [StreamReply] {
         .text(request: 3, "999 — 𝄞 and a 🎧"),
         .text(request: 3, nil),
         .text(request: 3, ""),
+        .searchPage(request: 6, nil),
+        .searchPage(
+            request: 7, SearchPage(generation: 77, matches: [sampleRegion], nextLine: 2_399, limited: true)),
         .foreground(request: 4, process),
         .foreground(request: 4, ForegroundProcess(pid: 1, name: "sh", workingDirectory: nil, isShell: true)),
         .foreground(request: 4, nil),

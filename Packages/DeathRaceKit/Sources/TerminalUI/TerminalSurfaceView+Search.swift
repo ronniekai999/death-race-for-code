@@ -24,6 +24,7 @@ extension TerminalSurfaceView {
         }
         findBar?.isHidden = false
         window?.makeFirstResponder(findBar?.field)
+        refreshFind()
     }
 
     @objc public func findNext(_ sender: Any?) { stepFind(back: false) }
@@ -44,15 +45,16 @@ extension TerminalSurfaceView {
         searchMatches = []
         searchIndex = 0
         updateSearchHighlights()
-        guard !searchText.isEmpty, let session, let generation = model?.mirror.generation else {
+        guard !searchText.isEmpty, let session, let mirror = model?.mirror, let generation = mirror.generation else {
             findBar?.count.stringValue = ""
             return
         }
         let text = searchText
+        let lastLine = mirror.viewportTopLine + UInt64(mirror.viewportOffset + max(0, mirror.rows - 1))
         findBar?.count.stringValue = "Searching…"
         findTask = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
-            var query = SearchQuery(text)
+            var query = SearchQuery(text, endLine: lastLine)
             var matches: [TextRegion] = []
             var seen: Set<TextRegion> = []
             var limited = false
@@ -86,7 +88,7 @@ extension TerminalSurfaceView {
     }
 
     private func stepFind(back: Bool) {
-        guard !searchMatches.isEmpty else { showFind(nil); refreshFind(); return }
+        guard !searchMatches.isEmpty else { showFind(nil); return }
         searchIndex = (searchIndex + (back ? -1 : 1) + searchMatches.count) % searchMatches.count
         revealFindMatch()
     }

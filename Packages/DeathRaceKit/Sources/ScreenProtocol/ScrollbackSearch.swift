@@ -6,11 +6,14 @@ public struct SearchQuery: Sendable, Equatable {
     public var needle: String
     public var caseSensitive: Bool
     public var startLine: UInt64?
+    /// Hold the query's upper bound while new output arrives between pages.
+    public var endLine: UInt64?
 
-    public init(_ needle: String, caseSensitive: Bool = false, startLine: UInt64? = nil) {
+    public init(_ needle: String, caseSensitive: Bool = false, startLine: UInt64? = nil, endLine: UInt64? = nil) {
         self.needle = needle
         self.caseSensitive = caseSensitive
         self.startLine = startLine
+        self.endLine = endLine
     }
 }
 
@@ -38,7 +41,7 @@ extension Terminal {
             return SearchPage(generation: generation, matches: [], nextLine: nil)
         }
         let first = linesScrolledOff - UInt64(scrollbackCount)
-        let last = linesScrolledOff + UInt64(rows - 1)
+        let last = min(linesScrolledOff + UInt64(rows - 1), query.endLine ?? .max)
         let start = max(first, query.startLine ?? first)
         guard start <= last else { return SearchPage(generation: generation, matches: [], nextLine: nil) }
         let end = min(last, start + 2047)

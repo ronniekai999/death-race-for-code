@@ -44,6 +44,9 @@ parser/delta/texture/readback. Findings corrected during this pass:
   the test. Native compilation also corrected the NSScreen display-headroom property.
 - Search pagination overlaps enough rows for wide characters; the find bar reports an
   unavailable session instead of leaving “Searching…” indefinitely and caps highlight layers.
+  A query captures its last history line across the worker/IPC seam, so continuous output
+  cannot keep it following new pages forever. Reopening the find bar refreshes its retained
+  query rather than displaying an old count with cleared matches.
 - Pane focus, divider/split/zoom changes, selected tabs and window changes trigger workspace
   persistence; duplicate layout writes are suppressed.
 - Mac acceptance rejects omitted/stale checklist entries, changed baselines, missing logs
@@ -62,12 +65,12 @@ query-time view of history, rather than an unbounded live index.
 
 ## Verification record
 
-- Linux Swift 6.3.3: 1,351 tests in 176 suites passed with real sshd/SFTP integration and
-  zsh, bash and fish enabled. The final local run and
+- Final local Linux Swift 6.3.3: 1,352 tests in 176 suites passed with real sshd/SFTP
+  integration and zsh, bash and fish enabled, including the added history-bound regression.
+- Earlier
   [Linux CI 38085048147](https://github.com/ronniekai999/death-race-for-code/actions/runs/38085048147)
-  agree; the CI sanitizer pass also completed all 1,351 tests.
-- Linux CI passed the formatter, three static checks, PTY smoke, esctest ratchet and one
-  minute of fuzzing (67,705 inputs), plus Thread Sanitizer.
+  passed its 1,351 tests, including the sanitizer pass, formatter, three static checks,
+  PTY smoke, esctest ratchet and one minute of fuzzing (67,705 inputs).
 - [macOS CI 38085048125](https://github.com/ronniekai999/death-race-for-code/actions/runs/38085048125)
   passed 71 window tests in three suites and 1,384 other tests in 184 suites. It also passed
   native build/shaders, six corpus renders, all eight theme previews, the bundled smoke
@@ -75,9 +78,12 @@ query-time view of history, rather than an unbounded live index.
   Apple's Paravirtual Metal device. CI signing was ad-hoc, not Developer ID notarization.
 - Six unmodified corpus PNGs were visually inspected and committed with provenance.
   macOS CI now explicitly compares the reviewed baselines and rejects skipped comparisons.
+  The first comparison run passed all six images; its wrapper and acceptance verifier were
+  corrected to recognize Swift Testing's parameterized “with 5 test cases passed” summary.
 - Python and release/bundle shell syntax, workflow YAML, README links/assets, and Linux
-  preflight failures passed. Structural acceptance-verifier checks covered 11 valid/invalid
-  evidence cases; benchmark validation rejected 18 invalid/noisy/regressing reports.
+  preflight failures passed. Structural acceptance-verifier checks used the actual native
+  render-summary format: a simulated valid fixture passed and 12 invalid/incomplete fixtures
+  were rejected. Benchmark validation rejected 18 invalid/noisy/regressing reports.
 - Three repeated release-engine comparisons returned **inconclusive** because shared host
   variance exceeded 15%. This is not a passing performance or M5 acceptance result.
 

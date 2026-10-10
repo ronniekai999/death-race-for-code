@@ -105,6 +105,7 @@ public enum StreamRequest: Sendable, Equatable {
             w.string(query.needle)
             w.bool(query.caseSensitive)
             w.optionalU64(query.startLine)
+            w.optionalU64(query.endLine)
             w.u64(generation)
         case .queryForeground(let request):
             w.u8(Tag.queryForeground.rawValue)
@@ -164,7 +165,8 @@ public enum StreamRequest: Sendable, Equatable {
             let request = try r.u32()
             let needle = try r.string()
             guard needle.utf16.count <= SearchQuery.longestNeedle else { throw .invalid("search needle too long") }
-            let query = SearchQuery(needle, caseSensitive: try r.bool(), startLine: try r.optionalU64())
+            let query = SearchQuery(
+                needle, caseSensitive: try r.bool(), startLine: try r.optionalU64(), endLine: try r.optionalU64())
             message = .querySearch(request: request, query: query, generation: try r.u64())
         case .queryForeground: message = .queryForeground(request: try r.u32())
         case .queryPrompt:

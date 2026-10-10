@@ -140,7 +140,7 @@ jobs:
           DEATHRACE_RENDER_GOLDENS=1 swift test --package-path Packages/DeathRaceKit --skip-build --filter RenderGoldenTests 2>&1 \
             | tee build/render-tests.log
           grep -q 'Test theColourScreenWithTheGlowOn() passed' build/render-tests.log \
-            && grep -q 'Test screensMatchGoldens(_:) passed' build/render-tests.log \
+            && grep -Eq 'Test screensMatchGoldens\(_:\)( with 5 test cases)? passed' build/render-tests.log \
             || { echo "::error::The GPU baseline comparisons were skipped or incomplete."; exit 1; }
       # The Pit Lane in all eight themes, kept for review beside the mockups; a debug build's
       # own flag, so it needs no bundle.

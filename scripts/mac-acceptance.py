@@ -103,7 +103,7 @@ def verify(directory):
                     f"{name} has no completed test summary")
             if name == "render":
                 require('Test theColourScreenWithTheGlowOn() passed' in log
-                        and 'Test screensMatchGoldens(_:) passed' in log,
+                        and bool(re.search(r'Test screensMatchGoldens\(_:\)(?: with 5 test cases)? passed', log)),
                         "Render comparisons were skipped or incomplete")
     require(set(report.get("goldens", {})) == set(GOLDENS) and manual.get("goldens_reviewed") is True,
             "All six PNG baselines need review and a passing comparison")

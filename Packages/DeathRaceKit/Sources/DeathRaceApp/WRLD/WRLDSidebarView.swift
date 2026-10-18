@@ -67,6 +67,15 @@ final class WRLDSidebarView: NSView, NSTextFieldDelegate {
 
     override var isFlipped: Bool { true }
 
+    /// The tagline hangs off the bottom edge, so a new height needs a new picture. Left to
+    /// AppKit, only the strip a taller window uncovered was painted: a second tagline there,
+    /// and the old one stranded above Add host.
+    override func setFrameSize(_ newSize: NSSize) {
+        let resized = newSize != frame.size
+        super.setFrameSize(newSize)
+        if resized { needsDisplay = true }
+    }
+
     var model: SidebarModel {
         get { list.model }
         set { list.model = newValue }

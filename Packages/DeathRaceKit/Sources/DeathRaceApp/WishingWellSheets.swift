@@ -1,5 +1,6 @@
 import AppCore
 import AppKit
+import LegendsUI
 import SwiftUI
 import Vault
 
@@ -9,21 +10,25 @@ import Vault
 final class WishingWellSheet {
     let panel: NSPanel
     private weak var parent: NSWindow?
+    private let chrome: Chrome
 
-    init(title: String, parent: NSWindow?) {
+    init(title: String, parent: NSWindow?, chrome: Chrome) {
         self.parent = parent
+        self.chrome = chrome
         panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled], backing: .buffered,
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 320), styleMask: [.titled], backing: .buffered,
             defer: false)
         panel.title = title
+        panel.appearance = chrome.appearance
+        panel.backgroundColor = chrome.colors.ground.nsColor
     }
 
     func show(_ view: some View) {
-        // The panel's size, not the view's, for the reason NewHostSheet gives: a grouped Form
-        // asks for almost no height, and its fields would go with it.
-        let content = NSHostingView(rootView: view)
-        content.sizingOptions = [.minSize]
+        // Fits the view and follows it, as NewHostSheet's does.
+        let content = NSHostingView(rootView: view.environment(\.legends, LegendsPalette(chrome)))
+        content.sizingOptions = [.minSize, .intrinsicContentSize, .maxSize]
         panel.contentView = content
+        panel.setContentSize(content.fittingSize)
         if let parent, parent.attachedSheet == nil {
             parent.beginSheet(panel)
         } else {
@@ -57,40 +62,50 @@ struct SnippetFillView: View {
     let panes: Int
     @State var fill: SnippetFill
     let done: @MainActor (SnippetChoice?) -> Void
+    @Environment(\.legends) private var palette
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Form {
-                ForEach(fill.fields, id: \.name) { field in
+        SheetLayout(symbol: "chevron.right.2", title: name, subtitle: "↵ types it in; ⌘↵ runs it.") {
+            ForEach(fill.fields, id: \.name) { field in
+                LabeledField(field.name) {
                     if field.choices.isEmpty {
-                        TextField(field.name, text: value(field.name), prompt: Text(field.defaultValue ?? ""))
+                        TextField(field.defaultValue ?? "", text: value(field.name))
+                            .wrldField(monospaced: true)
+                            .accessibilityLabel(field.name)
                     } else {
                         Picker(field.name, selection: value(field.name)) {
                             ForEach(field.choices, id: \.self) { choice in Text(choice).tag(choice) }
                         }
+                        .labelsHidden()
                     }
                 }
             }
-            .formStyle(.grouped)
-            Text(fill.command)
-                .font(.system(.body, design: .monospaced))
-                .textSelection(.enabled)
-                .lineLimit(4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityLabel("Command: \(fill.command)")
-            HStack {
-                Spacer()
-                Button("Cancel") { done(nil) }
-                    .keyboardShortcut(.cancelAction)
-                Button(WishingWell.insertTitle(panes: panes)) { done(.insert(fill.command)) }
-                    .keyboardShortcut(.defaultAction)
-                Button(WishingWell.runTitle(panes: panes)) { done(.run(fill.command)) }
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(!fill.isComplete)
+            LabeledField("Command") {
+                Text(fill.command)
+                    .font(.system(size: 12.5, design: .monospaced)).foregroundStyle(palette.ink)
+                    .textSelection(.enabled)
+                    .lineLimit(4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(palette.groundDeep))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(palette.line, lineWidth: 1)
+                    )
+                    .accessibilityLabel("Command: \(fill.command)")
             }
+        } buttons: {
+            Button("Cancel") { done(nil) }
+                .buttonStyle(.wrld(.ghost))
+                .keyboardShortcut(.cancelAction)
+            Button(WishingWell.insertTitle(panes: panes)) { done(.insert(fill.command)) }
+                .buttonStyle(.wrld)
+                .keyboardShortcut(.defaultAction)
+            Button(WishingWell.runTitle(panes: panes)) { done(.run(fill.command)) }
+                .buttonStyle(.wrld(.primary))
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(!fill.isComplete)
         }
-        .padding(20)
-        .frame(width: 480)
     }
 
     private func value(_ name: String) -> Binding<String> {
@@ -106,36 +121,42 @@ struct SaveSnippetView: View {
     let save: @MainActor (Snippet) -> Bool
     let done: @MainActor () -> Void
     @State private var problem: String? = nil
+    @Environment(\.legends) private var palette
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Form {
-                TextField("Name", text: $name)
-                LabeledContent("Command") {
-                    TextEditor(text: $text)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(minHeight: 72)
-                }
+        SheetLayout(symbol: "chevron.right.2", title: "Save to Wishing Well") {
+            LabeledField("Name") {
+                TextField("deploy", text: $name).wrldField()
             }
-            .formStyle(.grouped)
-            Text("Write {{name}} where the command should ask for a value each time.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            LabeledField("Command") {
+                // A set height: a text editor scrolls, so it asks for none of its own.
+                TextEditor(text: $text)
+                    .font(.system(size: 13, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .padding(6)
+                    .frame(height: 88)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(palette.groundDeep))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(
+                            palette.lineStrong, lineWidth: 1))
+                Text(
+                    "{{name}} asks for a value each time; {{env:prod|staging}} offers choices; {{version=2.4.1}} has a default."
+                )
+                .font(.system(size: 11)).foregroundStyle(palette.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
+            }
             if let problem {
-                Text(problem).font(.callout).foregroundStyle(.red)
+                Text(problem).font(.system(size: 12, weight: .medium)).foregroundStyle(palette.danger)
             }
-            HStack {
-                Spacer()
-                Button("Cancel") { done() }
-                    .keyboardShortcut(.cancelAction)
-                Button("Save", action: submit)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(isBlank(name) || isBlank(text))
-            }
+        } buttons: {
+            Button("Cancel") { done() }
+                .buttonStyle(.wrld(.ghost))
+                .keyboardShortcut(.cancelAction)
+            Button("Save", action: submit)
+                .buttonStyle(.wrld(.primary))
+                .keyboardShortcut(.defaultAction)
+                .disabled(isBlank(name) || isBlank(text))
         }
-        .padding(20)
-        .frame(width: 480)
     }
 
     private func isBlank(_ text: String) -> Bool { text.allSatisfy(\.isWhitespace) }

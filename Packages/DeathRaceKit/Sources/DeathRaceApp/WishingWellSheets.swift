@@ -7,7 +7,7 @@ import Vault
 /// one already: a snippet's fields, or a selection being saved.
 @MainActor
 final class WishingWellSheet {
-    private let panel: NSPanel
+    let panel: NSPanel
     private weak var parent: NSWindow?
 
     init(title: String, parent: NSWindow?) {
@@ -19,7 +19,11 @@ final class WishingWellSheet {
     }
 
     func show(_ view: some View) {
-        panel.contentViewController = NSHostingController(rootView: view)
+        // The panel's size, not the view's, for the reason NewHostSheet gives: a grouped Form
+        // asks for almost no height, and its fields would go with it.
+        let content = NSHostingView(rootView: view)
+        content.sizingOptions = [.minSize]
+        panel.contentView = content
         if let parent, parent.attachedSheet == nil {
             parent.beginSheet(panel)
         } else {

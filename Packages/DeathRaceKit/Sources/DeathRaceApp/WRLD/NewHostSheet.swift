@@ -7,7 +7,7 @@ import Vault
 /// Adding opens the host in a new tab of that window.
 @MainActor
 final class NewHostSheet {
-    private let panel: NSPanel
+    let panel: NSPanel
     private weak var parent: NSWindow?
 
     /// `add` saves the host and returns its id, or says what's wrong. `finished` hears once
@@ -29,7 +29,12 @@ final class NewHostSheet {
                 self?.close()
                 finished(id)
             })
-        panel.contentViewController = NSHostingController(rootView: view)
+        // The panel's size, not the view's. The fields are in a grouped Form, which scrolls and
+        // so asks for almost no height of its own: sized to the view, the sheet was only its
+        // buttons. As in Settings, the view sets the smallest size and no more.
+        let content = NSHostingView(rootView: view)
+        content.sizingOptions = [.minSize]
+        panel.contentView = content
     }
 
     func show() {

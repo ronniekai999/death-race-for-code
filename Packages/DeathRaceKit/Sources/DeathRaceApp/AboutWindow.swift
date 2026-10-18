@@ -44,7 +44,7 @@ struct AboutView: View {
                 Text("Death Race for Code")
                     .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(Legends.ink)
-                Text("Version \(DeathRaceApplication.version)")
+                Text("Version \(DeathRaceApplication.versionAndBuild)")
                     .font(.system(size: 12))
                     .foregroundStyle(Legends.inkMuted)
                 Text("A native terminal for macOS.")

@@ -1,0 +1,68 @@
+name: Beta feedback
+description: Something in a beta build that broke, confused you, or could be better.
+labels: ["beta"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing. [BETA.md](https://github.com/ronniekai999/death-race-for-code/blob/main/docs/BETA.md) lists the known issues.
+        Review logs and files before you paste them: host names, snippets and paths can be sensitive.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of feedback is this?
+      options:
+        - Something broke or behaved wrongly
+        - Something was confusing
+        - Slow, laggy, or used a lot of battery
+        - A suggestion
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: From Death Race › About Death Race for Code.
+      placeholder: 0.1.0 (1)
+    validations:
+      required: true
+  - type: input
+    id: mac
+    attributes:
+      label: macOS version and Mac
+      description: "`sw_vers -productVersion`, and the model from Apple menu › About This Mac."
+      placeholder: 26.1, MacBook Pro 14-inch (M4 Pro)
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where
+      multiple: true
+      options:
+        - Terminal text, rendering, or fonts
+        - Tabs, splits, or windows
+        - Command palette (Hear Me Calling)
+        - WRLD hosts, SSH, or Keychain
+        - Maze file transfers
+        - Lucid Dreams quick terminal
+        - Sessions after quitting (Legends Never Die)
+        - Command marks, find, or notifications
+        - Settings or themes
+        - Installing or opening the app
+        - Something else
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead. Screenshots help.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Optional. `log show --last 15m --style compact --predicate 'subsystem == "local.deathraceforcode.DeathRace"'`
+        and, for kept sessions, `~/.deathrace/run/legendsd.log`.
+      render: text

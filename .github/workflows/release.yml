@@ -1,7 +1,8 @@
 name: release
 on:
   push:
-    tags: ["v*.*.*"]
+    # Not v0.1.0-beta.1 and the like: those are beta.yml's, ad-hoc and never notarized.
+    tags: ["v*.*.*", "!v*.*.*-*"]
   workflow_dispatch:
     inputs:
       tag:

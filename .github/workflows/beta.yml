@@ -1,0 +1,155 @@
+name: beta
+
+# A build to put in testers' hands: release-optimized, ad-hoc signed, and attached to a GitHub
+# prerelease with its checksum. It is not notarized; that is the release workflow, and it needs
+# Developer ID credentials. So testers clear the download's quarantine once (docs/BETA.md), and
+# because an ad-hoc signature changes with every build, Keychain and privacy approvals are
+# asked for again after each update.
+#
+# Cut one from the Actions tab (Run workflow on main, with a tag such as v0.1.0-beta.1), or push
+# that tag. The tests ran on the commit in macos.yml; this checks the bundle testers get. A pull
+# request that changes this file runs everything except the publishing.
+
+on:
+  push:
+    tags: ["v*.*.*-beta.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Beta tag; created on the chosen branch if it does not exist (v0.1.0-beta.1)
+        required: true
+  pull_request:
+    paths:
+      - ".github/workflows/beta.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: beta-${{ github.event.inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  beta:
+    name: bundle, check, publish a prerelease
+    runs-on: macos-26
+    timeout-minutes: 40
+    env:
+      # A pull request has no tag of its own: it builds as beta 0 and publishes nothing.
+      BETA_TAG: ${{ github.event.inputs.tag || (github.event_name == 'push' && github.ref_name) || 'v0.1.0-beta.0' }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: The tag and the commit
+        id: tag
+        run: |
+          set -euo pipefail
+          [[ "$BETA_TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)-beta\.([0-9]+)$ ]] \
+            || { echo "::error::A beta tag looks like v0.1.0-beta.1, not $BETA_TAG."; exit 1; }
+          version="${BASH_REMATCH[1]}"
+          # An existing tag is what gets built, whichever branch the run was started from, so a
+          # re-run publishes the same commit.
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] \
+            && git ls-remote --exit-code --tags origin "refs/tags/$BETA_TAG" >/dev/null; then
+            git fetch --depth=1 origin "refs/tags/$BETA_TAG:refs/tags/$BETA_TAG"
+            git checkout --detach "$BETA_TAG"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "name=Death-Race-for-Code-${BETA_TAG#v}" >> "$GITHUB_OUTPUT"
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+      - uses: actions/cache@v4
+        with:
+          path: Packages/DeathRaceKit/.build
+          key: spm-macos-26-release-${{ hashFiles('Packages/DeathRaceKit/Package.swift') }}-${{ steps.tag.outputs.sha }}
+          restore-keys: spm-macos-26-release-${{ hashFiles('Packages/DeathRaceKit/Package.swift') }}-
+      - uses: actions/cache@v4
+        with:
+          path: build/fonts-cache
+          key: fonts-${{ hashFiles('scripts/fetch-fonts.sh') }}
+      # "-" rather than whatever the runner holds: a beta is ad-hoc on purpose, and saying so
+      # keeps a stray identity from making one build differ from the next.
+      - name: Bundle, release-optimized and ad-hoc signed
+        timeout-minutes: 25
+        env:
+          SIGN_IDENTITY: "-"
+          CONFIG: release
+          APP_VERSION: ${{ steps.tag.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: scripts/bundle.sh
+      # The version a tester reports from About is read from the Info.plist bundle.sh stamped,
+      # so the banner proves that path on the bundle itself.
+      - name: Smoke test the bundled app
+        timeout-minutes: 2
+        env:
+          EXPECTED: Death Race ${{ steps.tag.outputs.version }} (${{ github.run_number }}) smoke test
+        run: |
+          set -o pipefail
+          "build/Death Race for Code.app/Contents/MacOS/DeathRace" --smoke-test --write-frame build/smoke-frame.png \
+            | tee build/smoke.log
+          grep -Fx "$EXPECTED" build/smoke.log >/dev/null \
+            || { echo "::error::The bundle does not report the version and build it was stamped with: $EXPECTED"; exit 1; }
+      - name: Signatures and helpers
+        run: |
+          set -euo pipefail
+          app="build/Death Race for Code.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv "$app/Contents/MacOS/deathrace-askpass" 2>&1 \
+            | grep -x "Identifier=local.deathraceforcode.deathrace-askpass" >/dev/null
+          codesign -dv "$app/Contents/MacOS/legendsd" 2>&1 \
+            | grep -x "Identifier=local.deathraceforcode.legendsd" >/dev/null
+          # The spike's helper and LaunchAgent are a debug investigation, never something to ship.
+          [[ ! -e "$app/Contents/MacOS/legendsd-spike" && ! -e "$app/Contents/Library/LaunchAgents" ]] \
+            || { echo "::error::The privacy spike's helper is in a beta bundle."; exit 1; }
+          echo "architectures: $(lipo -archs "$app/Contents/MacOS/DeathRace")"
+      - name: Zip and checksum
+        run: |
+          set -euo pipefail
+          name="${{ steps.tag.outputs.name }}"
+          ditto -c -k --keepParent "build/Death Race for Code.app" "build/$name.zip"
+          (cd build && shasum -a 256 "$name.zip" > "$name.zip.sha256")
+          cat "build/$name.zip.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.tag.outputs.name }}
+          path: |
+            build/${{ steps.tag.outputs.name }}.zip
+            build/${{ steps.tag.outputs.name }}.zip.sha256
+            build/smoke-frame.png
+          retention-days: 30
+      # A prerelease rather than a draft: testers download it as soon as it exists, and GitHub
+      # never marks it the latest release. A re-run replaces the files on the same release.
+      - name: Publish the prerelease
+        if: github.event_name != 'pull_request'
+        env:
+          NAME: ${{ steps.tag.outputs.name }}
+          SHA: ${{ steps.tag.outputs.sha }}
+          VERSION: ${{ steps.tag.outputs.version }}
+          BUILD: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          cat > build/notes.md <<EOF
+          Beta ${BETA_TAG#v}: About shows **${VERSION} (${BUILD})**. Built from \`${SHA:0:12}\`.
+
+          **Apple silicon, macOS 26 or later.** This beta is **not notarized**, so macOS needs one step before the first launch. From Terminal, after downloading the zip:
+
+          \`\`\`sh
+          ditto -x -k ~/Downloads/${NAME}.zip /Applications
+          xattr -dr com.apple.quarantine "/Applications/Death Race for Code.app"
+          open "/Applications/Death Race for Code.app"
+          \`\`\`
+
+          Install, what to try, and the known issues: [BETA.md](https://github.com/${GITHUB_REPOSITORY}/blob/${SHA}/docs/BETA.md).
+          Found something? [Send beta feedback](https://github.com/${GITHUB_REPOSITORY}/issues/new?template=beta-feedback.yml).
+          EOF
+          if gh release view "$BETA_TAG" >/dev/null 2>&1; then
+            gh release upload "$BETA_TAG" --clobber "build/$NAME.zip" "build/$NAME.zip.sha256"
+          else
+            gh release create "$BETA_TAG" --prerelease --target "$SHA" \
+              --title "Death Race for Code ${BETA_TAG#v}" --notes-file build/notes.md \
+              "build/$NAME.zip" "build/$NAME.zip.sha256"
+          fi

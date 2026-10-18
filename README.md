@@ -29,6 +29,10 @@ with MenuGlance.
 > covered by portable and native CI; hands-on Mac acceptance remains open. A Developer ID
 > signing and notarization workflow is prepared, with distribution acceptance still to do.
 > See the [implementation review](docs/IMPLEMENTATION-REVIEW.md) for evidence and next steps.
+>
+> **Beta builds** for Apple silicon are on the
+> [Releases page](https://github.com/ronniekai999/death-race-for-code/releases): ad-hoc signed,
+> not yet notarized. [BETA.md](docs/BETA.md) covers installing, what to try and how to report.
 
 | Legends Never Die | Righteous |
 | --- | --- |

@@ -30,3 +30,16 @@ artifact and creates a **draft** GitHub release. Publishing remains a separate d
 after [MAC-ACCEPTANCE.md](MAC-ACCEPTANCE.md) passes. No certificate or real notarization
 result is available from Linux verification alone. Existing notarized release drafts need
 their artifact/acceptance evidence reviewed before publication.
+
+## Beta builds
+
+A beta needs no Apple credentials and no acceptance pass: it is for finding what the pass
+would. The `beta` workflow builds the release configuration, signs it ad-hoc, smoke-tests the
+bundle, and publishes a GitHub **prerelease** with the zip, its SHA-256 and install steps
+pointing at [BETA.md](BETA.md). From the Actions tab, run **beta** on `main` with a tag such as
+`v0.1.0-beta.1`; the tag is created on that commit. Pushing the tag does the same. The bundle
+reports the tag's version, with the workflow's run number as its build, in About.
+
+Cut betas from a commit that macOS CI has passed: the beta workflow checks the bundle, not the
+test suite. Increment the beta number for each new build. A re-run of an existing tag rebuilds
+that tag's commit and replaces its files. Beta tags never start the notarized release workflow.

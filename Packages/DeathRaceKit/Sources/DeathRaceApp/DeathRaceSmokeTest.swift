@@ -31,7 +31,7 @@ public enum DeathRaceSmokeTest {
 
     @MainActor
     public static func run(arguments: [String] = CommandLine.arguments) -> Int32 {
-        print("Death Race \(DeathRaceApplication.version) smoke test")
+        print("Death Race \(DeathRaceApplication.versionAndBuild) smoke test")
         let launch = ShellLaunch(
             executable: "/bin/zsh",
             arguments: ["zsh", "-f"],

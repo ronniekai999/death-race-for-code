@@ -176,6 +176,79 @@ extension View {
     }
 }
 
+/// A field under its label, as the inspector stacks them.
+struct LabeledField<Content: View>: View {
+    let label: String
+    let content: Content
+
+    init(_ label: String, @ViewBuilder content: () -> Content) {
+        self.label = label
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            FieldLabel(label)
+            content
+        }
+    }
+}
+
+/// A sheet in the board's style: a title row with its tile, the fields, and the buttons along
+/// the bottom on the deep ground. Nothing in it scrolls, so it is exactly as tall as its fields
+/// and the panel can fit it (a grouped Form asks for no height, and took the fields with it).
+struct SheetLayout<Fields: View, Buttons: View>: View {
+    let symbol: String
+    let title: String
+    let subtitle: String?
+    let fields: Fields
+    let buttons: Buttons
+    @Environment(\.legends) private var palette
+
+    init(
+        symbol: String, title: String, subtitle: String? = nil, @ViewBuilder fields: () -> Fields,
+        @ViewBuilder buttons: () -> Buttons
+    ) {
+        self.symbol = symbol
+        self.title = title
+        self.subtitle = subtitle
+        self.fields = fields()
+        self.buttons = buttons()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                Tile(symbol: symbol)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.system(size: 15, weight: .bold)).foregroundStyle(palette.ink)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.system(size: 12)).foregroundStyle(palette.inkFaint)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 16)
+            Rectangle().fill(palette.line).frame(height: 1)
+            VStack(alignment: .leading, spacing: 14) { fields }
+                .padding(20)
+            Rectangle().fill(palette.line).frame(height: 1)
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                buttons
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .background(palette.groundDeep)
+        }
+        .frame(width: 460)
+        .background(palette.ground)
+    }
+}
+
 /// Lays its views out left to right, starting a new line when one is full: chips.
 struct FlowLayout: Layout {
     var spacing: CGFloat = 6

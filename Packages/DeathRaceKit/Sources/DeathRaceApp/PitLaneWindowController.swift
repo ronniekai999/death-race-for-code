@@ -1106,7 +1106,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             connections.used(id)
             return typeSnippet(fill.command, run: run)
         }
-        let sheet = WishingWellSheet(title: snippet.name, parent: window)
+        let sheet = WishingWellSheet(title: snippet.name, parent: window, chrome: chrome)
         wishingWellSheet = sheet
         sheet.show(
             SnippetFillView(name: snippet.name, panes: snippetTargets.count, fill: fill) { [weak self, weak sheet] in
@@ -1153,7 +1153,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             guard let selected = await pane.surface.selectedText(), !selected.allSatisfy(\.isWhitespace) else {
                 return
             }
-            let sheet = WishingWellSheet(title: "Save to Wishing Well", parent: window)
+            let sheet = WishingWellSheet(title: "Save to Wishing Well", parent: window, chrome: chrome)
             wishingWellSheet = sheet
             sheet.show(
                 SaveSnippetView(
@@ -1172,7 +1172,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     @objc func saveCommandToWishingWell(_ sender: Any?) {
         guard let pane = pane(of: sender), let connections = host?.connections else { return }
         guard let command = pane.lastCommand?.text, !command.allSatisfy(\.isWhitespace) else { return }
-        let sheet = WishingWellSheet(title: "Save to Wishing Well", parent: window)
+        let sheet = WishingWellSheet(title: "Save to Wishing Well", parent: window, chrome: chrome)
         wishingWellSheet = sheet
         sheet.show(
             SaveSnippetView(

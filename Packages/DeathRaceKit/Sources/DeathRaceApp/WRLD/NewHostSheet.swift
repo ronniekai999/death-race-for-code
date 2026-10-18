@@ -1,4 +1,5 @@
 import AppKit
+import LegendsUI
 import SSHKit
 import SwiftUI
 import Vault
@@ -7,13 +8,13 @@ import Vault
 /// Adding opens the host in a new tab of that window.
 @MainActor
 final class NewHostSheet {
-    private let panel: NSPanel
+    let panel: NSPanel
     private weak var parent: NSWindow?
 
     /// `add` saves the host and returns its id, or says what's wrong. `finished` hears once
     /// the sheet is gone: the new host's id, or nil when cancelled.
     init(
-        jumpHosts: [(id: HostID, name: String)], parent: NSWindow?,
+        jumpHosts: [(id: HostID, name: String)], parent: NSWindow?, chrome: Chrome,
         add: @escaping @MainActor (HostDraft) async -> Result<HostID, WRLDService.AddFailure>,
         finished: @escaping @MainActor (HostID?) -> Void
     ) {
@@ -22,6 +23,8 @@ final class NewHostSheet {
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 420), styleMask: [.titled], backing: .buffered,
             defer: false)
         panel.title = "New Host"
+        panel.appearance = chrome.appearance
+        panel.backgroundColor = chrome.colors.ground.nsColor
         let view = NewHostView(
             jumpHosts: jumpHosts.map { NewHostView.JumpHost(id: $0.id, name: $0.name) },
             add: add,
@@ -29,7 +32,12 @@ final class NewHostSheet {
                 self?.close()
                 finished(id)
             })
-        panel.contentViewController = NSHostingController(rootView: view)
+        // The panel fits the view, which has a height of its own now that nothing in it
+        // scrolls, and follows it as rows come and go: the key file's, a problem.
+        let content = NSHostingView(rootView: view.environment(\.legends, LegendsPalette(chrome)))
+        content.sizingOptions = [.minSize, .intrinsicContentSize, .maxSize]
+        panel.contentView = content
+        panel.setContentSize(content.fittingSize)
     }
 
     func show() {
@@ -50,7 +58,8 @@ final class NewHostSheet {
     }
 }
 
-/// The fields, as the WRLD board's inspector words them.
+/// The fields, as the WRLD board's inspector lays them out: each under its label, User and
+/// Port side by side.
 struct NewHostView: View {
     struct JumpHost: Identifiable, Hashable {
         let id: HostID
@@ -71,61 +80,96 @@ struct NewHostView: View {
     @State private var keyFile = ""
     @State private var problem: String? = nil
     @State private var working = false
+    @FocusState private var nameFocused: Bool
+    @Environment(\.legends) private var palette
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Form {
-                TextField("Name", text: $draft.name, prompt: Text("prod-api"))
-                TextField("Address", text: $draft.address, prompt: Text("10.0.4.21 or server.example.com"))
-                TextField("User", text: $draft.user, prompt: Text("Your name on this Mac"))
-                TextField("Port", text: $draft.port, prompt: Text("22"))
-                Picker("Jump host", selection: $draft.jumpHostID) {
-                    Text("None").tag(HostID?.none)
-                    ForEach(jumpHosts) { host in
-                        Text(host.name).tag(HostID?.some(host.id))
-                    }
+        SheetLayout(
+            symbol: "server.rack", title: "New host",
+            subtitle: "Saved in WRLD on this Mac. Your ~/.ssh/config isn’t changed."
+        ) {
+            LabeledField("Name") {
+                TextField("prod-api", text: $draft.name).wrldField().focused($nameFocused)
+            }
+            LabeledField("Address") {
+                TextField("10.0.4.21 or server.example.com", text: $draft.address).wrldField(monospaced: true)
+            }
+            HStack(alignment: .top, spacing: 10) {
+                LabeledField("User") {
+                    TextField("Your name on this Mac", text: $draft.user).wrldField(monospaced: true)
                 }
-                Picker("Sign in with", selection: $signIn) {
-                    Text("Automatic").tag(SignInChoice.automatic)
-                    Text("A new Secure Enclave key").tag(SignInChoice.secureEnclave)
-                    Text("A key file").tag(SignInChoice.keyFile)
+                LabeledField("Port") {
+                    TextField("22", text: $draft.port).wrldField(monospaced: true)
                 }
-                if signIn == .keyFile {
-                    HStack {
-                        TextField("Key file", text: $keyFile, prompt: Text("~/.ssh/id_ed25519"))
-                        Button("Choose…", action: chooseKeyFile)
+                .frame(width: 90)
+            }
+            LabeledField("Sign in with") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Picker("Sign in with", selection: $signIn) {
+                        Text("Automatic").tag(SignInChoice.automatic)
+                        Text("Secure Enclave key").tag(SignInChoice.secureEnclave)
+                        Text("Key file").tag(SignInChoice.keyFile)
                     }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    signInDetail
                 }
             }
-            .formStyle(.grouped)
-            if signIn == .secureEnclave {
-                Text(
-                    """
-                    The key is made in this Mac’s Secure Enclave and never leaves it: it can’t be \
-                    backed up or moved to another Mac. Touch ID asks now, and at each login, where \
-                    macOS calls it “ctccardtoken”. The first connection signs in as usual and puts \
-                    the key on the server. Servers need OpenSSH 8.2 or later.
-                    """
-                )
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            // A jump host is one of WRLD's own; with none yet there is nothing to choose.
+            if !jumpHosts.isEmpty {
+                LabeledField("Jump host") {
+                    Picker("Jump host", selection: $draft.jumpHostID) {
+                        Text("None").tag(HostID?.none)
+                        ForEach(jumpHosts) { host in
+                            Text(host.name).tag(HostID?.some(host.id))
+                        }
+                    }
+                    .labelsHidden()
+                }
             }
             if let problem {
-                Text(problem).font(.callout).foregroundStyle(.red)
+                Text(problem)
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(palette.danger)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            HStack {
-                if working { ProgressView().controlSize(.small) }
-                Spacer()
-                Button("Cancel") { done(nil) }
-                    .keyboardShortcut(.cancelAction)
-                Button("Add Host", action: submit)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(working)
+        } buttons: {
+            if working { ProgressView().controlSize(.small) }
+            Button("Cancel") { done(nil) }
+                .buttonStyle(.wrld(.plain))
+                .keyboardShortcut(.cancelAction)
+            Button("Add host", action: submit)
+                .buttonStyle(.wrld(.primary))
+                .keyboardShortcut(.defaultAction)
+                .disabled(working)
+        }
+        .onAppear { nameFocused = true }
+    }
+
+    /// What the chosen way of signing in means, or the key file to use.
+    @ViewBuilder private var signInDetail: some View {
+        switch signIn {
+        case .automatic:
+            note("Your ssh agent and keys, then a password if the server asks for one.")
+        case .secureEnclave:
+            note(
+                """
+                The key is made in this Mac’s Secure Enclave and never leaves it: it can’t be \
+                backed up or moved to another Mac. Touch ID asks now, and at each login, where \
+                macOS calls it “ctccardtoken”. The first connection signs in as usual and puts \
+                the key on the server. Servers need OpenSSH 8.2 or later.
+                """)
+        case .keyFile:
+            HStack(spacing: 8) {
+                TextField("~/.ssh/id_ed25519", text: $keyFile).wrldField(monospaced: true)
+                Button("Choose…", action: chooseKeyFile).buttonStyle(.wrld(.plain))
             }
         }
-        .padding(20)
-        .frame(width: 460)
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11.5)).foregroundStyle(palette.inkMuted)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private func submit() {

@@ -364,7 +364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         guard let wrld, newHostSheet == nil else { return }
         let parent = NSApp.keyWindow ?? NSApp.mainWindow
         let sheet = NewHostSheet(
-            jumpHosts: wrld.jumpHostChoices, parent: parent,
+            jumpHosts: wrld.jumpHostChoices, parent: parent, chrome: Chrome(configStore.config.namedTheme),
             add: { draft in
                 // Name the thrown type: a closure doesn't infer it, so `error` would be
                 // `any Error` and wouldn't fit `Result<_, WRLDService.AddFailure>`.

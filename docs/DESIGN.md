@@ -241,6 +241,13 @@ start: the list on the left, host cards in the middle and, for the host you pick
 inspector on the right. Its buttons come in four kinds: primary (on the gradient), plain (on
 `surface`), ghost (text alone) and destructive (`danger` text on `surface`).
 
+**Sheets** (New Host, and Wishing Well's fill and save) are 460 pt wide on `ground`, in the
+theme's appearance: a title row with its tile and a line of `inkFaint` help, a 1 px `line`,
+the fields as the inspector stacks them (each under its spaced-out label, on `groundDeep` with
+a `lineStrong` border, monospaced for addresses and commands), another line, then the buttons
+on the right of a `groundDeep` band: ghost Cancel, then the primary. Nothing in a sheet
+scrolls, so it is exactly as tall as its fields and grows when a row appears.
+
 **Armed and Dangerous** swaps the focused pane's neon for the armed stops on *every* armed
 pane, so the tab can't be mistaken for an ordinary one:
 - the banner across the tab, on `armedTint`, names where typing goes and how to stop;

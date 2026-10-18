@@ -15,8 +15,8 @@ extension TerminalSurfaceView {
         return selection.range
     }
 
-    /// Whether `x`, in this view's points, is on a block's rail — the few pixels of chrome down
-    /// the left edge of each command.
+    /// Whether `x`, in this view's points, is where a rail is drawn — the few pixels of chrome
+    /// down the left edge of a failed command.
     ///
     /// The rail is drawn in the `Frame` rather than as a view, so there is nothing to hit-test
     /// against; this is the same arithmetic `FrameBuilder` draws it with, which is why the
@@ -37,12 +37,12 @@ extension TerminalSurfaceView {
         // and `TerminalUI` has no business knowing the answer. Plain clicks only — a Shift-click
         // is extending a selection, and an Option-drag is a rectangle.
         //
-        // And only where a rail is actually drawn. The hit zone is a point or two wide, so a
-        // terminal with no integration would otherwise swallow every click on the first pixel
-        // of column 0 and do nothing with it.
+        // And only where a rail is actually drawn, beside a failed command. The hit zone is a
+        // point or two wide, so anywhere else it would swallow every click on the first pixel of
+        // column 0 and do nothing visible with it. ⇧⌘A selects any block.
         if let onRailClick, event.clickCount == 1, flags.isDisjoint(with: [.shift, .option]),
             isOnRail(x: Double(location.x)),
-            Blocks.runs(in: mirror).contains(where: { $0.lines.contains(point.line) })
+            Blocks.runs(in: mirror).contains(where: { $0.failed == true && $0.lines.contains(point.line) })
         {
             onRailClick(point.line)
             return

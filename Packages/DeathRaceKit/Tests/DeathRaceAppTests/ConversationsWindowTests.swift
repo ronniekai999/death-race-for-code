@@ -14,9 +14,14 @@ import VTCore
 extension WindowTests {
 
     /// What a shell with the integration installed sends for one command.
-    private func transcript(_ text: String, exit: Int32 = 0, milliseconds: UInt32 = 12_400) -> String {
-        "\u{1B}]133;A\u{7}$ \(text)\u{1B}]133;B\u{7}\u{1B}]633;E;\(text)\u{7}\u{1B}]133;C\u{7}"
-            + "\u{1B}]133;D;\(exit);dur=\(milliseconds)\u{7}"
+    /// What a shell sends for one command: the prompt, Return's newline, the command and its
+    /// output, then `D` at the start of the next row, from the hook that draws the next prompt.
+    /// A following prompt goes straight after it, on that row, as zsh, bash and fish draw it.
+    private func transcript(
+        _ text: String, output: [String] = [], exit: Int32 = 0, milliseconds: UInt32 = 12_400
+    ) -> String {
+        "\u{1B}]133;A\u{7}$ \(text)\u{1B}]133;B\u{7}\r\n\u{1B}]633;E;\(text)\u{7}\u{1B}]133;C\u{7}"
+            + output.map { $0 + "\r\n" }.joined() + "\u{1B}]133;D;\(exit);dur=\(milliseconds)\u{7}"
     }
 
     // MARK: - What the bar says about the last command
@@ -65,10 +70,13 @@ extension WindowTests {
         let session = try #require(pane.session as? FakeSession)
         let surface = pane.surface
 
-        session.replay.feed(transcript("swift build", milliseconds: 12_400) + "\r\n")
+        // The next prompt on the row `D` arrived on, as a shell draws it: the line the bar keeps
+        // is that row, and the command it is about is the prompt above it.
+        session.replay.feed(transcript("swift build", milliseconds: 12_400) + "\u{1B}]133;A\u{7}$ ")
         surface.sessionDidUpdate()
         await eventually { pane.lastCommandLine != nil }
         let line = try #require(pane.lastCommandLine)
+        let command = line - 1
 
         // Pushed off the top, so coming back to it is a real move rather than a no-op.
         //
@@ -91,9 +99,11 @@ extension WindowTests {
         // frame: the query and the scroll both happen on a task this test has to let run.
         await eventually {
             surface.sessionDidUpdate()
-            return surface.model?.mirror.viewportTopLine == line
+            return surface.model?.mirror.viewportTopLine == command
         }
-        #expect(surface.model?.mirror.viewportTopLine == line, "the command's own line is not at the top")
+        #expect(
+            surface.model?.mirror.viewportTopLine == command,
+            "the command's own line is not at the top; the next prompt's would be \(line)")
     }
 
     // MARK: - Ring Ring
@@ -196,7 +206,7 @@ extension WindowTests {
     // MARK: - Selecting a command
 
     /// A click on the rail selects the whole block: the command and its output, and nothing of
-    /// the next one.
+    /// the next one. Only a failed command has a rail, so this one fails.
     @Test func aClickOnTheRailSelectsTheCommandAndItsOutput() async throws {
         let host = TestHost()
         let controller = makeWindow(host)
@@ -205,7 +215,8 @@ extension WindowTests {
         let session = try #require(pane.session as? FakeSession)
         let surface = pane.surface
 
-        session.replay.feed(transcript("make") + "\r\nfirst\r\nsecond\r\n" + transcript("ls", milliseconds: 5))
+        session.replay.feed(
+            transcript("make", output: ["first", "second"], exit: 2) + transcript("ls", milliseconds: 5))
         surface.sessionDidUpdate()
         await eventually { surface.model?.mirror.generation != nil }
 

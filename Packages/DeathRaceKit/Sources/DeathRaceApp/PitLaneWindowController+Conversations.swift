@@ -58,7 +58,12 @@ extension PitLaneWindowController {
             guard let span = await session?.promptSpan(at: line, generation: generation),
                 let now = pane.surface.model?.mirror, now.generation == generation
             else { return }
-            let lines = Blocks.scroll(toPut: span.lines.lowerBound, atTopOf: now)
+            // `line` is where the command's `D` arrived. The shell sends it from the hook that
+            // draws the next prompt, so it is usually that prompt's own row, and the command it
+            // ended is the block above.
+            guard let target = span.lines.lowerBound == line ? span.previousPrompt : span.lines.lowerBound
+            else { return }
+            let lines = Blocks.scroll(toPut: target, atTopOf: now)
             if lines != 0 { session?.scroll(by: lines) }
         }
     }

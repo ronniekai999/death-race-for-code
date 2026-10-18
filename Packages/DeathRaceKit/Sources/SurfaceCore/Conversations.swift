@@ -9,8 +9,8 @@ import VTCore
 /// which is the common case. What makes a line-bounded run enough is that the command's own text
 /// no longer has to be recovered from the screen: the shell sends it (`OSC 633;E`).
 public struct BlockRun: Sendable, Equatable {
-    /// From the line its prompt started on to the line before the next prompt — or to the last
-    /// line in view, for the block you are typing in.
+    /// From the line its prompt started on to the line before the next prompt — or, for the
+    /// block you are typing in, to the cursor or the last line written below it.
     public var lines: ClosedRange<UInt64>
     /// What the shell said about the command that ended in it: nil while it is still running,
     /// and nil for every block when no integration is installed.
@@ -72,24 +72,55 @@ public enum Blocks {
         var bounds: [ClosedRange<UInt64>] = []
         if first > top { bounds.append(top...(first - 1)) }
         for (index, start) in starts.enumerated() {
-            let end = index + 1 < starts.count ? starts[index + 1] - 1 : last
+            // The block being typed in ends at the cursor, or lower if something was written
+            // below it — not at the bottom of the screen. The rows under a prompt are empty, and
+            // a band down them marks nothing. Scrolled back, the cursor is below the view and
+            // the block runs to its last line, which is right: it does go on.
+            let end =
+                index + 1 < starts.count
+                ? starts[index + 1] - 1 : min(last, max(cursorLine, lastWritten(in: mirror, from: start, to: last)))
             if start <= end { bounds.append(start...end) }
         }
 
-        return bounds.map { range in
-            BlockRun(lines: range, command: command(in: range, of: mirror), isCurrent: range.contains(cursorLine))
+        return bounds.enumerated().map { index, range in
+            let next = index + 1 < bounds.count ? bounds[index + 1].lowerBound : nil
+            return BlockRun(
+                lines: range, command: command(in: range, before: next, of: mirror),
+                isCurrent: range.contains(cursorLine))
         }
     }
 
-    /// The command record in a block: the last one, because the engine takes marks from the
-    /// stream by design and cannot tell whose bytes they are — a program that printed a mark of
-    /// its own earlier is overruled by the shell's, which always comes after the output.
-    private static func command(in lines: ClosedRange<UInt64>, of mirror: MirrorGrid) -> CommandRecord? {
+    /// The record of the command a block holds.
+    ///
+    /// The shell sends `D` from the hook that draws the next prompt, so it lands at the start of
+    /// that prompt's row: a block's record is on the row the next block starts on, and one on a
+    /// block's own prompt row is the block above's (after `clear`, a command no longer on screen).
+    /// Otherwise the last one wins, because the engine takes marks from the stream by design and
+    /// cannot tell whose bytes they are — a mark a program printed is overruled by the shell's,
+    /// which always comes after the output.
+    private static func command(
+        in lines: ClosedRange<UInt64>, before next: UInt64?, of mirror: MirrorGrid
+    ) -> CommandRecord? {
         var found: CommandRecord?
         for line in lines {
-            if let command = mirror.line(line)?.command { found = command }
+            guard let row = mirror.line(line), let command = row.command else { continue }
+            if line == lines.lowerBound, row.promptMarks.contains(.promptStart) { continue }
+            found = command
+        }
+        if let next, let row = mirror.line(next), row.promptMarks.contains(.promptStart), let command = row.command {
+            found = command
         }
         return found
+    }
+
+    /// The last line from `start` to `end` with anything written on it, or `start`.
+    private static func lastWritten(in mirror: MirrorGrid, from start: UInt64, to end: UInt64) -> UInt64 {
+        var line = end
+        while line > start {
+            if let row = mirror.line(line), row.cells.contains(where: { !$0.isEmpty }) { return line }
+            line -= 1
+        }
+        return start
     }
 }
 

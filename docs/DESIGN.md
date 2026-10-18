@@ -162,15 +162,22 @@ A command and its output, marked on the ordinary grid rather than boxed into a c
 
 | Part | How |
 | --- | --- |
-| the rail | one filled bar, `cell.underlineThickness` wide, down the whole block at column 0 |
-| the band | the terminal's background mixed toward `surface`, on the block holding the cursor only |
+| the rail | a failed command only: one `danger` bar, `cell.underlineThickness` wide, down its block at column 0 |
+| the band | the terminal's background mixed toward `surface`, on the block holding the cursor only, to the cursor |
 | the badge | right-aligned gradient text on the command's own line, for the ones worth a word |
 | the pill's fill | a 3 pt bar along the bottom of a tab pill, clipped to its shape |
 
-**The rail is neutral on success and `danger` only on a failure.** A fast successful command
-gets no badge, so a cyan rail would be colour with no word beside it, which the rules above
-forbid; and a failure always has a badge, so the ✗ is always there when the danger colour is.
-The rail says "this is a command", and how it went is said where there are words.
+**Only a failure has a rail, in `danger`.** A failure always has a badge, so the ✗ is always
+beside the danger colour. A neutral rail on every block was tried first: blocks touch, so the
+rails joined into one line from the top of the screen to the prompt, which read as a stray line
+rather than a mark. A command that went well says so in its badge, or by having nothing to say.
+
+**A command's outcome is its own.** The shell sends `D` from the hook that draws the next prompt,
+so it lands at the start of that prompt's row. The outcome on a prompt's row belongs to the block
+above it; read as the next block's, a failure's ✗ and rail sat beside a command that had worked.
+
+**The block you are typing in ends at the cursor**, or lower if something was written below it.
+The rows under a prompt are empty, and a band down to the bottom of the screen marked nothing.
 
 **The band marks the block you are in, and nothing else.** One band reads as "here"; twenty read
 as stripes. It is mixed into the background cell by cell, keeping each cell's own top byte, so

@@ -753,7 +753,7 @@ single-use attach token good for ten seconds, 4 KiB of placement.
 ### Conversations, Fast and Ring Ring
 
 A command and its output told apart, how long each one took, and a word when a long one
-finishes. **Marks and decoration, not Warp-style cards:** a rail down each command, a band on
+finishes. **Marks and decoration, not Warp-style cards:** a rail beside each failed command, a band on
 the one holding the cursor, a badge beside the slow ones, navigation and whole-block selection,
 all drawn over an ordinary grid. The terminal stays a VT terminal, so none of it is weighed
 against the engine's esctest score.

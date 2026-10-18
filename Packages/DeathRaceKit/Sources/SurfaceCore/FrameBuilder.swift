@@ -52,7 +52,7 @@ public enum DecorationKind: UInt8, Sendable {
     case dashedUnderline = 5
     case strikethrough = 6
     case overline = 7
-    /// A block's rail: a thin bar down the left edge of a run of rows, `thickness` pixels wide
+    /// A failed block's rail: a thin bar down the left edge of a run of rows, `thickness` pixels wide
     /// and as tall as the run. The one kind whose pattern is measured from the run's own left
     /// edge rather than from absolute x, because horizontal geometry is whole cells and a
     /// cell-wide bar would sit on the first character of every line.
@@ -65,19 +65,15 @@ public enum DecorationKind: UInt8, Sendable {
 /// window's chrome, and the rail and the band are the window's. Settable on the view, so one
 /// value turns the whole thing on and off.
 public struct BlockColors: Sendable, Equatable {
-    /// The rail of a block that went well, or has not finished. Neutral on purpose: a color on
-    /// its own is not allowed to mean pass or fail (`docs/DESIGN.md` asks for a word or a ✓ / ✗
-    /// beside it), and a command quick enough to need no badge has neither.
-    public var rail: RGB
-    /// The rail of one that failed — which always has a badge, so its ✗ is always there too.
+    /// The rail of a command that failed, the only kind of block that has one. It always has a
+    /// badge, so its ✗ is always beside the danger color, as `docs/DESIGN.md` asks.
     public var railFailed: RGB
     /// Mixed into the background of the block you are in, and no other: twenty tinted bands
     /// read as stripes, one reads as "here".
     public var band: RGB
     public var bandAmount: Double
 
-    public init(rail: RGB, railFailed: RGB, band: RGB, bandAmount: Double = 0.35) {
-        self.rail = rail
+    public init(railFailed: RGB, band: RGB, bandAmount: Double = 0.35) {
         self.railFailed = railFailed
         self.band = band
         self.bandAmount = bandAmount
@@ -181,8 +177,8 @@ public final class FrameBuilder {
     /// The frame for `mirror` drawn with `theme` at `cell`, with `selection` highlighted and
     /// an input method's composing text (`preedit`) drawn over the cells it covers, underlined.
     /// With `starfield`, each row's empty end is marked for the shader's stars. `link`, the
-    /// one ⌘ is held over, is underlined. `blocks` draws a rail beside each command and a band
-    /// behind the one you are in.
+    /// one ⌘ is held over, is underlined. `blocks` draws a rail beside each failed command and a
+    /// band behind the one you are in.
     public func build(
         mirror: MirrorGrid, theme: Theme, cell: CellMetrics, selection: TextRegion?, glyphs: any GlyphSource,
         preedit: PreeditLayout? = nil, starfield: Bool = false, link: LinkHit? = nil,
@@ -266,12 +262,16 @@ public final class FrameBuilder {
             if run.isCurrent {
                 band(blocks.colors, rows: lowerInView...upperInView, on: &frame)
             }
+            // Only a failure has a rail. One down every block joined into a single line from the
+            // top of the screen to the prompt, which read as a stray line rather than a mark;
+            // a command that went well says so in its badge, or by having nothing to say.
+            guard run.failed == true else { continue }
             frame.decorations.append(
                 DecorationInstance(
                     cellX: 0, cellY: UInt16(clamping: lowerInView), cellCount: 1,
                     kind: DecorationKind.rail.rawValue, thickness: UInt8(clamping: cell.underlineThickness),
                     top: 0, height: Int16(clamping: (upperInView - lowerInView + 1) * cell.height),
-                    color: (run.failed == true ? blocks.colors.railFailed : blocks.colors.rail).packed))
+                    color: blocks.colors.railFailed.packed))
         }
     }
 

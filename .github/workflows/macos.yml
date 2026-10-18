@@ -143,8 +143,10 @@ jobs:
             && grep -Eq 'Test screensMatchGoldens\(_:\)( with 5 test cases)? passed' build/render-tests.log \
             || { echo "::error::The GPU baseline comparisons were skipped or incomplete."; exit 1; }
       # The Pit Lane in all eight themes, kept for review beside the mockups; a debug build's
-      # own flag, so it needs no bundle.
+      # own flag, so it needs no bundle. Drawn even when a comparison above failed: a changed
+      # picture is when the pictures are most wanted.
       - name: Render the chrome
+        if: ${{ !cancelled() }}
         timeout-minutes: 3
         run: Packages/DeathRaceKit/.build/debug/DeathRace --render-chrome build/chrome
       # With the legendsd spike's helper and agent, so the signature check covers nested code.
@@ -192,13 +194,17 @@ jobs:
           path: build/icon/AppIcon.iconset
           if-no-files-found: ignore
           retention-days: 7
+      # Kept when the baseline comparison fails, too: these are the renders to review before
+      # committing new baselines (Tests/Fixtures/render/README.md).
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
           name: render-preview-${{ github.sha }}
           path: build/render
           if-no-files-found: ignore
           retention-days: 7
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
           name: chrome-preview-${{ github.sha }}
           path: build/chrome

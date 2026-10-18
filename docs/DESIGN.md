@@ -55,7 +55,10 @@ top of it.
 | The Party Never Ends | `the-party-never-ends` | `#12031F` | `#1D0527` | `#FF2FD6` → `#2FF3FF` → `#B6FF3A` |
 | Righteous (light) | `righteous` | `#FFFFFF` | `#F9F7FD` | `#B8259B` → `#6440D8` → `#0A6E9E` |
 
-Legends Never Die is exactly the Midnight palette above. The others start from the Themes
+Legends Never Die is exactly the Midnight palette above. Its terminal text is lavender,
+`#D6CBFA`, rather than the mockups' near-white `#EDE7FF`: a screen of plain output, an
+uncoloured prompt included, is mostly that one colour, and white read as another app's. It
+holds 12.8:1 on the terminal's background, well over the 7:1 below. The others start from the Themes
 board's anchor colors; `scripts/gen-themes.py` mixed the rest and nudged them until every
 rule below holds. The hex values live in `ThemeCatalog.swift`, which reads like a design file.
 

@@ -106,7 +106,7 @@ public struct Palette: Sendable, Equatable {
             0x7B6BB0, 0xFF7D99, 0x86F0C8, 0xFFD98A, 0xA9C1FF, 0xF37FD8, 0x97DDFF, 0xFFFFFF,
         ]
         for (i, hex) in system.enumerated() { palette.colors[i] = RGB(hex: hex) }
-        palette.foreground = RGB(hex: 0xEDE7FF)
+        palette.foreground = RGB(hex: 0xD6CBFA)
         palette.background = RGB(hex: 0x100822)
         palette.cursor = RGB(hex: 0xEC48C4)
         return palette

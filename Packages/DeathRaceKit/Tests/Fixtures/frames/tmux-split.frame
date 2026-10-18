@@ -20,7 +20,7 @@ size 80x24 · clear #100822
 24: bg 1-80 #4FE3A9 · fg 1-11 #3A2B6A 78-80 #3A2B6A
 ==== before keys 4, after 1929 bytes ====
 size 80x24 · clear #100822
-2: bg 1-80 #100822 · fg 1-4 #EDE7FF 41 #EDE7FF 42-46 #EC48C4
+2: bg 1-80 #100822 · fg 1-4 #D6CBFA 41 #D6CBFA 42-46 #EC48C4
 13: bg 1-80 #100822 · fg 41 #4FE3A9
 14: bg 1-80 #100822 · fg 41 #4FE3A9
 15: bg 1-80 #100822 · fg 41 #4FE3A9
@@ -35,9 +35,9 @@ size 80x24 · clear #100822
 24: bg 1-80 #4FE3A9 · fg 1-11 #3A2B6A 78-80 #3A2B6A
 ==== before keys 5, after 2777 bytes ====
 size 80x24 · clear #100822
-2: bg 1-80 #100822 · fg 1-4 #EDE7FF 41 #EDE7FF 42-46 #EC48C4
+2: bg 1-80 #100822 · fg 1-4 #D6CBFA 41 #D6CBFA 42-46 #EC48C4
 12: bg 1-80 #100822 · fg 41-80 #4FE3A9
-13: bg 1-80 #100822 · fg 41 #4FE3A9 42 #EDE7FF
+13: bg 1-80 #100822 · fg 41 #4FE3A9 42 #D6CBFA
 14: bg 1-80 #100822 · fg 41 #4FE3A9
 15: bg 1-80 #100822 · fg 41 #4FE3A9
 16: bg 1-80 #100822 · fg 41 #4FE3A9
@@ -51,11 +51,11 @@ size 80x24 · clear #100822
 24: bg 1-80 #4FE3A9 · fg 1-11 #3A2B6A 78-80 #3A2B6A
 ==== at the end, after 2812 bytes ====
 size 80x24 · clear #100822
-2: bg 1-80 #100822 · fg 1-4 #EDE7FF 41 #EDE7FF 42-46 #EC48C4
+2: bg 1-80 #100822 · fg 1-4 #D6CBFA 41 #D6CBFA 42-46 #EC48C4
 12: bg 1-80 #100822 · fg 41-80 #4FE3A9
-13: bg 1-80 #100822 · fg 41 #4FE3A9 42-54 #EDE7FF
-14: bg 1-80 #100822 · fg 41 #4FE3A9 42-47 #EDE7FF
-15: bg 1-80 #100822 · fg 41 #4FE3A9 42 #EDE7FF
+13: bg 1-80 #100822 · fg 41 #4FE3A9 42-54 #D6CBFA
+14: bg 1-80 #100822 · fg 41 #4FE3A9 42-47 #D6CBFA
+15: bg 1-80 #100822 · fg 41 #4FE3A9 42 #D6CBFA
 16: bg 1-80 #100822 · fg 41 #4FE3A9
 17: bg 1-80 #100822 · fg 41 #4FE3A9
 18: bg 1-80 #100822 · fg 41 #4FE3A9

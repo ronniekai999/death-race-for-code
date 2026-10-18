@@ -80,7 +80,7 @@ struct SidebarModelTests {
         let sidebar = model(vault: Vault())
         #expect(sidebar.sections.map(\.title) == ["WRLD"])
         #expect(sidebar.sections[0].rows.isEmpty)
-        #expect(SidebarModel.emptyHint == "Add a host to WRLD to connect with one click.")
+        #expect(SidebarModel.emptyHint == "Add a host to connect and browse its files.")
     }
 
     @Test func tunnelsHaveShortNames() {

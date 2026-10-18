@@ -6,7 +6,7 @@ modules keep descriptive names, except where a themed name stays clear (`Legends
 
 | Feature | Name in the app | Example copy |
 | --- | --- | --- |
-| Host sidebar and vault | WRLD | "Add a host to WRLD to connect with one click." |
+| Host sidebar and vault | WRLD | "Add a host to connect and browse its files." |
 | Pinned hosts | Legends | "Pin a host to keep it in Legends." |
 | Snippets | Wishing Well | "Save a command to Wishing Well to run it again." |
 | Port forwards | Come & Go | "Forward 5432 to db through prod-api." |

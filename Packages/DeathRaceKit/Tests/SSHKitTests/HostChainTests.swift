@@ -115,6 +115,13 @@ struct HostChainTests {
         #expect(context.name(for: bastion) == "bastion")
         #expect(context.name(for: prod) == "prod-api")
         #expect(context.hostName == "prod-api")
+        // A question from the jump host names it, not prod-api, as ssh writes it on any port.
+        #expect(context.jumpHosts == ["bastion.lan": "bastion"])
+        #expect(context.jumpHost(named: "bastion.lan") == "bastion")
+        #expect(context.jumpHost(named: "[bastion.lan]:2222") == "bastion")
+        #expect(context.jumpHost(named: "10.0.4.21") == nil)
+        // Without a saved password, the jump host goes by the name ssh gives it.
+        #expect(chain.askpassContext(hostName: "prod-api") { _ in nil }.jumpHosts == ["bastion.lan": "bastion.lan"])
     }
 
     // A jump host reached through "ops@bastion:2222" isn't the identity WRLD saved the

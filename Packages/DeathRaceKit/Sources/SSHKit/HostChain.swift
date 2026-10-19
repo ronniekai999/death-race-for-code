@@ -133,7 +133,15 @@ public struct HostChain: Equatable, Sendable {
             ambiguous.insert(hop.prompt)
         }
         for prompt in ambiguous { passwords[prompt] = nil }
-        return AskpassContext(hostName: hostName, passwords: passwords, hostNames: names, mayAsk: mayAsk)
+        // The jump hosts, so a question from one names it rather than the host at the end:
+        // by WRLD's name when a saved password gives it, else as ssh names it.
+        var jumps: [String: String] = [:]
+        let target = hops.last?.prompt.host
+        for hop in hops.dropLast() where hop.prompt.host != target {
+            jumps[hop.prompt.host] = usable(hop)?.name ?? hop.prompt.host
+        }
+        return AskpassContext(
+            hostName: hostName, passwords: passwords, hostNames: names, mayAsk: mayAsk, jumpHosts: jumps)
     }
 }
 

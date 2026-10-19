@@ -35,12 +35,19 @@ private final class PromptSheet {
     init(_ question: AskpassQuestion) {
         self.question = question
         let prompt = question.prompt
-        let host = question.context.hostName
+        let context = question.context
+        let host = context.hostName
+        // Why a hop's question is asked: for the host itself, or on the way to it.
+        func purpose(_ hop: String) -> String {
+            context.jumpHost(named: hop) == nil ? "To connect to \(host)." : "On the way to \(host)."
+        }
         switch prompt.kind {
         case .newHostKey(let address, let keyType, let fingerprint):
-            alert.messageText = "Trust \(host)’s host key?"
+            let jump = context.jumpHost(named: address)
+            alert.messageText = "Trust \(jump ?? host)’s host key?"
+            let which = jump == nil ? address : "\(address), the jump host on the way to \(host)"
             alert.informativeText = """
-                This is the first connection to \(address). Its \(keyType ?? "host") key’s fingerprint is:
+                This is the first connection to \(which). Its \(keyType ?? "host") key’s fingerprint is:
 
                 \(fingerprint ?? "(not given)")
 
@@ -51,7 +58,7 @@ private final class PromptSheet {
         case .password(let hop):
             alert.messageText = "Password for \(hop.user)@\(hop.host)"
             alert.informativeText =
-                question.savedSecretFailed ? "The saved password didn’t work." : "To connect to \(host)."
+                question.savedSecretFailed ? "The saved password didn’t work." : purpose(hop.host)
             addField(secret: true)
         case .keyboardInteractive(let hop, let text):
             alert.messageText = "\(hop.user)@\(hop.host) asks:"

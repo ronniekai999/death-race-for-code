@@ -434,7 +434,9 @@ public actor SFTPClient {
         var staged = true
         let handle: Handle
         do {
-            handle = try await open(staging, pflags: SFTP.Open.write | SFTP.Open.create | SFTP.Open.exclusive)
+            handle = try await open(
+                staging, pflags: SFTP.Open.write | SFTP.Open.create | SFTP.Open.exclusive,
+                attributes: source.permissions.map { SFTPAttributes(permissions: $0 & 0o777) } ?? .none)
         } catch SFTPError.status(let code, _) where overwrite && code == SFTP.Status.permissionDenied {
             handle = try await open(path, pflags: SFTP.Open.write | SFTP.Open.create | SFTP.Open.truncate)
             staged = false
@@ -513,8 +515,12 @@ public actor SFTPClient {
     ) async throws {
         let handle = try await open(path, pflags: SFTP.Open.read)
         do {
-            guard let size = try await fstat(handle).size, size <= limits.transferBytes else {
+            let attributes = try await fstat(handle)
+            guard let size = attributes.size, size <= limits.transferBytes else {
                 throw SFTPError.invalid("the remote file has no usable size or exceeds the transfer limit")
+            }
+            if let permissions = attributes.permissions, let take = destination.permissions {
+                try await take(permissions)
             }
             progress(0, size)
             try await transferChunks(size: size, progress: progress) { offset, length in

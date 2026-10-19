@@ -10,6 +10,8 @@ import Foundation
 public final class LocalUpload: @unchecked Sendable {
     private let fd: Int32
     public let size: UInt64
+    /// The file's permission bits, without the type.
+    public let permissions: UInt32
 
     public init(path: String) throws {
         fd = open(path, O_RDONLY | O_CLOEXEC)
@@ -20,6 +22,7 @@ public final class LocalUpload: @unchecked Sendable {
             throw SFTPError.invalid("only regular files can be uploaded")
         }
         size = UInt64(info.st_size)
+        permissions = UInt32(info.st_mode) & 0o777
     }
 
     deinit { close(fd) }
@@ -60,11 +63,45 @@ public final class LocalDownload: @unchecked Sendable {
         unlink(temporary)
     }
 
+    /// `link`, which never replaces a file that appeared since the check. A FAT or exFAT
+    /// drive, or a share, has no hard links, and every new download there failed with
+    /// "Operation not supported": there the name is claimed with an exclusive create first,
+    /// which also never replaces anything, and the download renamed onto its own claim.
+    private func publishWithoutReplacing() -> Int32 {
+        if link(temporary, path) == 0 { return 0 }
+        guard errno != EEXIST else { return -1 }
+        let claim = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
+        guard claim >= 0 else { return -1 }
+        close(claim)
+        if rename(temporary, path) == 0 { return 0 }
+        let failure = errno
+        unlink(path)
+        errno = failure
+        return -1
+    }
+
     public static func exists(_ path: String) throws -> Bool {
         var info = stat()
         if lstat(path, &info) == 0 { return true }
         if errno == ENOENT { return false }
         throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+
+    /// What a new file here would get: the process's umask, read once. Reading it means
+    /// setting it, so it is done once rather than per download.
+    private static let umaskBits: mode_t = {
+        let current = umask(0o022)
+        umask(current)
+        return current
+    }()
+
+    /// The remote file's permission bits, masked as a new file here would be: a script
+    /// downloaded stays executable, where the staged file was 0600 and stayed it.
+    public func setPermissions(_ permissions: UInt32) throws {
+        try lock.withLock {
+            let mode = mode_t(permissions & 0o777) & ~Self.umaskBits
+            guard fchmod(fd, mode) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        }
     }
 
     public func write(_ bytes: [UInt8], offset: UInt64) throws {
@@ -92,7 +129,7 @@ public final class LocalDownload: @unchecked Sendable {
             guard !committed else { throw SFTPError.invalid("download already published") }
             guard fsync(fd) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
             try Task.checkCancellation()
-            let result = overwrite ? rename(temporary, path) : link(temporary, path)
+            let result = overwrite ? rename(temporary, path) : publishWithoutReplacing()
             guard result == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
             unlink(temporary)
             committed = true

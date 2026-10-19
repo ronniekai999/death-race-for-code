@@ -107,7 +107,7 @@ public struct LocalFileSystem: Sendable {
         exists: { try LocalDownload.exists($0) },
         openUpload: { path in
             let file = try await fileWorker { try LocalUpload(path: path) }
-            return TransferSource(size: file.size) { offset, length in
+            return TransferSource(size: file.size, permissions: file.permissions) { offset, length in
                 try await fileWorker { try file.read(offset: offset, length: length) }
             }
         },
@@ -115,7 +115,8 @@ public struct LocalFileSystem: Sendable {
             let file = try await fileWorker { try LocalDownload(path: path) }
             return TransferDestination(
                 write: { bytes, offset in try await fileWorker { try file.write(bytes, offset: offset) } },
-                commit: { overwrite in try await fileWorker { try file.commit(overwrite: overwrite) } })
+                commit: { overwrite in try await fileWorker { try file.commit(overwrite: overwrite) } },
+                permissions: { mode in try await fileWorker { try file.setPermissions(mode) } })
         }
     )
 }

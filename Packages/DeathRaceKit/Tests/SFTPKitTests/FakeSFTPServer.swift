@@ -14,6 +14,8 @@ actor FakeSFTPServer: SFTPTransport {
     private var handles: [UInt8: OpenHandle] = [:]
     var openHandleCount: Int { handles.count }
     func contents(of path: String) -> [UInt8]? { files[normalize(path)] }
+    /// The permissions each file was created with, as an `OPEN` asked for them.
+    private(set) var createdPermissions: [String: UInt32] = [:]
     var filePaths: [String] { files.keys.sorted() }
     private var nextHandle: UInt8 = 1
     private var outbox: [[UInt8]] = []
@@ -137,9 +139,12 @@ actor FakeSFTPServer: SFTPTransport {
             if emitted { return [status(id, SFTP.Status.eof, "")] }
             handles[key] = .directory(path: path, emitted: true)
             return [.name(id: id, entries: entries(in: path))]
-        case .open(let id, let path, let pflags, _):
+        case .open(let id, let path, let pflags, let attributes):
             let path = normalize(path)
             let writing = pflags & SFTP.Open.write != 0
+            if writing, files[path] == nil, let permissions = attributes.permissions {
+                createdPermissions[path] = permissions
+            }
             if writing {
                 if pflags & SFTP.Open.exclusive != 0, files[path] != nil || directories.contains(path) {
                     return [status(id, SFTP.Status.failure, "file exists")]
@@ -195,7 +200,11 @@ actor FakeSFTPServer: SFTPTransport {
             let from = normalize(oldPath), to = normalize(newPath)
             // Version 3's rename never replaces, as OpenSSH's doesn't.
             if files[to] != nil || directories.contains(to) { return [status(id, SFTP.Status.failure, "file exists")] }
-            if let data = files.removeValue(forKey: from) { files[to] = data; return [okStatus(id)] }
+            if let data = files.removeValue(forKey: from) {
+                files[to] = data
+                createdPermissions[to] = createdPermissions.removeValue(forKey: from)
+                return [okStatus(id)]
+            }
             if directories.remove(from) != nil { directories.insert(to); return [okStatus(id)] }
             return [noSuchFile(id)]
         case .posixRename(let id, let oldPath, let newPath):
@@ -204,6 +213,7 @@ actor FakeSFTPServer: SFTPTransport {
             }
             guard let data = files.removeValue(forKey: normalize(oldPath)) else { return [noSuchFile(id)] }
             files[normalize(newPath)] = data
+            createdPermissions[normalize(newPath)] = createdPermissions.removeValue(forKey: normalize(oldPath))
             return [okStatus(id)]
         case .setstat(let id, _, _):
             return [okStatus(id)]

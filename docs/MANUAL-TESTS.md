@@ -30,6 +30,7 @@ reviewed render baselines and hardware measurements.
 - [ ] Oversized and unsupported graphics are refused without freezing the terminal or reading files.
 - [ ] Search finds visible and older history, case-insensitive text, combining characters, wide characters and soft-wrapped matches.
 - [ ] Find next/previous scrolls to and highlights the chosen result; Escape returns keyboard focus to the terminal; reopening refreshes the existing query.
+- [ ] Find starts at the newest match; Return and ⌘G go further back, ⇧Return and ⇧⌘G come forward. With more than 1000 matches (`seq 5000`, find `1`) it says "… (newest 1000)" and starts at the bottom.
 - [ ] Closing a pane or changing generations during search cancels work without hanging the find bar; a history search finishes even while output continues.
 - [ ] VoiceOver reads terminal text, lines and selected text; output updates do not announce continuously while idle.
 - [ ] Quit and reopen restores mixed vertical/horizontal split ratios, active pane, zoom, selected tab and focused window.

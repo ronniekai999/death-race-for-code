@@ -240,9 +240,9 @@ public enum ActionCatalog {
         Action(
             .find, "Find…", "Find in terminal history", .edit, KeyShortcut(.character("f")),
             keywords: ["search", "scrollback"]),
-        Action(.findNext, "Find Next", "Find next match", .edit, KeyShortcut(.character("g"))),
+        Action(.findNext, "Find Next", "Find the next match, further back", .edit, KeyShortcut(.character("g"))),
         Action(
-            .findPrevious, "Find Previous", "Find previous match", .edit,
+            .findPrevious, "Find Previous", "Find the previous match, nearer the bottom", .edit,
             KeyShortcut(.character("g"), [.command, .shift])),
         Action(.copy, "Copy", "Copy", .edit, KeyShortcut(.character("c")), inPalette: false),
         Action(.paste, "Paste", "Paste", .edit, KeyShortcut(.character("v")), inPalette: false),

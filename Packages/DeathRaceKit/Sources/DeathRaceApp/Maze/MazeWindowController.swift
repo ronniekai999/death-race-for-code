@@ -11,7 +11,7 @@ import Vault
 @MainActor
 final class MazeWindowController: NSWindowController, NSWindowDelegate {
     let model: MazeModel
-    private let host: HostRef
+    let host: HostRef
     private weak var wrld: (any HostConnecting)?
     /// After the window has closed.
     var onClose: (() -> Void)?

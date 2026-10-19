@@ -260,9 +260,10 @@ in a sheet scrolls, so it is exactly as tall as its fields and grows when a row 
 one list, Open in Maze's hosts, is given a height instead: past seven rows it stops at seven
 and a half and scrolls, the half saying there is more.
 
-**Open in Maze** is on everywhere, because a local shell can still ask. A pane on a host
-opens that host. A local shell opens the one host there is, and otherwise asks which in a
-sheet, in Hear Me Calling's order: Legends, the rest of WRLD, then the `~/.ssh/config` names
+**Open in Maze** is on everywhere, because a local shell can still ask. The window in front
+says which host: a pane on a host opens that host, the WRLD window its selected host, a Maze
+window its own. Anywhere else — a local shell, Lucid Dreams, Settings — opens the one host
+there is, and otherwise asks which in a sheet, in Hear Me Calling's order: Legends, the rest of WRLD, then the `~/.ssh/config` names
 WRLD doesn't hold. Each is a plain button with its key in `inkFaint` on the left (↵ for the
 first, ⌘2 to ⌘9 for the next), the name in `ink` and the address monospaced in `inkFaint` on
 the right, and there is no OK, since picking a host is the answer. With no host at all it is

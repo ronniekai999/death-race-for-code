@@ -157,13 +157,21 @@ final class WRLDService: HostConnecting {
 
     func address(of host: HostRef) -> String? { target(for: host)?.address }
 
+    /// Why WRLD has no way to connect to `host` at all — what its generated config found wrong
+    /// with the host's settings — or nil when it has one. Said before trying, so a failure is
+    /// put down to the settings rather than to the network.
+    func problem(with host: HostRef) -> String? {
+        guard target(for: host) == nil else { return nil }
+        let why = generated.problems.first { problem in
+            if case .vault(let id) = host { return problem.host == id }
+            return false
+        }
+        return why?.message ?? "WRLD can't connect to \(name(of: host))."
+    }
+
     func connect(_ host: HostRef, for pane: PaneID) async -> ConnectResult {
         guard let target = target(for: host) else {
-            let why = generated.problems.first { problem in
-                if case .vault(let id) = host { return problem.host == id }
-                return false
-            }
-            return .failed(.other(why?.message ?? "WRLD can't connect to \(name(of: host))."))
+            return .failed(.other(problem(with: host) ?? "WRLD can't connect to \(name(of: host))."))
         }
         guard let pool = await startPool() else {
             return .failed(.other("Death Race couldn't start what answers ssh's questions."))

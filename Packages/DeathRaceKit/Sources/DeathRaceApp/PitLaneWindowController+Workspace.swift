@@ -55,7 +55,12 @@ extension PitLaneWindowController {
                     frame: frame.map { SavedWindowFrame(x: $0.minX, y: $0.minY, width: $0.width, height: $0.height) })
             }
             return tab.panes.compactMap { id in
-                guard let pane = panes[id], let session = pane.sessionID else { return nil }
+                // Only sessions the daemon holds. A session in this process — a pane on a host,
+                // a shell started with the setting off — numbers itself from 1 every launch, as
+                // the daemon does, so its placement overwrote a kept session's: a split came
+                // back as two tabs. Slots still count every pane; the gap an ssh pane leaves is
+                // one restoring already closes.
+                guard let pane = panes[id], pane.survivesQuit, let session = pane.sessionID else { return nil }
                 return (
                     id: session,
                     place: SessionPlacement(

@@ -59,7 +59,9 @@ public enum RingRing {
         guard !finished.wasWatched, !finished.programNotified else { return nil }
         guard let milliseconds = finished.milliseconds else { return nil }
         let failed = (finished.exitCode ?? 0) != 0
-        let slow = milliseconds >= thresholdSeconds &* 1_000
+        // Widened rather than wrapped: a threshold set in hours would otherwise wrap round to a
+        // few seconds and notify about everything.
+        let slow = UInt64(milliseconds) >= UInt64(thresholdSeconds) * 1_000
         guard failed || slow else { return nil }
         guard !CommandBests.isPrivate(finished.command) else { return nil }
 

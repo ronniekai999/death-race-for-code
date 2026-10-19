@@ -80,6 +80,14 @@ import Testing
     }
 
     /// Rounding at the boundaries, where an off-by-one shows as "0.10s" or "1m 60s".
+    /// A duration is whatever a program wrote after `dur=`. The largest a UInt32 holds is
+    /// about 49 days, and rounding it used to add 500 first — an overflow, which traps, so one
+    /// `printf` in any pane closed every window.
+    @Test func theLongestDurationAProgramCanClaimIsSaidNotATrap() {
+        #expect(FastLabel.duration(.max) == "1193h 02m")
+        #expect(FastLabel.words(milliseconds: .max, exitCode: 0) == "Fast 1193h 02m ✓")
+    }
+
     @Test func aDurationRoundsWithoutSpillingOver() {
         #expect(FastLabel.duration(59_950) == "60.0s")
         #expect(FastLabel.duration(119_500) == "2m 00s")

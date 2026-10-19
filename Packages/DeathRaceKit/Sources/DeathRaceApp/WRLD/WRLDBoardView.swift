@@ -136,11 +136,12 @@ struct WRLDHostsPage: View {
                 if model.place == .allHosts, !model.importable.isEmpty, model.query.isEmpty {
                     ImportBanner(model: model)
                 }
-                if let problem = model.problem {
+                ForEach([model.loadProblem, model.problem].compactMap { $0 }, id: \.self) { problem in
                     Text(problem).font(.system(size: 12, weight: .medium)).foregroundStyle(model.palette.danger)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 let sections = model.sections
-                if sections.isEmpty {
+                if sections.isEmpty, model.loadProblem == nil {
                     EmptyHosts(model: model)
                 }
                 ForEach(sections) { section in

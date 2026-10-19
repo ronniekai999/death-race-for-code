@@ -393,6 +393,9 @@ first macOS build to need compile fixes before any of this can be tried.
       closes; right-click offers Connect, Connect Beside, Edit, Pin to Legends, Copy Address,
       Remove from WRLD….
 - [ ] **Hand edits** to `wrld.json` and to `~/.ssh/config` show up as they're saved.
+- [ ] **A broken `wrld.json`** (delete a host's `"id"`): WRLD says which file and what's wrong,
+      the sidebar says to open WRLD, and a change says why it wasn't saved. The file is left
+      as it was.
 - [ ] **VoiceOver** reads each sidebar row, and presses it.
 
 ## Come & Go

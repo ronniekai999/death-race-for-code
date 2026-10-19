@@ -52,6 +52,8 @@ final class WRLDBoardModel {
     var palette: LegendsPalette
     /// Why the last change didn't happen, in a sentence.
     var problem: String?
+    /// Why wrld.json couldn't be read, when it couldn't: WRLD shows no hosts meanwhile.
+    var loadProblem: String?
     /// What relative times count from; it moves on whenever WRLD changes.
     var now = Date()
 
@@ -69,6 +71,9 @@ final class WRLDBoardModel {
         state = wrld.state
         connected = wrld.connectedKeys
         stale = wrld.staleKeys
+        loadProblem = wrld.loadProblem.map {
+            wrld.sentence(for: $0) + " WRLD shows no hosts until it can read it, and won’t save over it."
+        }
         tunnels = wrld.tunnelRows
         importable = wrld.importable
         aliases = Dictionary(wrld.discovered.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
@@ -120,7 +125,12 @@ final class WRLDBoardModel {
     /// Makes `change` to the vault; when it couldn't be saved, says so.
     func edit(_ change: (inout Vault) -> Void) {
         guard let wrld else { return }
-        problem = wrld.edit(change) ? nil : "WRLD couldn’t save that change."
+        do {
+            try wrld.change(change)
+            problem = nil
+        } catch {
+            problem = "WRLD couldn’t save that change. " + wrld.sentence(for: error)
+        }
     }
 
     func connect(_ host: WRLDHost, beside: Bool = false) {

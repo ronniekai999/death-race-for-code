@@ -201,7 +201,7 @@ final class SidebarListView: NSView {
             laid.append((NSRect(x: 0, y: y, width: width, height: Self.eyebrowHeight), .eyebrow(section)))
             y += Self.eyebrowHeight
             if section.kind == .wrld && section.rows.isEmpty && !model.isSearching {
-                laid.append((NSRect(x: 0, y: y, width: width, height: 44), .hint(SidebarModel.emptyHint)))
+                laid.append((NSRect(x: 0, y: y, width: width, height: 44), .hint(model.hint)))
                 y += 44
             }
             for row in section.rows {

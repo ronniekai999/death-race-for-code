@@ -374,25 +374,37 @@ final class WRLDService: HostConnecting {
     /// false when it couldn't be saved, and nothing changed.
     @discardableResult
     func edit(_ change: (inout Vault) -> Void) -> Bool {
+        do {
+            try self.change(change)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// `edit`, saying why the vault couldn't be saved.
+    func change(_ change: (inout Vault) -> Void) throws(VaultStore.Failure) {
         var updated = vault
         change(&updated)
-        guard updated != vault else { return true }
+        guard updated != vault else { return }
         do {
             try store.save(updated)
         } catch {
             log.error("WRLD couldn't save its vault: \(String(describing: error), privacy: .public)")
-            return false
+            throw error
         }
         reload()
         Self.changed()
-        return true
     }
+
+    /// What's wrong with wrld.json, in a sentence.
+    func sentence(for failure: VaultStore.Failure) -> String { failure.sentence(home: home) }
 
     func sidebar(query: String, expanded: Set<GroupID>) -> SidebarModel {
         SidebarModel(
             .init(
                 vault: vault, state: state, connected: connectedKeys, openTunnels: openTunnelIDs,
-                expandedGroups: expanded, query: query))
+                expandedGroups: expanded, query: query, vaultUnreadable: loadProblem != nil))
     }
 
     func host(_ id: HostID) -> WRLDHost? { vault.host(id) }
@@ -671,7 +683,7 @@ final class WRLDService: HostConnecting {
             case .key(.notDownloaded(let line)): "The key was made, but ssh couldn’t read it back: \(line)"
             case .key(.notFound): "The key was made, but ssh couldn’t tell which key it is."
             case .key(.notSaved(let line)): "The key couldn’t be kept: \(line)"
-            case .notSaved: "WRLD couldn’t save the host."
+            case .notSaved(let failure): "WRLD couldn’t save the host. " + failure.sentence(home: NSHomeDirectory())
             }
         }
     }

@@ -5,6 +5,7 @@ import Foundation
 import PTYKit
 import RenderKit
 import SSHKit
+import ScreenProtocol
 import SessionKit
 import SurfaceCore
 import TerminalUI
@@ -418,14 +419,17 @@ final class PaneController {
                     fromProgram: CommandRecord.cleaned(title), body: CommandRecord.cleaned(body),
                     in: programName ?? shellName, wasWatched: isWatched?() ?? false)
                 if let spoken { notifier.deliver(spoken, paneID: UInt64(clamping: id.rawValue)) }
-            case .promptMark(.commandEnd, let rowID):
+            case .promptMark(.commandEnd(let exitCode), let rowID):
                 // The record is on the row, not in the event: the mark carries only the exit
                 // code, while the duration and the text come from `OSC 633;E` and `dur=`. The
-                // row is in view at the moment a command ends, because the cursor is on it.
-                guard let mirror = surface.model?.mirror,
-                    let row = mirror.lines.firstIndex(where: { $0.id == rowID }),
-                    let command = mirror.lines[row].command
-                else { continue }
+                // row is in view at the moment a command ends, because the cursor is on it —
+                // unless the view is scrolled back, which is the engine's to answer.
+                guard let mirror = surface.model?.mirror else { continue }
+                guard let row = mirror.lines.firstIndex(where: { $0.id == rowID }) else {
+                    finishedOutOfView(exitCode: exitCode, in: mirror)
+                    continue
+                }
+                guard let command = mirror.lines[row].command else { continue }
                 // Which line that row is, taken here and only here: it is the one moment the
                 // row is certainly in view, and the number stays with the line for good, so a
                 // tap on the bar can still find the command after it has scrolled away.
@@ -676,6 +680,30 @@ final class PaneController {
                 wasWatched: isWatched?() ?? false, programNotified: saidSoItself),
             thresholdSeconds: UInt32(clamping: config.ringRingThresholdSeconds))
         if let notice { notifier.deliver(notice, paneID: UInt64(clamping: id.rawValue)) }
+    }
+
+    /// A command ended while the view was scrolled back, so the row its end landed on is below
+    /// what the mirror holds, and it went unrecorded: no Fast run, no best, no Ring Ring for the
+    /// build you scrolled up to read while it ran. The engine answers, as it does for ⌘↑: the
+    /// command is the block before the one the cursor is in.
+    ///
+    /// The exit code is checked against the mark's, and a block already counted is not counted
+    /// twice, because a second command can end before the answer comes back.
+    private func finishedOutOfView(exitCode: Int32?, in mirror: MirrorGrid) {
+        guard let session, let generation = mirror.generation else { return }
+        let cursorLine = Blocks.cursorLine(in: mirror)
+        Task { @MainActor [weak self] in
+            guard let current = await session.promptSpan(at: cursorLine, generation: generation),
+                let previous = current.previousPrompt,
+                let span = await session.promptSpan(at: previous, generation: generation),
+                let command = span.command, command.exitCode == exitCode,
+                let self, self.lastCommandLine != current.lines.lowerBound
+            else { return }
+            // The line `scrollToLastCommand` expects: the one the next prompt starts, whose
+            // block before it is this command.
+            self.lastCommandLine = current.lines.lowerBound
+            self.finished(command)
+        }
     }
 
     /// Whether this pane is the one being looked at, asked of the window rather than guessed.

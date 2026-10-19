@@ -158,6 +158,8 @@ so these are the ones the work was built against.
 - [ ] A notification tapped while the app is hidden brings the right pane forward, in the right
       window and tab.
 - [ ] A command in a background **window** (not just a background tab) is notified.
+- [ ] Scrolled back in a pane while its command runs: when it ends, the status bar's Fast run
+      updates, a fail or a 30-second run is notified, and tapping the Fast run scrolls to it.
 - [ ] A zoomed tab: a command in one of the hidden panes is notified, the zoomed one is not.
 - [ ] Nothing is delivered for a command typed with a leading space.
 

@@ -57,8 +57,21 @@ import Observation
         await refreshRemote()
     }
 
+    /// Why this Mac's folder couldn't be listed, while it can't: kept apart so the host's
+    /// listing succeeding doesn't clear it from the problem line.
+    private var localProblem: String?
+
     public func refreshLocal() {
-        localRows = fileSystem.entries(localPath)
+        do {
+            localRows = try fileSystem.entries(localPath)
+            if problem == localProblem { problem = nil }
+            localProblem = nil
+        } catch {
+            // Said, as the host's pane says it: an unreadable folder used to look empty.
+            localRows = []
+            localProblem = "Could not read \(localPath): \(Self.sentence(error))"
+            problem = localProblem
+        }
         if let localSelected, !localRows.contains(where: { $0.name == localSelected }) { self.localSelected = nil }
     }
 
@@ -77,7 +90,7 @@ import Observation
             guard mine == navigation else { return }
             isLoading = false
             remoteRows = rows
-            problem = nil
+            problem = localProblem
             if let remoteSelected, !remoteRows.contains(where: { $0.name == remoteSelected }) {
                 self.remoteSelected = nil
             }
@@ -100,7 +113,10 @@ import Observation
     public func open(_ entry: FileEntry, on side: Side) async {
         switch side {
         case .local:
-            guard entry.isDirectory || entry.kind == .symlink else {
+            // A link is followed to see what it is: one to a file is picked, not opened as an
+            // empty folder.
+            let path = Listing.join(localPath, entry.name)
+            guard entry.isDirectory || (entry.kind == .symlink && fileSystem.isDirectory(path)) else {
                 localSelected = entry.name
                 return
             }
@@ -108,7 +124,15 @@ import Observation
             localSelected = nil
             refreshLocal()
         case .remote:
-            guard entry.isDirectory || entry.kind == .symlink else {
+            if entry.kind == .symlink {
+                // `stat` follows the link. One to a file is picked; opened as a folder, it
+                // emptied the pane with "No such file", which named the wrong cause.
+                let target = try? await files.stat(Listing.join(remotePath, entry.name))
+                guard target?.isDirectory == true else {
+                    remoteSelected = entry.name
+                    return
+                }
+            } else if !entry.isDirectory {
                 remoteSelected = entry.name
                 return
             }
@@ -190,7 +214,7 @@ import Observation
     /// shows.
     public func download(_ name: String? = nil, into destination: String? = nil) async {
         guard let name = name ?? remoteSelected,
-            let row = remoteRows.first(where: { $0.name == name }), !row.isDirectory
+            let row = remoteRows.first(where: { $0.id == Array(name.utf8) }), !row.isDirectory
         else { return }
         // `Listing.remote` already refuses a name that isn't a name, but this is the line that
         // decides where bytes from a host land on this Mac, so it checks for itself.
@@ -311,6 +335,7 @@ import Observation
         // Swift's own spelling of these is a type name, and a row reading "CancellationError()"
         // or "POSIXError(_nsError: …)" says nothing to anyone.
         if error is CancellationError { return "stopped" }
+        if let error = error as? CocoaError { return error.localizedDescription }
         if let error = error as? POSIXError { return String(cString: strerror(error.code.rawValue)) }
         guard let error = error as? SFTPError else { return "\(error)" }
         switch error {

@@ -26,6 +26,9 @@ actor FakeRemoteFiles: RemoteFiles {
     func holdTransfers() { holds = true }
     func releaseTransfers() { holds = false }
     func add(directory: String) { directories.insert(directory) }
+    /// A symbolic link at `path` to `target`, listed as a link and followed by `stat`.
+    func add(link path: String, to target: String) { links[path] = target }
+    private var links: [String: String] = [:]
     func file(_ path: String) -> [UInt8]? { contents[path] }
 
     func realPath(_ path: String) async throws -> String { path == "." ? home : path }
@@ -42,6 +45,11 @@ actor FakeRemoteFiles: RemoteFiles {
                 SFTPName(
                     filename: Self.leaf(of: directory), longname: "", attributes: .directoryAttributes))
         }
+        for (link, _) in links where Listing.parent(of: link) == path {
+            names.append(
+                SFTPName(
+                    filename: Self.leaf(of: link), longname: "", attributes: SFTPAttributes(permissions: 0o120_777)))
+        }
         for (file, bytes) in contents where Listing.parent(of: file) == path {
             names.append(
                 SFTPName(
@@ -52,6 +60,7 @@ actor FakeRemoteFiles: RemoteFiles {
     }
 
     func stat(_ path: String) async throws -> SFTPAttributes {
+        if let target = links[path] { return try await stat(target) }
         if directories.contains(path) { return .directoryAttributes }
         guard let bytes = contents[path] else { throw SFTPError.status(code: 2, message: "No such file") }
         return SFTPAttributes(size: UInt64(bytes.count))
@@ -115,6 +124,9 @@ final class FakeLocalDisk: @unchecked Sendable {
     private var contents: [String: [UInt8]]
     let home: String
 
+    /// Folders that refuse to be listed, as one without permission does.
+    var unreadable: Set<String> = []
+
     init(home: String = "/Users/r/Downloads", files: [String: [UInt8]] = [:]) {
         self.home = home
         contents = files
@@ -126,6 +138,7 @@ final class FakeLocalDisk: @unchecked Sendable {
         LocalFileSystem(
             homeDirectory: { [self] in home },
             entries: { [self] directory in
+                if unreadable.contains(directory) { throw CocoaError(.fileReadNoPermission) }
                 let here = lock.withLock { contents.filter { Listing.parent(of: $0.key) == directory } }
                 return Listing.sorted(
                     here.map { file, bytes in
@@ -412,6 +425,47 @@ struct MazeModelTests {
         await model.start()
         await model.shutDown()
         #expect(await host.isShutDown)
+    }
+
+    /// A link to a file is a file to pick, not a folder to open: opened, it emptied the pane
+    /// with "No such file", naming the wrong cause. A link to a folder still opens.
+    @Test func aLinkToAFileIsPickedAndALinkToAFolderOpened() async throws {
+        let host = FakeRemoteFiles(files: ["/var/www/notes.txt": [1]])
+        await host.add(directory: "/var/www/old")
+        await host.add(link: "/var/www/latest", to: "/var/www/notes.txt")
+        await host.add(link: "/var/www/archive", to: "/var/www/old")
+        let model = makeModel(host)
+        await model.start()
+        await model.open(FileEntry(name: "latest", kind: .symlink), on: .remote)
+        #expect(model.remotePath == "/var/www")
+        #expect(model.remoteSelected == "latest")
+        #expect(model.problem == nil)
+        await model.open(FileEntry(name: "archive", kind: .symlink), on: .remote)
+        #expect(model.remotePath == "/var/www/archive")
+    }
+
+    /// A folder this Mac won't list said nothing and showed nothing; now it says why, as the
+    /// host's pane does.
+    @Test func aFolderThisMacWillNotListSaysSo() async throws {
+        let disk = FakeLocalDisk()
+        disk.unreadable = ["/Users/r/Downloads"]
+        let model = makeModel(FakeRemoteFiles(), disk)
+        await model.start()
+        #expect(model.localRows.isEmpty)
+        #expect(model.problem?.hasPrefix("Could not read /Users/r/Downloads") == true)
+    }
+
+    /// Two spellings of one name — composed and decomposed — are two files on a Linux host,
+    /// and two rows here; compared as Swift strings they were one.
+    @Test func composedAndDecomposedNamesAreTwoRows() {
+        let composed = "r\u{E9}sum\u{E9}.pdf"
+        let decomposed = "re\u{301}sume\u{301}.pdf"
+        let rows = Listing.remote([
+            SFTPName(filename: composed, longname: "", attributes: SFTPAttributes(size: 1)),
+            SFTPName(filename: decomposed, longname: "", attributes: SFTPAttributes(size: 2)),
+        ])
+        #expect(rows.count == 2)
+        #expect(Set(rows.map(\.id)).count == 2)
     }
 
     @Test func everyFailureReadsAsASentence() {

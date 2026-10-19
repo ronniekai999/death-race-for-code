@@ -33,6 +33,10 @@ final class NewHostSheet {
 
     var panel: NSPanel { sheet.panel }
 
+    func bringForward() {
+        sheet.bringForward()
+    }
+
     func show() {
         sheet.show(view)
     }
@@ -72,17 +76,23 @@ struct NewHostView: View {
     var body: some View {
         SheetLayout(symbol: "server.rack", title: "New host", subtitle: subtitle) {
             LabeledField("Name") {
+                // Each named for VoiceOver: a field's title here is its placeholder, and the
+                // label above it is a separate text.
                 TextField("prod-api", text: $draft.name).wrldField().focused($nameFocused)
+                    .accessibilityLabel("Name")
             }
             LabeledField("Address") {
                 TextField("10.0.4.21 or server.example.com", text: $draft.address).wrldField(monospaced: true)
+                    .accessibilityLabel("Address")
             }
             HStack(alignment: .top, spacing: 10) {
                 LabeledField("User") {
                     TextField("Your name on this Mac", text: $draft.user).wrldField(monospaced: true)
+                        .accessibilityLabel("User")
                 }
                 LabeledField("Port") {
                     TextField("22", text: $draft.port).wrldField(monospaced: true)
+                        .accessibilityLabel("Port")
                 }
                 .frame(width: 90)
             }
@@ -117,9 +127,12 @@ struct NewHostView: View {
             }
         } buttons: {
             if working { ProgressView().controlSize(.small) }
+            // Off while adding: the save goes on once it has started, so a cancel then would
+            // close the sheet on a host that is added anyway (Touch ID for a new key is slow).
             Button("Cancel") { done(nil) }
                 .buttonStyle(.wrld(.ghost))
                 .keyboardShortcut(.cancelAction)
+                .disabled(working)
             Button("Add host", action: submit)
                 .buttonStyle(.wrld(.primary))
                 .keyboardShortcut(.defaultAction)
@@ -144,6 +157,7 @@ struct NewHostView: View {
         case .keyFile:
             HStack(spacing: 8) {
                 TextField("~/.ssh/id_ed25519", text: $keyFile).wrldField(monospaced: true)
+                    .accessibilityLabel("Key file")
                 Button("Choose…", action: chooseKeyFile).buttonStyle(.wrld(.plain))
             }
         }

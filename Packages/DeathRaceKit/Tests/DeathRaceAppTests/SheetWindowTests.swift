@@ -58,7 +58,7 @@ extension WindowTests {
 
     private func mazeHosts(_ count: Int) -> [MazeHostView.Choice] {
         (1...count).map {
-            MazeHostView.Choice(id: HostID(rawValue: "h\($0)"), name: "host-\($0)", address: "10.0.0.\($0)")
+            MazeHostView.Choice(id: .vault(HostID(rawValue: "h\($0)")), name: "host-\($0)", address: "10.0.0.\($0)")
         }
     }
 

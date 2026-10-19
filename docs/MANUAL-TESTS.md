@@ -254,10 +254,14 @@ Phase 6 is done when all of these hold on the M5, against a real host:
 - [ ] Opening Maze on a second host gives a second window, cascaded, each on its own host.
 - [ ] Open in Maze appears in the Shell menu, Hear Me Calling, and the host's context menu in
       the sidebar and the WRLD window — and is on in a local-shell pane too.
-- [ ] From a local shell with several hosts saved, Open in Maze asks which, Legends first;
-      picking one opens it and Esc cancels. With one host saved it opens that host at once.
-- [ ] From a local shell with no host saved, Open in Maze shows New Host saying Maze needs a
-      host; adding one opens Maze on it, and no tab opens for it.
+- [ ] From a local shell with several hosts, Open in Maze asks which, Legends first and
+      `~/.ssh/config` names WRLD hasn't imported last; ↵ opens the first, ⌘2 the second, a
+      click any, and Esc cancels. With one host it opens that host at once.
+- [ ] From a local shell with no host saved and no `~/.ssh/config` names, Open in Maze shows
+      New Host saying Maze needs a host; adding one opens Maze on it, and no tab opens for it.
+      With a new Secure Enclave key, the key is on the server once Maze has connected.
+- [ ] With Lucid Dreams in front, Open in Maze and New Host… put their sheet on a Pit Lane
+      window, and asking again while one is open brings it forward.
 - [ ] Changing the theme re-colours an open Maze window at once.
 - [ ] Quitting with a Maze window open leaves no `ssh` or `sftp` process behind.
 

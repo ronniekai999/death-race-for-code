@@ -112,9 +112,14 @@ final class WRLDService: HostConnecting {
             guard let saved = vault.host(id), let alias = generated.aliases[id],
                 let controlPath = generated.controlPaths[id]
             else { return nil }
+            // A host imported from ~/.ssh/config has its address there, as one WRLD hasn't
+            // imported does below.
+            let address =
+                saved.connection?.address
+                ?? saved.sshConfigAlias.flatMap { alias in discovered.first { $0.name == alias }?.hostName }
             return ConnectionTarget(
                 key: GeneratedConfig.controlKey(for: saved), alias: alias, controlPath: controlPath, name: saved.name,
-                address: saved.connection?.address)
+                address: address)
         case .sshConfig(let alias):
             if let saved = vault.hosts.first(where: { $0.source == .sshConfig(alias: alias) }) {
                 return target(for: .vault(saved.id))
@@ -213,6 +218,11 @@ final class WRLDService: HostConnecting {
         // window is open, even after the last pane on the host closes.
         guard case .ready = await pool.connect(target, for: user, secrets: savedSecrets) else { return nil }
         connected(host, alias: target.alias)
+        // A host added from Open in Maze is first connected here, not by a pane: a new Secure
+        // Enclave key goes on now, as `connect` would put it, or not until a pane connects.
+        if case .vault(let id) = host, let key = pendingKeys[id] {
+            Task { await install(key, on: id, alias: target.alias) }
+        }
         let session: SFTPSession
         do {
             session = try SFTPSession.connect(

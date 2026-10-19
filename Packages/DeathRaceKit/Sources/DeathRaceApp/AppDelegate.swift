@@ -307,7 +307,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     /// so it asks which, or with no host saved goes by New Host and opens Maze on that one.
     @objc func openMaze(_ sender: Any?) {
         guard let wrld else { return }
-        switch MazeRoute(pane: frontPitLaneWindow?.activePane?.launch.host, hosts: wrld.vault.hosts) {
+        let route = MazeRoute(
+            pane: frontPitLaneWindow?.activePane?.launch.host, hosts: wrld.vault.hosts,
+            aliases: wrld.discovered.map(\.name))
+        switch route {
         case .open(let host):
             showMaze(host)
         case .choose(let hosts):
@@ -318,21 +321,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     }
 
     /// Which of `hosts` to open in Maze, in a sheet on the window in front.
-    private func chooseMazeHost(among hosts: [HostID]) {
-        guard let wrld, mazeHostSheet == nil else { return }
+    private func chooseMazeHost(among hosts: [HostRef]) {
+        guard let wrld else { return }
+        if let mazeHostSheet { return mazeHostSheet.bringForward() }
         let sheet = ThemedSheet(
-            title: "Open in Maze", parent: NSApp.keyWindow ?? NSApp.mainWindow,
-            chrome: Chrome(configStore.config.namedTheme))
-        let choices = hosts.map {
-            MazeHostView.Choice(id: $0, name: wrld.name(of: .vault($0)), address: wrld.address(of: .vault($0)))
-        }
+            title: "Open in Maze", parent: sheetParent, chrome: Chrome(configStore.config.namedTheme))
+        let choices = hosts.map { MazeHostView.Choice(id: $0, name: wrld.name(of: $0), address: wrld.address(of: $0)) }
         mazeHostSheet = sheet
         sheet.show(
-            MazeHostView(choices: choices) { [weak self, weak sheet] id in
+            MazeHostView(choices: choices) { [weak self, weak sheet] host in
                 sheet?.close()
                 self?.mazeHostSheet = nil
-                if let id { self?.showMaze(.vault(id)) }
+                if let host { self?.showMaze(host) }
             })
+    }
+
+    /// The window a sheet goes on: the one in front, unless that's Lucid Dreams' panel, which
+    /// hides when a sheet takes its key status and would take the sheet with it, never to
+    /// finish. Then the main window, or, with none, the sheet's own panel.
+    private var sheetParent: NSWindow? {
+        [NSApp.keyWindow, NSApp.mainWindow].lazy.compactMap { $0 }.first { $0.canBecomeMain }
     }
 
     /// Maze on `host`: its window when one is open, else the host's files and a window on
@@ -404,8 +412,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     private func presentNewHost(
         subtitle: String?, added: @escaping @MainActor (HostID, NSWindow?) -> Void
     ) {
-        guard let wrld, newHostSheet == nil else { return }
-        let parent = NSApp.keyWindow ?? NSApp.mainWindow
+        guard let wrld else { return }
+        // One at a time; asking again finds the one already open, wherever it went.
+        if let newHostSheet { return newHostSheet.bringForward() }
+        let parent = sheetParent
         let sheet = NewHostSheet(
             jumpHosts: wrld.jumpHostChoices, subtitle: subtitle, parent: parent,
             chrome: Chrome(configStore.config.namedTheme),

@@ -37,6 +37,12 @@ final class ThemedSheet {
         }
     }
 
+    /// The sheet, and the window it is on, to the front: asked for again, it may have gone
+    /// behind another window.
+    func bringForward() {
+        (panel.sheetParent ?? panel).makeKeyAndOrderFront(nil)
+    }
+
     func close() {
         if let parent = panel.sheetParent {
             parent.endSheet(panel)

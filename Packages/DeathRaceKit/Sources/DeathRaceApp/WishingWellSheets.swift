@@ -84,7 +84,7 @@ struct SaveSnippetView: View {
     var body: some View {
         SheetLayout(symbol: "chevron.right.2", title: "Save to Wishing Well") {
             LabeledField("Name") {
-                TextField("deploy", text: $name).wrldField()
+                TextField("deploy", text: $name).wrldField().accessibilityLabel("Name")
             }
             LabeledField("Command") {
                 // A set height: a text editor scrolls, so it asks for none of its own.
@@ -93,6 +93,7 @@ struct SaveSnippetView: View {
                     .scrollContentBackground(.hidden)
                     .padding(6)
                     .frame(height: 88)
+                    .accessibilityLabel("Command")
                     .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(palette.groundDeep))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(

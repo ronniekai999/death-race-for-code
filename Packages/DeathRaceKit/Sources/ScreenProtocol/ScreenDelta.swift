@@ -126,6 +126,12 @@ public struct ScreenDelta: Sendable, Equatable {
     /// A program is reading a password (a line with echo off, as sudo and ssh do): the app
     /// turns on Secure Keyboard Entry until it stops.
     public var readingPassword: Bool
+    /// Scrolled back: what the rows below the view say about the last block in it. The shell
+    /// sends `D` from the hook that draws the next prompt, so a block's record is on the row
+    /// that prompt starts, which for the block at the bottom of a scrolled-back view is below
+    /// it, where the mirror cannot see. This is that record, or else the last one before that
+    /// row; nil when following the output, and when they hold none.
+    public var outcomeBelow: CommandRecord?
     public var graphicsRevision: UInt64
     public var images: [InlineImage]?
     public var placements: [InlinePlacement]
@@ -135,7 +141,8 @@ public struct ScreenDelta: Sendable, Equatable {
         viewportOffset: Int, scrollbackCount: Int, viewportTopLine: UInt64 = 0, rowIDs: [UInt64],
         changedRows: [RowSnapshot], cursor: CursorSnapshot,
         modes: TerminalModes, kittyFlags: UInt8, isAlternateScreen: Bool, title: String, palette: Palette?,
-        events: [TerminalEvent], readingPassword: Bool = false, graphicsRevision: UInt64 = 0,
+        events: [TerminalEvent], readingPassword: Bool = false, outcomeBelow: CommandRecord? = nil,
+        graphicsRevision: UInt64 = 0,
         images: [InlineImage]? = nil, placements: [InlinePlacement] = []
     ) {
         self.generation = generation
@@ -157,6 +164,7 @@ public struct ScreenDelta: Sendable, Equatable {
         self.palette = palette
         self.events = events
         self.readingPassword = readingPassword
+        self.outcomeBelow = outcomeBelow
         self.graphicsRevision = graphicsRevision
         self.images = images
         self.placements = placements

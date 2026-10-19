@@ -120,6 +120,8 @@ so these are the ones the work was built against.
 - [ ] A command that began above the screen reaches the top edge without a false start.
 - [ ] The band follows the cursor's block as you run commands, and only one block has it.
 - [ ] Scrolled back into history, the band is absent rather than on whatever row is in view.
+- [ ] Scrolled back one line after a failed command, its rail stays; scrolled up into the middle
+      of a long failure's output, the rail runs down the whole view.
 - [ ] The starfield is still visible inside a band (a theme with stars, a block over a short
       line's empty tail).
 - [ ] A click a few points right of the rail starts an ordinary selection, not a block one.

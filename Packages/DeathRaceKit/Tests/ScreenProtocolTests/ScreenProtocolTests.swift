@@ -352,7 +352,8 @@ private func text(_ row: RowSnapshot) -> String {
                 .clipboardWrite(selection: "c", contents: [0, 1, 255]),
                 .promptMark(.promptStart, rowID: 1), .promptMark(.commandEnd(exitCode: 2), rowID: 3),
                 .promptMark(.commandEnd(exitCode: nil), rowID: 4), .colorsChanged, .screenReplaced,
-            ], readingPassword: true)
+            ], readingPassword: true,
+            outcomeBelow: CommandRecord(text: "make ✦", durationMilliseconds: 4_200, exitCode: 2))
     }
 
     @Test func roundTrips() throws {

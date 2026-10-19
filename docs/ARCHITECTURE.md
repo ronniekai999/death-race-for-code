@@ -797,6 +797,15 @@ already keeps, capped at 50,000 lines so a screen with no marks cannot walk the 
 answers the block's line range, its `CommandRecord`, and the prompts either side. One query
 serves both features: ⌘↑/⌘↓ take the neighbours, ⌘⇧A and a rail click take the range.
 
+**Below a scrolled-back view, the delta says.** Shells send `D` from the hook that draws the
+next prompt, so a block's record sits on the row that prompt starts. For the last block in a
+scrolled-back view that row is below the view, and the mirror cannot see it: scrolling back one
+line took the newest failure's rail away, and reading a long failure from inside its output
+showed none at all. A query per frame would be a round trip on the draw path, so the delta
+carries it instead: `ScreenDelta.outcomeBelow`, what the rows from the view down to the first
+prompt row hold, by the rule `promptSpan` uses. That was **delta format 6** (and stream version
+6, which pins it), and the same handover covers a daemon an older build left running.
+
 **And it needed no absolute scroll.** The phase's plan had budgeted a protocol addition for
 jump-to-prompt, on the grounds that `scroll(by:)` has always been relative. It is not needed:
 the query answers an absolute line, the view already knows which line is at the top, and the
@@ -1019,8 +1028,8 @@ cropping, virtual placements and other terminal image protocols are outside this
 Placements use absolute grid rows; resize keeps those coordinates rather than reflowing
 image geometry with text. Images in evicted history lose their placements.
 
-The session wire is version 5 (line-and-column search cursors) and the screen delta codec
-is format 5. Older daemon builds must use the existing incompatible-version handover;
+The session wire is version 6 and the screen delta codec is format 6 (the outcome below a
+scrolled-back view). Older daemon builds must use the existing incompatible-version handover;
 a silent optional tag is unsafe.
 Placement metadata shape 2 preserves the split tree, ratios, focus, zoom, selected tab and
 window frame, while shape 1 remains readable. Restored frames are clamped to current screens.

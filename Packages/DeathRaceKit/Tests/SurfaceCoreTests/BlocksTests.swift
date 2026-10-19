@@ -203,6 +203,90 @@ import VTCore
         #expect(Blocks.cursorLine(in: screen.model.mirror) == onScreen)
     }
 
+    // MARK: - Scrolled back
+
+    /// A failed `make` with its output, then the next prompt — on a screen just big enough
+    /// that scrolling back one line leaves that prompt, and the `D` on it, below the view.
+    private static func failedMake(on screen: Screen, outputLines: Int = 3) {
+        for index in 0..<4 {
+            screen.feed(Self.command("c\(index)", exit: 0, milliseconds: 10))
+        }
+        let output = (1...outputLines).map { "error: e\($0)" }
+        screen.feed(Self.command("make", output: output, exit: 2, milliseconds: 4_200))
+        screen.feed(Self.prompt)
+    }
+
+    /// The case the review found: scrolled back one line, the failed command's own record is
+    /// on the next prompt's row, which is no longer in view, and its rail went with it.
+    @Test func aFailureKeepsItsRailWhenItsEndIsJustBelowTheView() {
+        let screen = Screen(columns: 20, rows: 6)
+        Self.failedMake(on: screen)
+        #expect(screen.runs.first { $0.command?.text == "make" }?.failed == true, "at the bottom")
+
+        screen.session.scroll(by: 1)
+        let update = screen.model.drain()
+        #expect(screen.model.mirror.viewportOffset == 1, "the screen did not scroll back")
+        let last = try? #require(screen.runs.last)
+        #expect(last?.command?.text == "make")
+        #expect(last?.failed == true)
+        #expect(update.viewportMoved)
+    }
+
+    /// Scrolled up into the middle of a long failure to read it: the next prompt is many lines
+    /// below, and the rail still says the command failed.
+    @Test func aFailureKeepsItsRailWhileYouReadItsOutput() {
+        let screen = Screen(columns: 20, rows: 6)
+        Self.failedMake(on: screen, outputLines: 30)
+        screen.session.scroll(by: 12)
+        _ = screen.model.drain()
+        #expect(screen.runs.last?.command?.text == "make")
+        #expect(screen.runs.last?.failed == true)
+    }
+
+    /// fish sends `D` at the end of the output, on its own row, and the next `A` on the row
+    /// after: the record is in the block, below the view, rather than on the prompt's row.
+    @Test func aRecordInsideTheBlockBelowTheViewCountsToo() {
+        let screen = Screen(columns: 20, rows: 4)
+        screen.feed(Self.command("c0", exit: 0, milliseconds: 10))
+        screen.feed(
+            "\u{1B}]133;A\u{7}$ false\u{1B}]133;B\u{7}\r\n\u{1B}]633;E;false\u{7}\u{1B}]133;C\u{7}"
+                + "one\r\ntwo\r\nthree\r\n\u{1B}]133;D;1\u{7}\r\n")
+        screen.feed(Self.prompt)
+        screen.session.scroll(by: 2)
+        _ = screen.model.drain()
+        #expect(screen.runs.last?.command?.text == "false")
+        #expect(screen.runs.last?.failed == true)
+    }
+
+    /// Following the output there is nothing below the view to say anything, and a block that
+    /// is still running says nothing about how it went, scrolled back or not.
+    @Test func nothingBelowTheViewSaysNothing() {
+        let screen = Screen(columns: 20, rows: 6)
+        Self.failedMake(on: screen)
+        #expect(screen.model.mirror.outcomeBelow == nil)
+        screen.feed("\u{1B}]633;E;sleep 9\u{7}sleep 9\u{1B}]133;C\u{7}\r\n")
+        for index in 0..<8 { screen.feed("tick \(index)\r\n") }
+        screen.session.scroll(by: 2)
+        _ = screen.model.drain()
+        #expect(screen.model.mirror.outcomeBelow == nil)
+        #expect(screen.runs.last?.failed == nil)
+    }
+
+    /// The record arriving while scrolled back changes the rail though no row in view does, so
+    /// the update has to say so or the view would not draw it.
+    @Test func anOutcomeArrivingBelowTheViewIsSomethingToDraw() {
+        let screen = Screen(columns: 20, rows: 6)
+        Self.failedMake(on: screen)
+        screen.feed("\u{1B}]633;E;make\u{7}make\u{1B}]133;C\u{7}\r\nerror: again\r\n")
+        screen.session.scroll(by: 1)
+        _ = screen.model.drain()
+        #expect(screen.runs.last?.failed == nil, "still running")
+        let update = screen.feed("\u{1B}]133;D;2;dur=900\u{7}")
+        #expect(update.outcomeBelowChanged)
+        #expect(!update.isEmpty)
+        #expect(screen.runs.last?.failed == true)
+    }
+
     /// A program that prints a mark of its own is overruled by the shell's, which always comes
     /// after the output. The engine cannot tell whose bytes they are, and no terminal can.
     @Test func theShellsOwnEndIsTheLastWordInABlock() {

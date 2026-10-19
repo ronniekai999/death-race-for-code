@@ -47,10 +47,12 @@ public enum Blocks {
     /// Every block whose prompt is in view, plus the one above the first of them — so the rail
     /// of a command whose output fills the screen still reaches the top edge.
     ///
-    /// A limit worth knowing rather than discovering: scrolled so far into one command's output
-    /// that its prompt is gone, there is nothing in view to say a block is there at all, and
-    /// none is drawn. The mirror holds only the viewport, so the honest fix is to ask the engine
-    /// — which owns the scrollback — and that is the same query jumping between prompts needs.
+    /// Scrolled back, the rows below the view finish the last block in it: its record is on
+    /// the next prompt's row, which is down there, and the session sends what those rows say
+    /// (`MirrorGrid.outcomeBelow`). That is also what lets a view entirely inside one command's
+    /// output — scrolled up to read a failure — show a rail: it is one block, and the rows
+    /// below say how it ended. A command still running there shows nothing, as no prompt in
+    /// view and nothing below is also how a terminal with no integration looks.
     public static func runs(in mirror: MirrorGrid) -> [BlockRun] {
         // A full-screen program draws its own screen: a rail down the side of vim is wrong, and
         // the marks on the alternate screen are whatever it happened to print.
@@ -62,12 +64,15 @@ public enum Blocks {
         for (y, row) in mirror.lines.enumerated() where row.promptMarks.contains(.promptStart) {
             starts.append(top &+ UInt64(y))
         }
-        // No prompt in view is how a terminal with no integration looks, and it is also how one
-        // looks in the middle of a long command's output. Drawing nothing is right for the first
-        // and the best this can do for the second.
-        guard let first = starts.first else { return [] }
-
         let cursorLine = Self.cursorLine(in: mirror)
+
+        // No prompt in view is how a terminal with no integration looks, and it is also how one
+        // looks in the middle of a long command's output. With an outcome from below it is the
+        // second, and the whole view is that command's.
+        guard let first = starts.first else {
+            guard mirror.viewportOffset > 0, let outcome = mirror.outcomeBelow else { return [] }
+            return [BlockRun(lines: top...last, command: outcome, isCurrent: (top...last).contains(cursorLine))]
+        }
 
         var bounds: [ClosedRange<UInt64>] = []
         if first > top { bounds.append(top...(first - 1)) }
@@ -84,8 +89,12 @@ public enum Blocks {
 
         return bounds.enumerated().map { index, range in
             let next = index + 1 < bounds.count ? bounds[index + 1].lowerBound : nil
+            // Scrolled back, the last block goes on below the view, and its record is down
+            // there with the next prompt: the session says what the rows below hold. Those
+            // rows come after the ones in view, so what they say is the later word.
+            let below = next == nil && mirror.viewportOffset > 0 && range.upperBound == last ? mirror.outcomeBelow : nil
             return BlockRun(
-                lines: range, command: command(in: range, before: next, of: mirror),
+                lines: range, command: below ?? command(in: range, before: next, of: mirror),
                 isCurrent: range.contains(cursorLine))
         }
     }

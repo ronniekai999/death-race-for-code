@@ -29,8 +29,9 @@ public enum SessionWire {
     /// ever. An `.incompatible` daemon is told to hand over instead, which keeps its sessions
     /// and is the path M1's delta v4 bump already exercised for real. Version 3 added
     /// paginated history search; version 4 pins the bounded inline graphics delta format.
-    /// Version 5 carries a column as well as a line in search continuation cursors.
-    public static let versions: ClosedRange<UInt16> = 5...5
+    /// Version 5 carries a column as well as a line in search continuation cursors. Version 6
+    /// pins delta format 6, which says how the last block in a scrolled-back view ended.
+    public static let versions: ClosedRange<UInt16> = 6...6
 
     /// A spawn carries a whole environment, which on a developer's Mac is not small.
     public static let largestControlFrame = 256 * 1024

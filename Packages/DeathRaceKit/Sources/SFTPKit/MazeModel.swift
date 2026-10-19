@@ -145,12 +145,13 @@ import Observation
         await uploadFile(at: Listing.join(localPath, name), named: name)
     }
 
-    /// Send a file from anywhere on this Mac — what a Finder drop onto the host pane does.
-    public func uploadFile(at localFile: String, named name: String) async {
+    /// Send a file from anywhere on this Mac — what a Finder drop onto the host pane does —
+    /// into `destination`, or the folder the host's pane shows.
+    public func uploadFile(at localFile: String, named name: String, into destination: String? = nil) async {
         // Settle the folder before asking: the question is about this one, and the sheet is a
         // suspension during which a navigation could land. Answering about `/www` and writing
         // into `/www/releases` would replace a file nobody was asked about.
-        let folder = remotePath
+        let folder = destination ?? remotePath
         guard Listing.isUsableName(name) else { problem = "That file name cannot be used here."; return }
         let remote = Listing.join(folder, name)
         let overwrite: Bool
@@ -164,7 +165,8 @@ import Observation
             return
         }
         if overwrite, await !confirmOverwrite(name) { return }
-        guard folder == remotePath else {
+        // A drop names its folder; anything else goes where the pane is, and still is.
+        guard destination != nil || folder == remotePath else {
             problem = "The host's folder changed while that question was open; nothing was sent."
             return
         }
@@ -184,8 +186,9 @@ import Observation
         await refreshRemote()
     }
 
-    /// Bring the picked remote file down into the local folder.
-    public func download(_ name: String? = nil) async {
+    /// Bring the picked remote file down into `destination`, or the folder this Mac's pane
+    /// shows.
+    public func download(_ name: String? = nil, into destination: String? = nil) async {
         guard let name = name ?? remoteSelected,
             let row = remoteRows.first(where: { $0.name == name }), !row.isDirectory
         else { return }
@@ -196,7 +199,7 @@ import Observation
             return
         }
         let remoteFolder = remotePath
-        let localFolder = localPath
+        let localFolder = destination ?? localPath
         let remote = Listing.join(remoteFolder, name)
         let local = Listing.join(localFolder, name)
         let overwrite: Bool
@@ -204,7 +207,7 @@ import Observation
             problem = "Could not check \(name): \(Self.sentence(error))"; return
         }
         if overwrite, await !confirmOverwrite(name) { return }
-        guard localFolder == localPath, remoteFolder == remotePath else {
+        guard destination != nil || localFolder == localPath, remoteFolder == remotePath else {
             problem = "The folder changed while that question was open; nothing was downloaded."
             return
         }
@@ -225,10 +228,14 @@ import Observation
 
     /// Files dropped onto the host's pane, from Finder or from this Mac's pane: each goes
     /// into the folder the host's pane shows, one at a time so the window stays answerable.
+    ///
+    /// The folder is taken once, when the files are dropped. Taken again for each file, a folder
+    /// opened while the first was going sent the rest into it.
     public func upload(dropped paths: [String]) async {
+        let folder = remotePath
         var trouble: [String] = []
         for path in paths {
-            await uploadFile(at: path, named: Listing.name(of: path))
+            await uploadFile(at: path, named: Listing.name(of: path), into: folder)
             // Each upload ends in a refresh, which clears `problem` — so a complaint about
             // the first file would vanish behind the second. Keep them and say them all.
             if let problem { trouble.append(problem) }
@@ -239,9 +246,18 @@ import Observation
     /// Remote files dropped onto this Mac's pane. Only a path in the folder the host's pane
     /// shows is fetched, so a drag from anywhere else — stray text, another app — does
     /// nothing rather than something surprising.
+    ///
+    /// Into the folder this Mac's pane showed when they were dropped; and the host's folder has
+    /// to stay the one they were dragged from, since that is the listing each file is read from.
     public func download(dropped paths: [String]) async {
-        for path in paths where Listing.parent(of: path) == remotePath {
-            await download(Listing.name(of: path))
+        let remoteFolder = remotePath
+        let localFolder = localPath
+        for path in paths where Listing.parent(of: path) == remoteFolder {
+            guard remotePath == remoteFolder else {
+                problem = "The host's folder changed during the drop; the rest weren't downloaded."
+                return
+            }
+            await download(Listing.name(of: path), into: localFolder)
         }
     }
 

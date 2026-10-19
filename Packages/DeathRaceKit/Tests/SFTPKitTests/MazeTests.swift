@@ -24,6 +24,7 @@ actor FakeRemoteFiles: RemoteFiles {
 
     func failNextTransfer(with error: any Error) { nextFailure = error }
     func holdTransfers() { holds = true }
+    func releaseTransfers() { holds = false }
     func add(directory: String) { directories.insert(directory) }
     func file(_ path: String) -> [UInt8]? { contents[path] }
 
@@ -363,6 +364,31 @@ struct MazeModelTests {
         #expect(await host.file("/var/www/b.bin") == [4, 5])
         #expect(model.transfers.transfers.map(\.name) == ["a.bin", "b.bin"])
         #expect(model.transfers.transfers.allSatisfy { $0.state == .finished })
+    }
+
+    /// A drop is sent one file at a time. Each used to read the folder the host's pane showed
+    /// when its turn came, so opening a folder while the first was going sent the rest into it.
+    @Test func aDropGoesWhereItWasDroppedThoughThePaneMoves() async throws {
+        let disk = FakeLocalDisk(files: [
+            "/Volumes/stick/a.bin": [1], "/Volumes/stick/b.bin": [2], "/Volumes/stick/c.bin": [3],
+        ])
+        let host = FakeRemoteFiles()
+        await host.add(directory: "/var/www/old")
+        let model = makeModel(host, disk)
+        await model.start()
+        await host.holdTransfers()
+        let batch = Task {
+            await model.upload(dropped: ["/Volumes/stick/a.bin", "/Volumes/stick/b.bin", "/Volumes/stick/c.bin"])
+        }
+        for _ in 0..<10_000 where model.transfers.transfers.isEmpty { await Task.yield() }
+        await model.open(FileEntry(name: "old", kind: .directory), on: .remote)
+        #expect(model.remotePath == "/var/www/old")
+        await host.releaseTransfers()
+        await batch.value
+        for (name, bytes) in [("a.bin", [UInt8(1)]), ("b.bin", [2]), ("c.bin", [3])] {
+            #expect(await host.file("/var/www/\(name)") == bytes)
+            #expect(await host.file("/var/www/old/\(name)") == nil)
+        }
     }
 
     @Test func aDropOntoThisMacOnlyFetchesWhatTheHostsPaneShows() async throws {

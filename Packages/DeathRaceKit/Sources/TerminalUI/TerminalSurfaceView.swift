@@ -374,7 +374,14 @@ public final class TerminalSurfaceView: NSView {
         model = SurfaceModel(session: session)
         reportedExit = false
         session.setFocused(isFocused)
-        session.resize(columns: grid.columns, rows: grid.rows, cellPixelWidth: cell.width, cellPixelHeight: cell.height)
+        // Only a grid laid out from a real size. A pane attaches before it is in a window, when
+        // the grid is still the one-cell placeholder, and that shrank the session to 1×1 before
+        // layout sent the real size: a kept session reattached at launch reflowed its whole
+        // history at one column, and the scrollback budget trimmed what no longer fit.
+        if hasLaidOutGrid {
+            session.resize(
+                columns: grid.columns, rows: grid.rows, cellPixelWidth: cell.width, cellPixelHeight: cell.height)
+        }
         needsFrame = true
         wake()
     }
@@ -1089,19 +1096,28 @@ public final class TerminalSurfaceView: NSView {
         layoutGrid()
     }
 
+    /// Whether `grid` has been laid out from a real size yet, rather than being the placeholder
+    /// the view was made with.
+    private var hasLaidOutGrid = false
+
     /// Sizes the drawable to the view and the grid to whole cells, and tells the session
     /// when the grid changed. When neither changed it does nothing, so a layout pass of the
     /// window around it (a title or a status change) draws no frame.
     private func layoutGrid(force: Bool = false) {
+        // No size, no grid: laid out at zero it came to one cell, and the session was told to
+        // shrink to fit (see `attach`). The first real size is the one the session hears.
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        let first = !hasLaidOutGrid
+        hasLaidOutGrid = true
         let scale = window?.backingScaleFactor ?? CGFloat(cell.scale)
         let drawableSize = CGSize(width: (bounds.width * scale).rounded(), height: (bounds.height * scale).rounded())
         let layout = GridLayout(
             width: Double(bounds.width), height: Double(bounds.height), cell: cell, paddingX: padding.x,
             paddingY: padding.y)
-        guard force || layout != grid || metalLayer?.drawableSize != drawableSize else { return }
+        guard force || first || layout != grid || metalLayer?.drawableSize != drawableSize else { return }
         metalLayer?.drawableSize = drawableSize
         needsFrame = true
-        if force || layout != grid {
+        if force || first || layout != grid {
             grid = layout
             session?.resize(
                 columns: layout.columns, rows: layout.rows, cellPixelWidth: cell.width, cellPixelHeight: cell.height)

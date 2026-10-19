@@ -8,20 +8,20 @@ import Vault
 /// Host deathrace-prod-api
 ///     HostName 10.0.4.21
 ///     User ubuntu
-///     IdentityFile /Users/r/.deathrace/keys/se-3f2a9c
+///     IdentityFile "/Users/r/.deathrace/keys/se-3f2a9c"
 ///     IdentitiesOnly yes
 ///     SecurityKeyProvider /usr/lib/ssh-keychain.dylib
 ///     ProxyJump deathrace-bastion
 ///     ControlMaster no
 ///     ControlPersist no
-///     ControlPath /Users/r/.deathrace/cm/3f2a9c41d07be5aa
+///     ControlPath "/Users/r/.deathrace/cm/3f2a9c41d07be5aa"
 /// Host nas-999
 ///     ControlMaster no
 ///     ControlPersist no
-///     ControlPath /Users/r/.deathrace/cm/8be21c0f9a6d4e13
+///     ControlPath "/Users/r/.deathrace/cm/8be21c0f9a6d4e13"
 /// Match all
-/// Include ~/.ssh/config
-/// Include /etc/ssh/ssh_config
+/// Include "~/.ssh/config"
+/// Include "/etc/ssh/ssh_config"
 /// ```
 ///
 /// - First value wins in ssh, so WRLD's settings come first and your own `Host *` defaults
@@ -59,6 +59,9 @@ public struct GeneratedConfig: Equatable, Sendable {
     public let controlPaths: [HostID: String]
     /// The control socket of each alias from `~/.ssh/config` that WRLD doesn't hold.
     public let aliasControlPaths: [String: String]
+    /// Each block's settings, less its `Host` line, by the master's key: what a master made
+    /// for the host connected with. Renaming a host doesn't change its own.
+    public let settings: [String: [String]]
     /// Hosts left out, and why.
     public let problems: [Problem]
 
@@ -131,6 +134,7 @@ public struct GeneratedConfig: Equatable, Sendable {
         var blocks: [String] = []
         var written: Set<String> = []
         var controlPaths: [HostID: String] = [:]
+        var blockSettings: [String: [String]] = [:]
         for host in vault.hosts {
             guard let alias = aliases[host.id], var lines = settings[host.id] else { continue }
             let controlPath = paths.controlPath(for: Self.controlKey(for: host))
@@ -140,6 +144,7 @@ public struct GeneratedConfig: Equatable, Sendable {
                 lines.append("ProxyJump " + jumpAlias)
             }
             lines += ["ControlMaster no", "ControlPersist no", "ControlPath " + Self.pathValue(controlPath)]
+            blockSettings[Self.controlKey(for: host)] = lines
             blocks.append((["Host " + alias] + lines.map { "    " + $0 }).joined(separator: "\n"))
         }
         var aliasControlPaths: [String: String] = [:]
@@ -148,6 +153,7 @@ public struct GeneratedConfig: Equatable, Sendable {
             let controlPath = paths.controlPath(for: Self.controlKey(forAlias: alias))
             aliasControlPaths[alias] = controlPath
             let lines = ["ControlMaster no", "ControlPersist no", "ControlPath " + Self.pathValue(controlPath)]
+            blockSettings[Self.controlKey(forAlias: alias)] = lines
             blocks.append((["Host " + alias] + lines.map { "    " + $0 }).joined(separator: "\n"))
         }
 
@@ -158,11 +164,12 @@ public struct GeneratedConfig: Equatable, Sendable {
             """
         for block in blocks { text += "\n" + block + "\n" }
         text += "\nMatch all\n"
-        for include in includes { text += "Include " + Self.quotedIfSpaced(include) + "\n" }
+        for include in includes { text += "Include " + Self.quoted(include) + "\n" }
         self.text = text
         self.aliases = aliases
         self.controlPaths = controlPaths
         self.aliasControlPaths = aliasControlPaths
+        self.settings = blockSettings
         self.problems = problems
     }
 
@@ -265,13 +272,16 @@ public struct GeneratedConfig: Equatable, Sendable {
     static func isPath(_ value: String) -> Bool { SSHValue.isPath(value) }
 
     /// A path as a value for `IdentityFile` and `ControlPath`: `%` doubled (ssh expands `%`
-    /// tokens in these), and in double quotes when it has a space.
+    /// tokens in these), and quoted.
     static func pathValue(_ path: String) -> String {
-        quotedIfSpaced(path.replacingOccurrences(of: "%", with: "%%"))
+        quoted(path.replacingOccurrences(of: "%", with: "%%"))
     }
 
-    /// In double quotes when it has a space or a tab (`Include` expands no tokens).
-    static func quotedIfSpaced(_ value: String) -> String {
-        value.contains(" ") || value.contains("\t") ? "\"\(value)\"" : value
+    /// Always in double quotes, with `\` and `"` escaped: the one form ssh's line splitter gives
+    /// back exactly. A bare `'` starts a quote, so a home folder like `/Users/o'brien` left
+    /// unquoted made ssh refuse the whole file, and no host connected.
+    static func quoted(_ value: String) -> String {
+        let escaped = value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"" + escaped + "\""
     }
 }

@@ -17,8 +17,7 @@ final class FakeConnections: HostConnecting {
     var results: [ConnectResult] = []
     private(set) var connected: [(host: HostRef, pane: PaneID)] = []
     private(set) var released: [PaneID] = []
-    private(set) var cancelled: [HostRef] = []
-    private var waiting: [CheckedContinuation<ConnectResult, Never>] = []
+    private var waiting: [(pane: PaneID, continuation: CheckedContinuation<ConnectResult, Never>)] = []
 
     static let session = ShellLaunch(
         executable: "/usr/bin/ssh", arguments: ["/usr/bin/ssh", "-F", "/x/ssh_config", "nas-999"], environment: [:])
@@ -35,22 +34,24 @@ final class FakeConnections: HostConnecting {
     func connect(_ host: HostRef, for pane: PaneID) async -> ConnectResult {
         connected.append((host, pane))
         if !results.isEmpty { return results.removeFirst() }
-        return await withCheckedContinuation { waiting.append($0) }
+        return await withCheckedContinuation { waiting.append((pane, $0)) }
     }
 
     /// Ends every connection still waiting.
     func finish(_ result: ConnectResult) {
         let continuations = waiting
         waiting = []
-        for continuation in continuations { continuation.resume(returning: result) }
+        for (_, continuation) in continuations { continuation.resume(returning: result) }
     }
 
     var isWaiting: Bool { !waiting.isEmpty }
 
-    func plainLaunch(_ host: HostRef) async -> ShellLaunch? {
+    /// Plain ssh, unless a test says WRLD can't name the host.
+    var plainResult = ConnectResult.ready(
         ShellLaunch(
-            executable: "/usr/bin/ssh", arguments: ["/usr/bin/ssh", "-o", "ControlPath=none"], environment: [:])
-    }
+            executable: "/usr/bin/ssh", arguments: ["/usr/bin/ssh", "-o", "ControlPath=none"], environment: [:]))
+
+    func plainLaunch(_ host: HostRef) async -> ConnectResult { plainResult }
 
     /// What `openSFTP` hands back: nil unless a test sets it.
     var sftp: (any RemoteFiles)?
@@ -60,11 +61,12 @@ final class FakeConnections: HostConnecting {
 
     func closeSFTP(_ host: HostRef) { sftpClosed.append(host) }
 
-    func release(_ pane: PaneID) { released.append(pane) }
-
-    func cancel(_ host: HostRef) {
-        cancelled.append(host)
-        finish(.failed(.cancelled))
+    /// As the pool does for the last one out: a connection still coming up stops.
+    func release(_ pane: PaneID) {
+        released.append(pane)
+        let stopped = waiting.filter { $0.pane == pane }
+        waiting.removeAll { $0.pane == pane }
+        for (_, continuation) in stopped { continuation.resume(returning: .failed(.cancelled)) }
     }
 
     func paletteHosts() -> [PaletteItem] { PaletteSearch.hosts(vault: Vault(), aliases: ["nas-999"]) }
@@ -182,9 +184,38 @@ extension WindowTests {
         let pane = try #require(controller.activePane)
         await eventually { connections.isWaiting }
         pane.press(.cancel)
-        #expect(connections.cancelled == [nas])
+        // Only this pane's hold goes: a master another pane shares isn't ended for it.
+        #expect(connections.released == [pane.id])
+        #expect(!connections.isWaiting)
+        #expect(pane.banner == .failed(.cancelled, host: "nas-999", address: "192.168.1.5"))
+        #expect(pane.banner?.buttons == [.reconnect])
+        #expect(pane.session == nil)
+
+        connections.results = [.ready(FakeConnections.session)]
+        pane.press(.reconnect)
+        await eventually { pane.session != nil }
+        #expect(pane.banner == nil)
+    }
+
+    // A host WRLD can't name to ssh any more: plain ssh would fail the same way, so it isn't
+    // offered, and asking for it anyway says why rather than leaving the pane blank.
+    @Test func aHostWRLDCantNameSaysWhyEvenForPlainSSH() async throws {
+        let (_, connections, controller) = hostWindow()
+        defer { controller.window?.close() }
+        let failure = ConnectionFailure.unconnectable(reason: "Its jump host is missing.")
+        connections.results = [.failed(failure)]
+        connections.plainResult = .failed(failure)
+
+        controller.open(nas, beside: false)
+        let pane = try #require(controller.activePane)
+        await eventually { pane.banner?.buttons == [.reconnect] }
+        #expect(pane.banner?.message == "Death Race can't connect to nas-999. Its jump host is missing.")
+        #expect(pane.banner?.buttons == [.reconnect])
+
+        pane.press(.plainSSH)
         await eventually { pane.banner?.buttons == [.reconnect] }
         #expect(pane.session == nil)
+        #expect(pane.banner?.message == "Death Race can't connect to nas-999. Its jump host is missing.")
     }
 
     @Test func aSplitFromAPaneOnAHostOpensTheSameHost() async throws {

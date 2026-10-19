@@ -307,9 +307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     /// so it asks which, or with no host saved goes by New Host and opens Maze on that one.
     @objc func openMaze(_ sender: Any?) {
         guard let wrld else { return }
-        let route = MazeRoute(
-            pane: frontPitLaneWindow?.activePane?.launch.host, hosts: wrld.vault.hosts,
-            aliases: wrld.discovered.map(\.name))
+        let route = MazeRoute(pane: hostInFront, hosts: wrld.vault.hosts, aliases: wrld.discovered.map(\.name))
         switch route {
         case .open(let host):
             showMaze(host)
@@ -318,6 +316,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         case .addHost:
             presentNewHost(subtitle: NewHostView.mazeSubtitle) { [weak self] id, _ in self?.showMaze(.vault(id)) }
         }
+    }
+
+    /// The host the window in front is about: a Pit Lane window's active pane's, the WRLD
+    /// window's selected host, a Maze window's own. Nil for anything else — Lucid Dreams,
+    /// Settings, no window — which then asks, rather than taking a host from a pane behind
+    /// that you aren't looking at.
+    private var hostInFront: HostRef? {
+        guard let key = NSApp.keyWindow ?? NSApp.mainWindow else { return nil }
+        if let controller = key.windowController as? PitLaneWindowController {
+            return controller.activePane?.launch.host
+        }
+        if let wrldWindow, key === wrldWindow.window { return wrldWindow.model.selected.map(HostRef.vault) }
+        return mazeWindows.values.first { $0.window === key }?.host
     }
 
     /// Which of `hosts` to open in Maze, in a sheet on the window in front.
@@ -347,10 +358,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     /// them. The window owns the connection from then on.
     func showMaze(_ host: HostRef) {
         if let controller = mazeWindows[host] {
-            controller.show()
+            // A window whose connection has closed — the Mac slept, the network changed, the
+            // master exited — fails every action, and bringing it back would bring back that.
+            // Close it, and open the host's files again.
+            Task {
+                if await controller.model.isConnected() { return controller.show() }
+                controller.close()
+                if mazeWindows[host] === controller { mazeWindows[host] = nil }
+                showMaze(host)
+            }
             return
         }
         guard let wrld, !openingMaze.contains(host) else { return }
+        // A host whose settings WRLD couldn't use has no way to connect at all; saying so beats
+        // trying and then blaming the network or the server's sftp.
+        if let problem = wrld.problem(with: host) {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Maze can't open \(wrld.name(of: host))'s files."
+            alert.informativeText = problem
+            alert.runModal()
+            return
+        }
         openingMaze.insert(host)
         Task {
             // In a `defer`: a host whose files never open must still be openable again, and
@@ -457,7 +486,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         controller.settingsProblems = configStore.diagnostics.count
         controller.sessionsEndWithTheApp = legends?.sessionsEndWithTheApp ?? false
         windows.append(controller)
-        if let other {
+        if controller.restoredItsFrame {
+            // Put back where it was, it stays there: centring or cascading it kept only its
+            // size, and windows spread across displays came back stacked on one.
+        } else if let other {
             window.setFrameTopLeftPoint(window.cascadeTopLeft(from: NSPoint(x: other.frame.minX, y: other.frame.maxY)))
         } else if let point = cascadePoint {
             cascadePoint = window.cascadeTopLeft(from: point)

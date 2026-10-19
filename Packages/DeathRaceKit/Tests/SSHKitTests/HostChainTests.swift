@@ -115,6 +115,13 @@ struct HostChainTests {
         #expect(context.name(for: bastion) == "bastion")
         #expect(context.name(for: prod) == "prod-api")
         #expect(context.hostName == "prod-api")
+        // A question from the jump host names it, not prod-api, as ssh writes it on any port.
+        #expect(context.jumpHosts == ["bastion.lan": "bastion"])
+        #expect(context.jumpHost(named: "bastion.lan") == "bastion")
+        #expect(context.jumpHost(named: "[bastion.lan]:2222") == "bastion")
+        #expect(context.jumpHost(named: "10.0.4.21") == nil)
+        // Without a saved password, the jump host goes by the name ssh gives it.
+        #expect(chain.askpassContext(hostName: "prod-api") { _ in nil }.jumpHosts == ["bastion.lan": "bastion.lan"])
     }
 
     // A jump host reached through "ops@bastion:2222" isn't the identity WRLD saved the
@@ -194,6 +201,11 @@ struct ConnectionOfferTests {
         #expect(ConnectionFailure.noRoute.offers(address: nil) == [.reconnect, .plainSSH])
         #expect(ConnectionFailure.cancelled.offers(address: nil) == [.reconnect])
         #expect(ConnectionFailure.hostKeyRejected.offers(address: nil) == [.reconnect])
+        // Plain ssh reads the same config, which doesn't have the host.
+        #expect(ConnectionFailure.unconnectable(reason: nil).offers(address: "192.168.1.5") == [.reconnect])
+        #expect(
+            ConnectionFailure.unconnectable(reason: nil).sentence(host: "pi")
+                == "WRLD has no way to connect to pi any more.")
         #expect(
             ConnectionFailure.hostKeyChanged(fingerprint: nil, knownHostsLine: nil).offers(address: nil) == [.reconnect]
         )

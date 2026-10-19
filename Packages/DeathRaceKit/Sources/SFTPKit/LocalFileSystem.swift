@@ -7,8 +7,11 @@ import Vault
 public struct LocalFileSystem: Sendable {
     /// The user's home directory, where a pane opens by default.
     public var homeDirectory: @Sendable () -> String
-    /// A folder's entries, already classified and sorted; empty when it can't be read.
-    public var entries: @Sendable (_ directory: String) -> [FileEntry]
+    /// A folder's entries, already classified and sorted. Throws when it can't be read — no
+    /// permission, or a privacy folder not granted — which an empty list would hide.
+    public var entries: @Sendable (_ directory: String) throws -> [FileEntry]
+    /// Whether a path is a folder, following a symbolic link to see.
+    public var isDirectory: @Sendable (_ path: String) -> Bool
     /// A whole file's bytes, or nil when it can't be read.
     public var readFile: @Sendable (_ path: String) -> [UInt8]?
     /// Write bytes to a path atomically; false on failure.
@@ -23,16 +26,22 @@ public struct LocalFileSystem: Sendable {
 
     public init(
         homeDirectory: @escaping @Sendable () -> String,
-        entries: @escaping @Sendable (String) -> [FileEntry],
+        entries: @escaping @Sendable (String) throws -> [FileEntry],
         readFile: @escaping @Sendable (String) -> [UInt8]?,
         writeFile: @escaping @Sendable ([UInt8], String, Bool) -> Bool,
         createDirectory: @escaping @Sendable (String) -> Bool,
         exists: (@Sendable (String) throws -> Bool)? = nil,
         openUpload: (@Sendable (String) async throws -> TransferSource)? = nil,
-        openDownload: (@Sendable (String) async throws -> TransferDestination)? = nil
+        openDownload: (@Sendable (String) async throws -> TransferDestination)? = nil,
+        isDirectory: (@Sendable (String) -> Bool)? = nil
     ) {
         self.homeDirectory = homeDirectory
         self.entries = entries
+        self.isDirectory =
+            isDirectory ?? { path in
+                var directory: ObjCBool = false
+                return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
+            }
         self.readFile = readFile
         self.writeFile = writeFile
         self.createDirectory = createDirectory
@@ -60,7 +69,7 @@ public struct LocalFileSystem: Sendable {
                     })
             }
         self.exists =
-            exists ?? { path in entries(Listing.parent(of: path)).contains { $0.name == Listing.name(of: path) } }
+            exists ?? { path in try entries(Listing.parent(of: path)).contains { $0.name == Listing.name(of: path) } }
     }
 
     /// The real filesystem: FileManager listings and bounded descriptor IO with an
@@ -69,7 +78,7 @@ public struct LocalFileSystem: Sendable {
         homeDirectory: { NSHomeDirectory() },
         entries: { directory in
             let manager = FileManager.default
-            guard let names = try? manager.contentsOfDirectory(atPath: directory) else { return [] }
+            let names = try manager.contentsOfDirectory(atPath: directory)
             let entries = names.map { name -> FileEntry in
                 let attributes = try? manager.attributesOfItem(atPath: Listing.join(directory, name))
                 let type = attributes?[.type] as? FileAttributeType
@@ -98,7 +107,7 @@ public struct LocalFileSystem: Sendable {
         exists: { try LocalDownload.exists($0) },
         openUpload: { path in
             let file = try await fileWorker { try LocalUpload(path: path) }
-            return TransferSource(size: file.size) { offset, length in
+            return TransferSource(size: file.size, permissions: file.permissions) { offset, length in
                 try await fileWorker { try file.read(offset: offset, length: length) }
             }
         },
@@ -106,7 +115,8 @@ public struct LocalFileSystem: Sendable {
             let file = try await fileWorker { try LocalDownload(path: path) }
             return TransferDestination(
                 write: { bytes, offset in try await fileWorker { try file.write(bytes, offset: offset) } },
-                commit: { overwrite in try await fileWorker { try file.commit(overwrite: overwrite) } })
+                commit: { overwrite in try await fileWorker { try file.commit(overwrite: overwrite) } },
+                permissions: { mode in try await fileWorker { try file.setPermissions(mode) } })
         }
     )
 }

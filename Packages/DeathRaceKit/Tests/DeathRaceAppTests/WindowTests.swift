@@ -31,7 +31,11 @@ final class FakeSession: PaneSession, @unchecked Sendable {
     var status: Session.Status { closed ? .exited(.exited(code: 0)) : .running }
     func send(_ bytes: [UInt8]) -> Bool { replay.send(bytes) }
     func sendReport(_ bytes: [UInt8]) -> Bool { replay.sendReport(bytes) }
+    /// Every size the pane asked for, in order.
+    private(set) var resizes: [(columns: Int, rows: Int)] = []
+
     func resize(columns: Int, rows: Int, cellPixelWidth: Int, cellPixelHeight: Int) {
+        resizes.append((columns, rows))
         replay.resize(columns: columns, rows: rows, cellPixelWidth: cellPixelWidth, cellPixelHeight: cellPixelHeight)
     }
     func scroll(by lines: Int) { replay.scroll(by: lines) }
@@ -91,11 +95,13 @@ final class TestHost: WindowHost {
 }
 
 /// Waits for work the window starts in a task (a new tab asks its pane where it is first).
+/// Still false after a second is a failure, so a test can't pass on a wait that never ended.
 @MainActor
-func eventually(_ condition: () -> Bool) async {
+func eventually(sourceLocation: SourceLocation = #_sourceLocation, _ condition: () -> Bool) async {
     for _ in 0..<200 where !condition() {
         try? await Task.sleep(nanoseconds: 5_000_000)
     }
+    if !condition() { Issue.record("Still not true after a second", sourceLocation: sourceLocation) }
 }
 
 /// Set while a window test runs. The first run of these tests on CI ended the test process
@@ -141,12 +147,45 @@ final class WindowTests {
         windowTestRunning = false
     }
 
-    func makeWindow(_ host: TestHost) -> PitLaneWindowController {
+    func makeWindow(_ host: TestHost, config: Config = Config()) -> PitLaneWindowController {
         retainedHosts.append(host)
-        let controller = PitLaneWindowController(config: Config(), host: host, directory: nil)
+        let controller = PitLaneWindowController(config: config, host: host, directory: nil)
         controller.showWindow(nil)
         controller.window?.layoutIfNeeded()
         return controller
+    }
+
+    /// Run naming a program that can't be found starts your login shell, and says so, or the
+    /// setting would seem to do nothing.
+    @Test func aRunSettingThatNamesNothingSaysSo() throws {
+        var config = Config()
+        config.command = "no-such-program-for-death-race --login"
+        let controller = makeWindow(TestHost(), config: config)
+        defer { controller.window?.close() }
+        let pane = try #require(controller.activePane)
+        #expect(pane.session != nil)
+        #expect(
+            pane.banner
+                == .note(
+                    "Death Race couldn’t find “no-such-program-for-death-race”, the program Run names in Settings, so this is your login shell."
+                ))
+        pane.press(.dismiss)
+        #expect(pane.banner == nil)
+    }
+
+    /// A pane attaches its session before it is laid out. It used to send the one-cell grid it
+    /// was made with, so a kept session reattached at launch was shrunk to 1×1 — its history
+    /// reflowed at one column and trimmed — before the real size arrived.
+    @Test func aNewPaneNeverShrinksItsSessionToOneCell() throws {
+        let host = TestHost()
+        let controller = makeWindow(host)
+        defer { controller.window?.close() }
+        let pane = try #require(controller.activePane)
+        let session = try #require(pane.session as? FakeSession)
+        #expect(!session.resizes.isEmpty, "the laid-out grid reached the session")
+        #expect(!session.resizes.contains { $0.columns == 1 || $0.rows == 1 }, "\(session.resizes)")
+        #expect(session.resizes.last?.columns == pane.surface.grid.columns)
+        #expect(session.resizes.last?.rows == pane.surface.grid.rows)
     }
 
     @Test func aWindowOpensWithOneTabAndPane() {

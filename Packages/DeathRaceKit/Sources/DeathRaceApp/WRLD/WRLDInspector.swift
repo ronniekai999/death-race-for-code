@@ -41,6 +41,13 @@ struct WRLDInspector: View {
                     if host.isLegend { ChipView(chip: HostChip("Legend")) }
                 }
                 Text(status.line).font(.system(size: 12)).foregroundStyle(palette.inkMuted)
+                if model.isStale(host) {
+                    Text(
+                        "Its open connection keeps the settings it was made with. Your changes apply once its panes and tunnels close."
+                    )
+                    .font(.system(size: 12)).foregroundStyle(palette.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
 
                 if host.connection != nil {
                     connectionFields

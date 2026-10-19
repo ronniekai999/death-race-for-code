@@ -110,6 +110,27 @@ struct VaultStoreTests {
         #expect(scratch.text(path) == original)
     }
 
+    @Test func eachFailureSaysWhatIsWrongWithTheFile() {
+        let home = "/Users/r"
+        let path = home + "/.config/deathrace/wrld.json"
+        #expect(
+            VaultStore.Failure.unreadable(path: path).sentence(home: home)
+                == "~/.config/deathrace/wrld.json can’t be read.")
+        #expect(
+            VaultStore.Failure.undecodable(path: path, reason: "hosts.[0].id is missing").sentence(home: home)
+                == "~/.config/deathrace/wrld.json isn’t a vault WRLD can read: hosts.[0].id is missing.")
+        #expect(
+            VaultStore.Failure.newer(path: "/etc/wrld.json", version: 2).sentence(home: home).hasPrefix(
+                "/etc/wrld.json is from a newer"))
+        #expect(
+            VaultStore.Failure.unwritable(path: path, errno: EACCES).sentence(home: home)
+                == "~/.config/deathrace/wrld.json can’t be written: Permission denied.")
+        // A folder that only starts like the home folder isn't it.
+        #expect(
+            VaultStore.Failure.unreadable(path: "/Users/rob/wrld.json").sentence(home: home)
+                == "/Users/rob/wrld.json can’t be read.")
+    }
+
     @Test func anEmptyFileIsAnEmptyVault() throws {
         let scratch = Scratch()
         let path = scratch.path + "/wrld.json"

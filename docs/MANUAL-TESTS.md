@@ -30,6 +30,7 @@ reviewed render baselines and hardware measurements.
 - [ ] Oversized and unsupported graphics are refused without freezing the terminal or reading files.
 - [ ] Search finds visible and older history, case-insensitive text, combining characters, wide characters and soft-wrapped matches.
 - [ ] Find next/previous scrolls to and highlights the chosen result; Escape returns keyboard focus to the terminal; reopening refreshes the existing query.
+- [ ] Find starts at the newest match; Return and ⌘G go further back, ⇧Return and ⇧⌘G come forward. With more than 1000 matches (`seq 5000`, find `1`) it says "… (newest 1000)" and starts at the bottom.
 - [ ] Closing a pane or changing generations during search cancels work without hanging the find bar; a history search finishes even while output continues.
 - [ ] VoiceOver reads terminal text, lines and selected text; output updates do not announce continuously while idle.
 - [ ] Quit and reopen restores mixed vertical/horizontal split ratios, active pane, zoom, selected tab and focused window.
@@ -122,6 +123,12 @@ so these are the ones the work was built against.
 - [ ] Scrolled back into history, the band is absent rather than on whatever row is in view.
 - [ ] Scrolled back one line after a failed command, its rail stays; scrolled up into the middle
       of a long failure's output, the rail runs down the whole view.
+- [ ] Ctrl-L in zsh and in bash, then `false`: the cleared screen's prompt has the band, the ✗
+      and rail are beside `false`, and ⌘↑ from the newest prompt lands on it.
+- [ ] A bash pane with no line in its startup files offers one along its bottom; Add the Line…
+      shows the line and the file, and after it a new bash pane marks its commands. Not Now
+      keeps it away until the app restarts, and Return puts it away in that pane.
+- [ ] With `~/.bash_profile` a symlink into a dotfiles folder, adding the line keeps the link.
 - [ ] The starfield is still visible inside a band (a theme with stars, a block over a short
       line's empty tail).
 - [ ] A click a few points right of the rail starts an ordinary selection, not a block one.
@@ -156,6 +163,8 @@ so these are the ones the work was built against.
 - [ ] A notification tapped while the app is hidden brings the right pane forward, in the right
       window and tab.
 - [ ] A command in a background **window** (not just a background tab) is notified.
+- [ ] Scrolled back in a pane while its command runs: when it ends, the status bar's Fast run
+      updates, a fail or a 30-second run is notified, and tapping the Fast run scrolls to it.
 - [ ] A zoomed tab: a command in one of the hidden panes is notified, the zoomed one is not.
 - [ ] Nothing is delivered for a command typed with a leading space.
 
@@ -213,6 +222,7 @@ real thing.
 - [ ] An ssh pane is never kept: quitting with one open still asks, and it is gone next launch.
 - [ ] Lucid Dreams is never kept: ⌥Space, type something, quit, relaunch — a fresh shell, and
       no stray tab holding the old one.
+- [ ] `exit` in Lucid Dreams hides it, and the next summon opens a new shell rather than a dead one.
 - [ ] Move Tab to New Window, then quit and relaunch: the tab comes back in a second window.
 - [ ] `legendsd` with a session open and the app gone: `ps` shows one `legendsd`, in a session
       of its own (`ps -o pid,ppid,sess`), parented to launchd, and **not** double-forked.
@@ -363,8 +373,11 @@ first macOS build to need compile fixes before any of this can be tried.
 
 - [ ] New Host… with "A new Secure Enclave key" makes it (Touch ID asks; macOS calls it
       "ctccardtoken"), and WRLD › Keys lists it with Copy Public Key.
-- [ ] The first connection puts it in the server's `~/.ssh/authorized_keys` once, and the host
-      switches to it; reconnecting asks Touch ID, not the password.
+- [ ] The first connection puts it in the server's `~/.ssh/authorized_keys` once, on a line
+      of its own even when the file's last line had no newline; Touch ID asks once to check it,
+      then the host switches to it; reconnecting asks Touch ID, not the password.
+- [ ] Declining that Touch ID, or a server older than OpenSSH 8.2: the host keeps signing in
+      as before, and the next connection tries the key again.
 
 ## WRLD window and sidebar
 
@@ -373,6 +386,9 @@ first macOS build to need compile fixes before any of this can be tried.
 - [ ] **The inspector** saves address, user, port, sign-in and jump host with Save; group,
       tags, Legend, agent forwarding and on-connect apply at once. A jump host can't be the
       host itself or loop back to it.
+- [ ] **An edit applies to the next connection.** Connect, close the pane, change the user and
+      Save, connect again: you log in again as the new user. With a pane still open, the
+      inspector says the change waits; once that pane closes, the next one uses it.
 - [ ] **Remove…** names the hosts that jump through it; they connect directly afterwards.
 - [ ] **Known hosts** lists `~/.ssh/known_hosts`; Forget… asks first.
 - [ ] **⌃⌘S** and the button after the traffic lights show and hide the sidebar per window; a
@@ -381,6 +397,9 @@ first macOS build to need compile fixes before any of this can be tried.
       closes; right-click offers Connect, Connect Beside, Edit, Pin to Legends, Copy Address,
       Remove from WRLD….
 - [ ] **Hand edits** to `wrld.json` and to `~/.ssh/config` show up as they're saved.
+- [ ] **A broken `wrld.json`** (delete a host's `"id"`): WRLD says which file and what's wrong,
+      the sidebar says to open WRLD, and a change says why it wasn't saved. The file is left
+      as it was.
 - [ ] **VoiceOver** reads each sidebar row, and presses it.
 
 ## Come & Go

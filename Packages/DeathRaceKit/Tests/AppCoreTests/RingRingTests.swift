@@ -36,6 +36,12 @@ import Testing
         #expect(RingRing.notice(for: finished(milliseconds: 2_000), thresholdSeconds: threshold) == nil)
     }
 
+    /// A threshold in the millions of seconds is a way of saying "never", and it used to wrap
+    /// round to a few seconds when made into milliseconds, which notified about everything.
+    @Test func aHugeThresholdIsNotWrappedRoundToASmallOne() {
+        #expect(RingRing.notice(for: finished(milliseconds: 60_000), thresholdSeconds: 4_294_968) == nil)
+    }
+
     /// macOS's `/bin/bash` is 3.2 and has no `$EPOCHREALTIME`, so it reports no duration. That
     /// is a documented limit, and the honest response is to say nothing rather than guess.
     @Test func withoutADurationItDoesNotGuess() {

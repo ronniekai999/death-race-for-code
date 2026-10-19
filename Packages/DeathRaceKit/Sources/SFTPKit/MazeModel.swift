@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 
 /// What Maze shows and does: a folder on this Mac beside a folder on the host, and the
@@ -56,8 +57,21 @@ import Observation
         await refreshRemote()
     }
 
+    /// Why this Mac's folder couldn't be listed, while it can't: kept apart so the host's
+    /// listing succeeding doesn't clear it from the problem line.
+    private var localProblem: String?
+
     public func refreshLocal() {
-        localRows = fileSystem.entries(localPath)
+        do {
+            localRows = try fileSystem.entries(localPath)
+            if problem == localProblem { problem = nil }
+            localProblem = nil
+        } catch {
+            // Said, as the host's pane says it: an unreadable folder used to look empty.
+            localRows = []
+            localProblem = "Could not read \(localPath): \(Self.sentence(error))"
+            problem = localProblem
+        }
         if let localSelected, !localRows.contains(where: { $0.name == localSelected }) { self.localSelected = nil }
     }
 
@@ -76,7 +90,7 @@ import Observation
             guard mine == navigation else { return }
             isLoading = false
             remoteRows = rows
-            problem = nil
+            problem = localProblem
             if let remoteSelected, !remoteRows.contains(where: { $0.name == remoteSelected }) {
                 self.remoteSelected = nil
             }
@@ -99,7 +113,10 @@ import Observation
     public func open(_ entry: FileEntry, on side: Side) async {
         switch side {
         case .local:
-            guard entry.isDirectory || entry.kind == .symlink else {
+            // A link is followed to see what it is: one to a file is picked, not opened as an
+            // empty folder.
+            let path = Listing.join(localPath, entry.name)
+            guard entry.isDirectory || (entry.kind == .symlink && fileSystem.isDirectory(path)) else {
                 localSelected = entry.name
                 return
             }
@@ -107,7 +124,15 @@ import Observation
             localSelected = nil
             refreshLocal()
         case .remote:
-            guard entry.isDirectory || entry.kind == .symlink else {
+            if entry.kind == .symlink {
+                // `stat` follows the link. One to a file is picked; opened as a folder, it
+                // emptied the pane with "No such file", which named the wrong cause.
+                let target = try? await files.stat(Listing.join(remotePath, entry.name))
+                guard target?.isDirectory == true else {
+                    remoteSelected = entry.name
+                    return
+                }
+            } else if !entry.isDirectory {
                 remoteSelected = entry.name
                 return
             }
@@ -144,12 +169,13 @@ import Observation
         await uploadFile(at: Listing.join(localPath, name), named: name)
     }
 
-    /// Send a file from anywhere on this Mac — what a Finder drop onto the host pane does.
-    public func uploadFile(at localFile: String, named name: String) async {
+    /// Send a file from anywhere on this Mac — what a Finder drop onto the host pane does —
+    /// into `destination`, or the folder the host's pane shows.
+    public func uploadFile(at localFile: String, named name: String, into destination: String? = nil) async {
         // Settle the folder before asking: the question is about this one, and the sheet is a
         // suspension during which a navigation could land. Answering about `/www` and writing
         // into `/www/releases` would replace a file nobody was asked about.
-        let folder = remotePath
+        let folder = destination ?? remotePath
         guard Listing.isUsableName(name) else { problem = "That file name cannot be used here."; return }
         let remote = Listing.join(folder, name)
         let overwrite: Bool
@@ -163,7 +189,8 @@ import Observation
             return
         }
         if overwrite, await !confirmOverwrite(name) { return }
-        guard folder == remotePath else {
+        // A drop names its folder; anything else goes where the pane is, and still is.
+        guard destination != nil || folder == remotePath else {
             problem = "The host's folder changed while that question was open; nothing was sent."
             return
         }
@@ -183,10 +210,11 @@ import Observation
         await refreshRemote()
     }
 
-    /// Bring the picked remote file down into the local folder.
-    public func download(_ name: String? = nil) async {
+    /// Bring the picked remote file down into `destination`, or the folder this Mac's pane
+    /// shows.
+    public func download(_ name: String? = nil, into destination: String? = nil) async {
         guard let name = name ?? remoteSelected,
-            let row = remoteRows.first(where: { $0.name == name }), !row.isDirectory
+            let row = remoteRows.first(where: { $0.id == Array(name.utf8) }), !row.isDirectory
         else { return }
         // `Listing.remote` already refuses a name that isn't a name, but this is the line that
         // decides where bytes from a host land on this Mac, so it checks for itself.
@@ -195,7 +223,7 @@ import Observation
             return
         }
         let remoteFolder = remotePath
-        let localFolder = localPath
+        let localFolder = destination ?? localPath
         let remote = Listing.join(remoteFolder, name)
         let local = Listing.join(localFolder, name)
         let overwrite: Bool
@@ -203,7 +231,7 @@ import Observation
             problem = "Could not check \(name): \(Self.sentence(error))"; return
         }
         if overwrite, await !confirmOverwrite(name) { return }
-        guard localFolder == localPath, remoteFolder == remotePath else {
+        guard destination != nil || localFolder == localPath, remoteFolder == remotePath else {
             problem = "The folder changed while that question was open; nothing was downloaded."
             return
         }
@@ -224,10 +252,14 @@ import Observation
 
     /// Files dropped onto the host's pane, from Finder or from this Mac's pane: each goes
     /// into the folder the host's pane shows, one at a time so the window stays answerable.
+    ///
+    /// The folder is taken once, when the files are dropped. Taken again for each file, a folder
+    /// opened while the first was going sent the rest into it.
     public func upload(dropped paths: [String]) async {
+        let folder = remotePath
         var trouble: [String] = []
         for path in paths {
-            await uploadFile(at: path, named: Listing.name(of: path))
+            await uploadFile(at: path, named: Listing.name(of: path), into: folder)
             // Each upload ends in a refresh, which clears `problem` — so a complaint about
             // the first file would vanish behind the second. Keep them and say them all.
             if let problem { trouble.append(problem) }
@@ -238,9 +270,18 @@ import Observation
     /// Remote files dropped onto this Mac's pane. Only a path in the folder the host's pane
     /// shows is fetched, so a drag from anywhere else — stray text, another app — does
     /// nothing rather than something surprising.
+    ///
+    /// Into the folder this Mac's pane showed when they were dropped; and the host's folder has
+    /// to stay the one they were dragged from, since that is the listing each file is read from.
     public func download(dropped paths: [String]) async {
-        for path in paths where Listing.parent(of: path) == remotePath {
-            await download(Listing.name(of: path))
+        let remoteFolder = remotePath
+        let localFolder = localPath
+        for path in paths where Listing.parent(of: path) == remoteFolder {
+            guard remotePath == remoteFolder else {
+                problem = "The host's folder changed during the drop; the rest weren't downloaded."
+                return
+            }
+            await download(Listing.name(of: path), into: localFolder)
         }
     }
 
@@ -253,6 +294,10 @@ import Observation
     public func clearCompletedTransfers() {
         transfers.clearCompleted()
     }
+
+    /// Whether the host's files can still be reached. Once the connection has closed every
+    /// action fails, so asking for the window again should make a new one.
+    public func isConnected() async -> Bool { await files.isConnected() }
 
     /// Close the connection. The one place the ssh subsystem is ended.
     public func shutDown() async {
@@ -287,11 +332,16 @@ import Observation
             case .cannotWrite(let path): return "could not write \(path)"
             }
         }
+        // Swift's own spelling of these is a type name, and a row reading "CancellationError()"
+        // or "POSIXError(_nsError: …)" says nothing to anyone.
+        if error is CancellationError { return "stopped" }
+        if let error = error as? CocoaError { return error.localizedDescription }
+        if let error = error as? POSIXError { return String(cString: strerror(error.code.rawValue)) }
         guard let error = error as? SFTPError else { return "\(error)" }
         switch error {
         case .status(_, let message) where !message.isEmpty: return message
         case .status(let code, _): return "the server refused it (code \(code))"
-        case .transportClosed: return "the connection closed"
+        case .transportClosed: return "the connection closed; Open in Maze again to reconnect"
         case .timedOut: return "it took too long"
         // `invalid` carries the reason, and some of them are about us, not the server: a file
         // past what a transfer will take in one piece, or a directory past what Maze will

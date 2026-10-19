@@ -70,8 +70,8 @@ public enum ShellIntegration {
     /// already has. `AskpassEnvironment.adding`'s shape: take a dictionary, return it with
     /// what is needed added.
     ///
-    /// bash is absent on purpose — it is reached by a line in your own `~/.bashrc`, so there
-    /// is nothing to put in the environment for it.
+    /// bash is absent on purpose — it is reached by a line in your own startup file
+    /// (`bashFileNeedingLine`), so there is nothing to put in the environment for it.
     public static func adding(
         to environment: [String: String], shell: Shell?, directory: URL?
     ) -> [String: String] {
@@ -163,5 +163,49 @@ public enum ShellIntegration {
                 return !trimmed.hasPrefix("#")
                     && trimmed.replacingOccurrences(of: "'\\''", with: "'").contains(path)
             }
+    }
+
+    /// The file to offer our line for, when `executable` is bash and none of the files a bash
+    /// reads at startup loads our script yet; nil for another shell, or one already set up.
+    ///
+    /// Every one of them is looked in, not only the file the offer would name: a line you put
+    /// in `~/.bash_profile` yourself still counts once that file pulls in `~/.bashrc`, which is
+    /// when the offer would have pointed at `~/.bashrc` instead.
+    public static func bashFileNeedingLine(
+        executable: String, home: String, directory: URL,
+        contentsOfFile: (String) -> String? = { try? String(contentsOfFile: $0, encoding: .utf8) }
+    ) -> String? {
+        guard shell(ofExecutable: executable) == .bash else { return nil }
+        let startupFiles = [".bash_profile", ".bash_login", ".profile", ".bashrc"].map { home + "/" + $0 }
+        let installed = startupFiles.contains { path in
+            contentsOfFile(path).map { isInstalled(in: $0, directory: directory) } ?? false
+        }
+        return installed ? nil : bashProfile(home: home, contentsOfFile: contentsOfFile)
+    }
+
+    /// Adds `bashLine` to the end of `path`, after a line break if the file doesn't end in one,
+    /// creating the file when there is none.
+    ///
+    /// Appended through the file rather than written out anew: a startup file kept in a dotfiles
+    /// repository is often a symlink, and replacing it would cut the link, and with it the
+    /// file's permissions and owner.
+    public static func addBashLine(to path: String, directory: URL) throws {
+        let manager = FileManager.default
+        if !manager.fileExists(atPath: path) {
+            guard manager.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o644]) else {
+                throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: path])
+            }
+        }
+        let handle = try FileHandle(forUpdating: URL(fileURLWithPath: path))
+        defer { try? handle.close() }
+        var text = ""
+        let end = try handle.seekToEnd()
+        if end > 0 {
+            try handle.seek(toOffset: end - 1)
+            if try handle.read(upToCount: 1) != Data("\n".utf8) { text += "\n" }
+            try handle.seekToEnd()
+        }
+        text += bashLine(directory: directory) + "\n"
+        try handle.write(contentsOf: Data(text.utf8))
     }
 }

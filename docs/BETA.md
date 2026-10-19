@@ -60,8 +60,10 @@ Applications either way, so the session helper beside it stays where it was star
 | Sessions that survive | Start `top`, quit with ⌘Q and reopen. **Legends Never Die** puts the shell, its scrollback, your splits and tabs back. |
 | Broadcast | ⇧⌘I in a tab with splits sends your typing to every pane in it. The border shows it is armed. Use it carefully. |
 
-zsh and fish get command marks automatically. bash needs one line, added by hand for now, at the
-end of `~/.bash_profile` (create the file if you don't have one):
+zsh and fish get command marks automatically. bash needs one line in the file it reads at
+startup: a bash pane offers to add it, and shows you the line and the file first. To add it
+yourself instead, put this at the end of `~/.bash_profile` (create the file if you don't have
+one):
 
 ```sh
 [ -r '/Applications/Death Race for Code.app/Contents/Resources/shell-integration/bash/deathrace.bash' ] && . '/Applications/Death Race for Code.app/Contents/Resources/shell-integration/bash/deathrace.bash'
@@ -82,7 +84,9 @@ it never sends notifications; Homebrew's bash 5 does.
   `legends-never-die = false` to `~/.config/deathrace/config`.
 - SSH panes end when the app quits. Only local shells are kept, and Lucid Dreams' session is
   not one of them.
-- bash is not set up for you yet: add the line above. The in-app offer is still to come.
+- After `exec zsh` in a pane, that pane's command marks stop: the new shell reads only your own
+  startup files, by design, so nothing the app starts leaks into the programs you run. Open a
+  new tab or pane to get them back.
 - Maze moves files, not folders: a folder can't be uploaded, downloaded or dropped yet. It
   also cannot yet drag remote files out to Finder.
 - **If ⌥Space does nothing**, please report it with the log command below: macOS may refuse

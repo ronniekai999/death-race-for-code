@@ -65,15 +65,24 @@ import Testing
         #expect(span.nextPrompt == nil, "nothing below it")
     }
 
-    /// The block being typed in runs to the last line the screen has, not to the cursor: output
-    /// below the prompt is part of it.
-    @Test func theNewestBlockRunsToTheEndOfTheScreen() {
+    /// The block being typed in ends at the cursor, as the band does: the empty rows under a
+    /// prompt are no part of it, and ⇧⌘A on the prompt took them all.
+    @Test func theNewestBlockEndsAtTheCursor() {
         let screen = terminal(rows: 4)
         feed(screen, Self.command("ls") + "\u{1B}]133;A\u{7}$ ")
         let span = try! #require(screen.promptSpan(at: 1))
-        #expect(span.lines == 1...3, "the prompt's line to the bottom of the screen")
+        #expect(span.lines == 1...1, "the prompt's line, not the empty ones under it")
         #expect(span.previousPrompt == 0)
         #expect(span.nextPrompt == nil)
+    }
+
+    /// A running command's output is below the cursor's prompt row; something written lower
+    /// still, with the cursor moved back up (a progress line redrawn), is part of it too.
+    @Test func theNewestBlockReachesOutputBelowTheCursor() {
+        let screen = terminal(rows: 6)
+        feed(screen, "\u{1B}]133;A\u{7}$ make\r\n\u{1B}]133;C\u{7}one\r\ntwo\r\nthree\u{1B}[2A\r")
+        let span = try! #require(screen.promptSpan(at: 0))
+        #expect(span.lines == 0...3, "down to `three`, below the cursor on `one`")
     }
 
     /// Asked from anywhere inside a block, the answer is that block — which is what makes a

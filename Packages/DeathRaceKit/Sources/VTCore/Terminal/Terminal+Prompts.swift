@@ -8,8 +8,8 @@
 /// One span serves both things that needed asking: `lines` bounds a block for selecting it, and
 /// `previousPrompt` / `nextPrompt` are where ⌘↑ and ⌘↓ go. One round trip rather than two.
 public struct PromptSpan: Hashable, Sendable {
-    /// From the line the prompt starts on to the line before the next prompt — or the last line
-    /// the screen has, for the block being typed in.
+    /// From the line the prompt starts on to the line before the next prompt — or, for the
+    /// block being typed in, to the cursor or the last line written below it.
     public var lines: ClosedRange<UInt64>
     /// What the shell said about the command in it: nil while it is still running, and nil for
     /// every block when no integration is installed.
@@ -101,7 +101,16 @@ extension Terminal {
         // `below` is the last line actually examined: `newest` when the walk ran out of screen,
         // the bound when it ran out of allowance. Claiming `newest` in the second case would
         // hand a selection every block below it, none of which was looked at.
-        let end = next.map { $0 - 1 } ?? below
+        var end = next.map { $0 - 1 } ?? below
+        // The block being typed in ends at the cursor, or lower if something was written below
+        // it, as `Blocks.runs` draws its band: the rows under a prompt are empty, and ⇧⌘A on
+        // the prompt selected every one of them down to the bottom of the screen.
+        if next == nil, below == newest {
+            var written = newest
+            while written > start, storedRow(written)?.cells.allSatisfy(\.isEmpty) ?? false { written &-= 1 }
+            let cursorLine = linesScrolledOff &+ UInt64(self.cursor.y)
+            end = min(newest, max(written, cursorLine))
+        }
 
         return PromptSpan(
             lines: start...end, command: command(in: start...end, next: next), previousPrompt: previous,

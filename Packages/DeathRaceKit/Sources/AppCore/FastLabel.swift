@@ -52,7 +52,9 @@ public enum FastLabel {
             let tenths = (milliseconds + 50) / 100
             return "\(tenths / 10).\(tenths % 10)s"
         }
-        let seconds = (milliseconds + 500) / 1_000
+        // Rounded without adding first: a duration is whatever a program wrote after `dur=`,
+        // and 500 more than the largest one a UInt32 holds was a trap that closed the app.
+        let seconds = milliseconds / 1_000 + (milliseconds % 1_000 >= 500 ? 1 : 0)
         if seconds < 3_600 { return "\(seconds / 60)m \(pad(seconds % 60))s" }
         return "\(seconds / 3_600)h \(pad((seconds % 3_600) / 60))m"
     }

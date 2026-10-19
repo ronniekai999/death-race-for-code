@@ -6,7 +6,7 @@
 # and BASH_ENV applies to non-interactive shells too.
 #
 # What this reports is the same as the other two:
-#   OSC 133;A  prompt start      OSC 133;B  prompt end (appended to PS1)
+#   OSC 133;A  prompt start (prepended to PS1)   OSC 133;B  prompt end (appended to PS1)
 #   OSC 633;E  the command line  OSC 133;C  output start
 #   OSC 133;D;<exit>;dur=<ms>
 #
@@ -164,7 +164,13 @@ if [ -n "${BASH_VERSION-}" ] && [[ $- == *i* ]]; then
         *133\;B*) ;;
         *) PS1="${PS1}\[\e]133;B\a\]" ;;
       esac
-      printf '\e]133;A\a'
+      # A at the front of the prompt rather than printed here, so it marks the row the prompt
+      # is drawn on, every time: readline's clear-screen (Ctrl-L) draws PS1 again without
+      # PROMPT_COMMAND, and a line typed ahead is echoed between this and the prompt.
+      case $PS1 in
+        *133\;A*) ;;
+        *) PS1="\[\e]133;A\a\]${PS1}" ;;
+      esac
       __deathrace_at_prompt=1
       return $__deathrace_ended
     }

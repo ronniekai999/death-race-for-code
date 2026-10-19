@@ -110,6 +110,9 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     private var previewThemeID: String?
     /// A Wishing Well sheet, while one is open.
     private var wishingWellSheet: ThemedSheet?
+    /// The window took back where it was from a kept session's placement, so whoever shows it
+    /// leaves it there rather than centring or cascading it.
+    var restoredItsFrame = false
 
     /// Shown while Secure Keyboard Entry is on and this is the key window.
     var showsSecureInput = false {
@@ -284,7 +287,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     private func pressed(_ button: PaneBanner.Button, in id: PaneID) {
         guard let pane = panes[id], let tab = model.tab(containing: id) else { return }
         // These ask or wait first: the tab's mark stays until something is tried again.
-        if button != .cancel && button != .allowLocalNetwork && button != .forgetHostKey {
+        if ![.cancel, .allowLocalNetwork, .forgetHostKey, .addBashLine, .notNow, .dismiss].contains(button) {
             activity[tab.id]?.failure = nil
             refreshTabs()
         }

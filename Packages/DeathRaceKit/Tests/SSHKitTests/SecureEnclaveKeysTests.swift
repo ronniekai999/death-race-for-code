@@ -110,7 +110,7 @@ struct SecureEnclaveKeysTests {
             for: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample r@mac.local")
         #expect(
             command
-                == "sh -c 'umask 077; mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && { grep -qF \"AAAAC3NzaC1lZDI1NTE5AAAAIExample\" ~/.ssh/authorized_keys || echo \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample r@mac.local\" >> ~/.ssh/authorized_keys; }'"
+                == "sh -c 'umask 077; mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && { grep -qF \"AAAAC3NzaC1lZDI1NTE5AAAAIExample\" ~/.ssh/authorized_keys || { [ -z \"$(tail -c 1 ~/.ssh/authorized_keys)\" ] || echo >> ~/.ssh/authorized_keys; echo \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample r@mac.local\" >> ~/.ssh/authorized_keys; }; }'"
         )
         // A comment a shell could read as more loses those characters.
         let odd = try AuthorizedKeys.installCommand(

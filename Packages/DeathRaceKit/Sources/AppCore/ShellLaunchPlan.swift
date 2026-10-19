@@ -20,10 +20,11 @@ public enum ShellLaunchPlan {
         let home = environment["HOME"] ?? "/"
         var launch = ShellLaunch.loginShell(inheriting: environment, appVersion: appVersion)
         if let words = config.commandArguments,
-            let program = resolve(words[0], path: environment["PATH"], isExecutable: isExecutable)
+            let program = resolve(words[0], path: environment["PATH"], home: home, isExecutable: isExecutable)
         {
             launch.executable = program
-            launch.arguments = words
+            // As a shell would start it: `~` already your home folder.
+            launch.arguments = [expandingTilde(words[0], home: home)] + words.dropFirst()
         }
         switch config.workingDirectory {
         case .inherit: launch.workingDirectory = directory ?? home
@@ -56,17 +57,47 @@ public enum ShellLaunchPlan {
             workingDirectory: environment["HOME"])
     }
 
-    /// The program's path: as given when it has a slash, else the first on PATH.
-    public static func resolve(
-        _ program: String, path: String?, isExecutable: (String) -> Bool = { access($0, X_OK) == 0 }
+    /// Why a new pane doesn't run what the `command` setting says, in a sentence: nothing by
+    /// that name could be found, so it runs your login shell. Nil when it runs it, or there's
+    /// no setting.
+    public static func commandProblem(
+        config: Config, environment: [String: String] = ShellLaunch.processEnvironment(),
+        isExecutable: (String) -> Bool = { access($0, X_OK) == 0 }
     ) -> String? {
-        if program.contains("/") { return isExecutable(program) ? program : nil }
-        let directories = (path ?? "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin").split(separator: ":")
-        for directory in directories {
+        guard let program = config.commandArguments?.first,
+            resolve(program, path: environment["PATH"], home: environment["HOME"] ?? "/", isExecutable: isExecutable)
+                == nil
+        else { return nil }
+        return "Death Race couldn’t find “\(program)”, the program Run names in Settings, so this is your login shell."
+    }
+
+    /// The program's path: as given when it has a slash (with `~` for `home`), else the first
+    /// on PATH, then where programs are usually installed.
+    public static func resolve(
+        _ program: String, path: String?, home: String = "/",
+        isExecutable: (String) -> Bool = { access($0, X_OK) == 0 }
+    ) -> String? {
+        if program.contains("/") {
+            let path = expandingTilde(program, home: home)
+            return isExecutable(path) ? path : nil
+        }
+        let directories = (path ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: ":").map(String.init)
+        for directory in directories + usualPlaces(home: home) {
             let candidate = "\(directory)/\(program)"
             if isExecutable(candidate) { return candidate }
         }
         return nil
+    }
+
+    /// Where programs are installed that an app's PATH doesn't reach: opened from the Finder,
+    /// it's only `/usr/bin:/bin:/usr/sbin:/sbin`. Homebrew, MacPorts, Nix, and your own.
+    static func usualPlaces(home: String) -> [String] {
+        let home = home.hasSuffix("/") ? String(home.dropLast()) : home
+        return [
+            "/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin", home + "/.nix-profile/bin",
+            "/run/current-system/sw/bin", "/nix/var/nix/profiles/default/bin", home + "/.local/bin",
+            home + "/.cargo/bin",
+        ]
     }
 
     static func expandingTilde(_ path: String, home: String) -> String {

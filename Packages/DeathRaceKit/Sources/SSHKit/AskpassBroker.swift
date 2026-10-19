@@ -90,20 +90,34 @@ public struct AskpassContext: Sendable {
     /// False for work you didn't start: it never shows you anything, not even Touch ID for a
     /// saved secret. Any question ends it.
     public var mayAsk: Bool
+    /// The jump hosts on the way, by the host name ssh's prompts give them, with the name to
+    /// show for each: a sheet asking about one names it, not the host at the end.
+    public var jumpHosts: [String: String]
 
     public init(
         hostName: String, passwords: [AskpassPrompt.Hop: SecretRef] = [:], passphrases: [String: SecretRef] = [:],
-        hostNames: [SecretRef: String] = [:], mayAsk: Bool = true
+        hostNames: [SecretRef: String] = [:], mayAsk: Bool = true, jumpHosts: [String: String] = [:]
     ) {
         self.hostName = hostName
         self.passwords = passwords
         self.passphrases = passphrases
         self.hostNames = hostNames
         self.mayAsk = mayAsk
+        self.jumpHosts = jumpHosts
     }
 
     /// The host `ref` is a password for.
     public func name(for ref: SecretRef) -> String { hostNames[ref] ?? hostName }
+
+    /// The jump host a prompt naming `host` is about, when it's one. ssh's host-key question
+    /// writes a host on another port as "[bastion.lan]:2222".
+    public func jumpHost(named host: String) -> String? {
+        var bare = Substring(host)
+        if bare.hasPrefix("["), let close = bare.firstIndex(of: "]") {
+            bare = bare[bare.index(after: bare.startIndex)..<close]
+        }
+        return jumpHosts[String(bare)]
+    }
 }
 
 /// The app's end of `deathrace-askpass`: every question an ssh the app started asks comes

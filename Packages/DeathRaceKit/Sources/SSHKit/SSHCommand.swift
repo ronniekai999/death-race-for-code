@@ -29,6 +29,12 @@ public enum SSHCommand {
         [ssh, "-F", config, "-o", "ControlPath=none", alias]
     }
 
+    /// A login of its own, without the master and with no password: whether the keys
+    /// `config` names for `alias` get in by themselves.
+    public static func keyLogin(alias: String, config: String) -> [String] {
+        [ssh, "-F", config, "-T", "-o", "ControlPath=none", "-o", "BatchMode=yes", alias, "true"]
+    }
+
     /// What ssh will use for `alias` (`-G`), parsed by `EffectiveConfig`.
     public static func effectiveConfig(alias: String, config: String) -> [String] {
         [ssh, "-F", config, "-G", alias]

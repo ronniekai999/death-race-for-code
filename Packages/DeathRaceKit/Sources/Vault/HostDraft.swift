@@ -56,6 +56,10 @@ public struct HostDraft: Equatable, Sendable {
     public enum Problem: Error, Equatable, Sendable {
         case noAddress
         case address
+        /// `ubuntu@db`: ssh would look up a host called that.
+        case userInAddress
+        /// `db:2222`, `[fe80::1]:2222`.
+        case portInAddress
         case user
         case port
         case keyFile
@@ -65,6 +69,8 @@ public struct HostDraft: Equatable, Sendable {
             switch self {
             case .noAddress: "Enter the server’s name or IP address."
             case .address: "That isn’t a host name or an IP address."
+            case .userInAddress: "Put the user name under User, and only the server here."
+            case .portInAddress: "Put the port under Port, and only the server here."
             case .user: "A user name has no spaces or quotes."
             case .port: "A port is a number from 1 to 65535."
             case .keyFile: "Choose the key file to sign in with."
@@ -95,9 +101,16 @@ public struct HostDraft: Equatable, Sendable {
     /// what was typed don't count; a blank name takes the address. A new Secure Enclave key
     /// isn't the host's yet: it signs in as usual until the key is on the server.
     public func host(id: HostID = .make()) throws(Problem) -> WRLDHost {
-        let address = trimmed(self.address)
+        var address = trimmed(self.address)
         guard !address.isEmpty else { throw .noAddress }
-        guard SSHValue.isHostName(address) else { throw .address }
+        // ssh's own `user@host:port`, which this sheet gives a field each.
+        guard !address.contains("@") else { throw .userInAddress }
+        guard !Self.hasPort(address) else { throw .portInAddress }
+        // An IPv6 address as a URL writes it: HostName takes it bare.
+        if address.hasPrefix("["), address.hasSuffix("]") { address = String(address.dropFirst().dropLast()) }
+        guard SSHValue.isHostName(address), !address.contains(where: { $0 == "[" || $0 == "]" }) else {
+            throw .address
+        }
         let user = trimmed(self.user)
         guard user.isEmpty || SSHValue.isUserName(user) else { throw .user }
         let portText = trimmed(self.port)
@@ -156,6 +169,16 @@ public struct HostDraft: Equatable, Sendable {
         connection.forwardAgent = host.connection?.forwardAgent ?? false
         result.source = .wrld(connection)
         return result
+    }
+
+    /// `db:22` or `[fe80::1]:22`. A bare IPv6 address has more than one colon, so its last
+    /// group isn't a port.
+    static func hasPort(_ address: String) -> Bool {
+        guard let colon = address.lastIndex(of: ":") else { return false }
+        let after = address[address.index(after: colon)...]
+        guard !after.isEmpty, after.allSatisfy({ $0.isASCII && $0.isNumber }) else { return false }
+        let before = address[..<colon]
+        return before.hasSuffix("]") || !before.contains(":")
     }
 
     private func trimmed(_ text: String) -> String {

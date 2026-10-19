@@ -1,7 +1,7 @@
 # Death Race for Code — zsh, step two: your files, then our hooks on top.
 #
 # What this reports, so a block knows where it starts and how it went:
-#   OSC 133;A            a prompt starts here
+#   OSC 133;A            a prompt starts here (prepended to PS1)
 #   OSC 133;B            the prompt ends and what you type begins (appended to PS1)
 #   OSC 633;E;<command>  the command line, escaped as Visual Studio Code escapes it
 #   OSC 133;C            the command's output starts here
@@ -67,7 +67,14 @@ if [[ -o interactive ]] && zmodload zsh/datetime 2>/dev/null; then
     if [[ $PS1 != *'133;B'* ]]; then
       PS1="${PS1}%{"$'\e]133;B\a'"%}"
     fi
-    printf '\e]133;A\a'
+    # A rides at the front of the prompt rather than being printed here, so it marks the row
+    # the prompt is actually drawn on, every time it is drawn. Printed from precmd it missed
+    # two things: Ctrl-L (zle's clear-screen) redraws the prompt without running precmd, so the
+    # cleared screen's prompt was no block; and a line typed ahead is echoed between precmd and
+    # the prompt, which put the A on the echo's row and the prompt on the next.
+    if [[ $PS1 != *'133;A'* ]]; then
+      PS1="%{"$'\e]133;A\a'"%}${PS1}"
+    fi
   }
 
   __deathrace_preexec() {

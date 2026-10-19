@@ -509,6 +509,45 @@ import VTCore
             try ShellRig(shell: .fish, executable: fish, rc: "function fish_prompt\n  echo -n '$ '\nend\n"))
     }
 
+    /// Ctrl-L redraws the prompt at the top of a cleared screen without running the hook that
+    /// prints `A`, so `A` rides in the prompt as well. Without it the redrawn prompt was no block:
+    /// the band went, and jumping back from the next command's outcome landed on a prompt from
+    /// before the clear.
+    private func expectAPromptRedrawnByCtrlLIsABlock(_ rig: ShellRig) throws {
+        #expect(rig.waitForFirstPrompt())
+        #expect(rig.run("true", awaiting: ShellRig.promptStart))
+        rig.pressAndSettle("\u{0C}")
+        #expect(rig.run("false", awaiting: ShellRig.promptStart))
+
+        let screen = rig.screen()
+        let top = screen.linesScrolledOff
+        let cleared = try #require(screen.promptSpan(at: top), "\(rig.raw.debugDescription)")
+        #expect(cleared.lines.lowerBound == top, "the prompt at the top of the cleared screen starts its block")
+        #expect(cleared.command?.text == "false")
+        #expect(cleared.command?.exitCode == 1)
+        let typing = try #require(cleared.nextPrompt.flatMap { screen.promptSpan(at: $0) })
+        #expect(typing.previousPrompt == top, "jumping back from the newest prompt reaches the cleared one")
+    }
+
+    @Test func zshMarksAPromptRedrawnByCtrlL() throws {
+        let zsh = try #require(TestShells.path("zsh"), TestShells.missing("zsh"))
+        try expectAPromptRedrawnByCtrlLIsABlock(try ShellRig(shell: .zsh, executable: zsh, rc: "PS1='$ '\n"))
+    }
+
+    @Test func bashMarksAPromptRedrawnByCtrlL() throws {
+        let bash = try #require(TestShells.path("bash"), TestShells.missing("bash"))
+        let directory = try #require(ShellIntegration.directory())
+        try expectAPromptRedrawnByCtrlLIsABlock(
+            try ShellRig(
+                shell: .bash, executable: bash, rc: "PS1='$ '\n\(ShellIntegration.bashLine(directory: directory))\n"))
+    }
+
+    @Test func fishMarksAPromptRedrawnByCtrlL() throws {
+        let fish = try #require(TestShells.path("fish"), TestShells.missing("fish"))
+        try expectAPromptRedrawnByCtrlLIsABlock(
+            try ShellRig(shell: .fish, executable: fish, rc: "function fish_prompt\n  echo -n '$ '\nend\n"))
+    }
+
     /// A command's own output can print anything, a mark included. The engine takes marks from
     /// the stream by design, so what this pins down is that the shell's own `D` — which comes
     /// after the output — is the one whose exit code ends up on the row.

@@ -86,6 +86,9 @@ public final class MasterPool: Sendable {
         /// How the pool reached this host, so a later connection that jumps through it can
         /// be matched to this entry by alias.
         var target: ConnectionTarget
+        /// Made with settings that have since changed: it ends as soon as no one is using it,
+        /// rather than idling, so the next connection gets a master with the new ones.
+        var isStale = false
     }
 
     /// The synthetic user a master holds on each jump host it reaches through, so the jump
@@ -117,6 +120,12 @@ public final class MasterPool: Sendable {
         state.withLock { state in
             state.entries.compactMap { key, entry in entry.master?.state == .ready ? key : nil }.sorted()
         }
+    }
+
+    /// The hosts whose master was made with settings that have since changed, and that is
+    /// still in use: what they're using doesn't have the new settings yet.
+    public var stale: [String] {
+        state.withLock { state in state.entries.compactMap { key, entry in entry.isStale ? key : nil }.sorted() }
     }
 
     /// Whether any master exists at all, connected, still connecting, or on its way out:
@@ -270,7 +279,8 @@ public final class MasterPool: Sendable {
     // MARK: - Leaving and ending
 
     /// `user` is done with whatever host it used. The last one out starts the idle clock;
-    /// if the master is still connecting, nobody is waiting for it, so it stops at once.
+    /// if the master is still connecting, nobody is waiting for it, so it stops at once, as
+    /// does one `retire` marked.
     public func release(_ user: String) {
         let idle = settings.idleClose
         let abandoned = state.withLock { state -> [Entry] in
@@ -280,7 +290,7 @@ public final class MasterPool: Sendable {
                 if entry.users.isEmpty {
                     entry.idle?.cancel()
                     entry.idle = nil
-                    if entry.master?.state == .ready {
+                    if entry.master?.state == .ready, !entry.isStale {
                         entry.idle = Task { [weak self] in
                             try? await Task.sleep(for: idle)
                             guard !Task.isCancelled else { return }
@@ -288,8 +298,9 @@ public final class MasterPool: Sendable {
                         }
                         state.entries[key] = entry
                     } else {
-                        // Still connecting and now unwanted: retire it and take the entry out,
-                        // so a fresh connect starts clean rather than joining this dying one.
+                        // Still connecting and now unwanted, or made with settings that have
+                        // since changed: retire it and take the entry out, so a fresh connect
+                        // starts clean rather than joining this dying one.
                         if let master = entry.master { state.retiring[key] = master }
                         state.entries[key] = nil
                         abandoned.append(entry)
@@ -302,8 +313,28 @@ public final class MasterPool: Sendable {
         }
         for entry in abandoned {
             entry.startup.cancel()
-            entry.master?.end(.failed(.cancelled))
+            entry.master?.end(entry.master?.state == .ready ? .closed : .failed(.cancelled))
         }
+    }
+
+    /// `key`'s settings changed since its master was made, and a pane joining it would get
+    /// the old ones. A master no one is using ends now. One in use carries on for its panes
+    /// and tunnels, since ending it would drop them, and ends as the last of them leaves.
+    /// Either way the next master for the host is made with the new settings.
+    public func retire(_ key: String) {
+        let master = state.withLock { state -> MasterSupervisor? in
+            guard var entry = state.entries[key] else { return nil }
+            guard entry.users.isEmpty, let master = entry.master else {
+                entry.isStale = true
+                state.entries[key] = entry
+                return nil
+            }
+            entry.idle?.cancel()
+            state.retiring[key] = master
+            state.entries[key] = nil
+            return master
+        }
+        master?.end(.closed)
     }
 
     private func closeIfUnused(_ key: String) {

@@ -34,6 +34,11 @@ struct HostDraftTests {
             (HostDraft(address: "db prod"), .address),
             (HostDraft(address: "-oProxyCommand=x"), .address),
             (HostDraft(address: "db\nProxyCommand x"), .address),
+            (HostDraft(address: "ubuntu@db"), .userInAddress),
+            (HostDraft(address: "db:2222"), .portInAddress),
+            (HostDraft(address: "10.0.4.21:22"), .portInAddress),
+            (HostDraft(address: "[fe80::1]:2222"), .portInAddress),
+            (HostDraft(address: "[fe80::1"), .address),
             (HostDraft(address: "db", user: "o'brien"), .user),
             (HostDraft(address: "db", port: "0"), .port),
             (HostDraft(address: "db", port: "65536"), .port),
@@ -46,5 +51,11 @@ struct HostDraftTests {
             #expect(throws: problem, "\(draft)") { try draft.host() }
         }
         #expect(HostDraft.Problem.port.sentence == "A port is a number from 1 to 65535.")
+    }
+
+    @Test func anIPv6AddressIsTakenBareOrInBrackets() throws {
+        #expect(try HostDraft(address: "fe80::1").host().connection?.address == "fe80::1")
+        #expect(try HostDraft(address: "fe80::22").host().connection?.address == "fe80::22")
+        #expect(try HostDraft(address: " [2001:db8::7] ").host().connection?.address == "2001:db8::7")
     }
 }

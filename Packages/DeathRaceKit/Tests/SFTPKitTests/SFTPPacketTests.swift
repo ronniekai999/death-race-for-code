@@ -28,6 +28,8 @@ private let samplePackets: [SFTPPacket] = [
     .realpath(id: 16, path: "."),
     .stat(id: 17, path: "sym"),
     .rename(id: 18, oldPath: "a", newPath: "b"),
+    .posixRename(id: 19, oldPath: "a", newPath: "b"),
+    .version(version: 3, extensions: [SFTP.posixRename: "1", "statvfs@openssh.com": "2"]),
     .status(id: 19, code: SFTP.Status.noSuchFile, message: "no such file"),
     .status(id: 20, code: SFTP.Status.ok, message: ""),
     .handle(id: 21, handle: [0x00, 0x00, 0x00, 0x01]),
@@ -145,7 +147,13 @@ private let samplePackets: [SFTPPacket] = [
     }
 
     @Test func anUnknownPacketTypeIsRejected() {
-        #expect(throws: SFTPError.unknownPacket(200)) { try SFTPPacket.decode(body: [200, 0, 0, 0, 1]) }
+        #expect(throws: SFTPError.unknownPacket(250)) { try SFTPPacket.decode(body: [250, 0, 0, 0, 1]) }
+        // An extended request is known only by its name: OpenSSH's replacing rename, and no other.
+        var w = SFTPWriter()
+        w.u8(SFTP.Kind.extended)
+        w.u32(1)
+        w.string("statvfs@openssh.com")
+        #expect(throws: SFTPError.unknownPacket(SFTP.Kind.extended)) { try SFTPPacket.decode(body: w.bytes) }
     }
 
     @Test func corruptionNeverCrashes() {

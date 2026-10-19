@@ -387,6 +387,9 @@ struct SSHDTests {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let blob = String(publicKey.split(separator: " ")[1])
         let alias = try #require(rig.config.aliases[Rig.jumpID])
+        // A last line with no newline: the key goes on a line of its own, and that one stays.
+        let unended = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIUnendedLineUnendedLineUnended unended"
+        _ = try await rig.run(on: Rig.jumpID, "mkdir -p ~/.ssh && printf %s \"\(unended)\" >> ~/.ssh/authorized_keys")
         for _ in 0..<2 {
             try await AuthorizedKeys.install(
                 publicKey, alias: alias, config: rig.paths.generatedConfig, runner: SystemProcessRunner(),
@@ -394,6 +397,10 @@ struct SSHDTests {
         }
         let count = try await rig.run(on: Rig.jumpID, "grep -cF \(blob) ~/.ssh/authorized_keys")
         #expect(count.outputText == "1\n")
+        let lines = try await rig.run(
+            on: Rig.jumpID,
+            "grep -cxF \"\(unended)\" ~/.ssh/authorized_keys; grep -cxF \"\(publicKey)\" ~/.ssh/authorized_keys")
+        #expect(lines.outputText == "1\n1\n")
 
         // The key logs in by itself, with no master and no password.
         let login = try await SystemProcessRunner().run(
@@ -405,10 +412,40 @@ struct SSHDTests {
                 ], environment: ["PATH": "/usr/bin:/bin"]))
         #expect(login.outputText == "key-works\n", "\(login.errorText)")
 
+        // What WRLD checks before switching a host to the key: a login with only it, no
+        // master and no password. Another key, never installed, is refused.
+        func config(_ identity: String) throws -> String {
+            let file = rig.folder + "/verify-\(UUID().uuidString)"
+            try """
+            Host verify
+                HostName \(TestSSHD.jump.address)
+                Port \(TestSSHD.jump.port)
+                User \(TestSSHD.jumpUser)
+                IdentityFile "\(identity)"
+                IdentitiesOnly yes
+                StrictHostKeyChecking no
+                UserKnownHostsFile /dev/null
+            """.write(toFile: file, atomically: true, encoding: .utf8)
+            return file
+        }
+        let environment = ["PATH": "/usr/bin:/bin"]
+        try await AuthorizedKeys.verify(
+            alias: "verify", config: try config(key), runner: SystemProcessRunner(), environment: environment)
+        let other = rig.folder + "/id_other"
+        let madeOther = try ChildProcess.run(
+            executable: "/usr/bin/ssh-keygen", arguments: ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", other],
+            environment: environment)
+        try #require(madeOther.succeeded, "\(madeOther.errorText)")
+        await #expect(throws: AuthorizedKeys.Failure.self) {
+            try await AuthorizedKeys.verify(
+                alias: "verify", config: try config(other), runner: SystemProcessRunner(), environment: environment)
+        }
+
         // Leave the server as it was.
         _ = try await rig.run(
             on: Rig.jumpID,
-            "grep -vF \(blob) ~/.ssh/authorized_keys > ~/.ssh/k.tmp; mv ~/.ssh/k.tmp ~/.ssh/authorized_keys")
+            "grep -vF -e \(blob) -e Unended ~/.ssh/authorized_keys > ~/.ssh/k.tmp; mv ~/.ssh/k.tmp ~/.ssh/authorized_keys"
+        )
         await rig.finish()
     }
 
@@ -543,6 +580,38 @@ struct MasterPoolTests {
         pool.release("pane-3")
         #expect(await eventually { pool.connected.isEmpty })
         #expect(await eventually { endings.all == ["h-jump: closed"] })
+        await rig.finish()
+    }
+
+    // A host's settings changed after its master was made, so a pane joining it would get
+    // the old ones. In use, it carries on for its panes, then ends as the last one leaves,
+    // with no idle time; unused, it ends at once. The next connection logs in afresh.
+    @Test func aMasterMadeBeforeAnEditEndsOnceNoOneUsesIt() async throws {
+        let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword])
+        let endings = EndingLog()
+        let pool = try rig.pool(endings: endings)
+        let jump = try rig.target(Rig.jumpID)
+        let key = Rig.jumpID.rawValue
+        #expect(await pool.connect(jump, for: "pane-1", secrets: rig.saved) == .ready)
+        pool.retire(key)
+        #expect(pool.stale == [key])
+        #expect(pool.connected == [key])
+        let whoami = try await rig.run(on: Rig.jumpID, "whoami")
+        #expect(whoami.outputText == TestSSHD.jumpUser + "\n")
+        pool.release("pane-1")
+        #expect(await eventually { endings.all == ["h-jump: closed"] })
+        #expect(pool.connected.isEmpty)
+        #expect(pool.stale.isEmpty)
+
+        #expect(await pool.connect(jump, for: "pane-2", secrets: rig.saved) == .ready)
+        pool.release("pane-2")
+        // Idling: an edit ends it now rather than in ten minutes.
+        #expect(pool.connected == [key])
+        pool.retire(key)
+        #expect(await eventually { endings.all == ["h-jump: closed", "h-jump: closed"] })
+        #expect(await pool.connect(jump, for: "pane-3", secrets: rig.saved) == .ready)
+        #expect(rig.presence.reasons.count == 3)
+        await pool.endAll()
         await rig.finish()
     }
 

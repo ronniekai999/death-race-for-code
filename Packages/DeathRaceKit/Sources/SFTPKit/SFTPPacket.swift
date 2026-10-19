@@ -59,6 +59,8 @@ public enum SFTP {
         public static let realpath: UInt8 = 16
         public static let stat: UInt8 = 17
         public static let rename: UInt8 = 18
+        /// `SSH_FXP_EXTENDED`: a request named by a string, such as OpenSSH's `posix-rename`.
+        public static let extended: UInt8 = 200
         public static let status: UInt8 = 101
         public static let handle: UInt8 = 102
         public static let data: UInt8 = 103
@@ -75,6 +77,9 @@ public enum SFTP {
         public static let truncate: UInt32 = 0x0000_0010
         public static let exclusive: UInt32 = 0x0000_0020
     }
+
+    /// The name OpenSSH gives its replacing rename, in `VERSION` and in the request.
+    public static let posixRename = "posix-rename@openssh.com"
 
     /// `STATUS` codes.
     public enum Status {
@@ -167,7 +172,9 @@ public struct SFTPName: Equatable, Sendable {
 public enum SFTPPacket: Equatable, Sendable {
     // Handshake.
     case initialize(version: UInt32)
-    case version(version: UInt32)
+    /// The server's version, and the extensions it offers by name (OpenSSH lists a dozen,
+    /// `posix-rename@openssh.com` among them) with whatever each one says about itself.
+    case version(version: UInt32, extensions: [String: String] = [:])
     // Requests.
     case open(id: UInt32, path: String, pflags: UInt32, attributes: SFTPAttributes)
     case close(id: UInt32, handle: [UInt8])
@@ -185,6 +192,9 @@ public enum SFTPPacket: Equatable, Sendable {
     case realpath(id: UInt32, path: String)
     case stat(id: UInt32, path: String)
     case rename(id: UInt32, oldPath: String, newPath: String)
+    /// OpenSSH's `posix-rename@openssh.com`: a rename that replaces what is already at the new
+    /// path, atomically, where version 3's own refuses to.
+    case posixRename(id: UInt32, oldPath: String, newPath: String)
     // Replies.
     case status(id: UInt32, code: UInt32, message: String)
     case handle(id: UInt32, handle: [UInt8])
@@ -200,6 +210,7 @@ public enum SFTPPacket: Equatable, Sendable {
             .lstat(let id, _), .fstat(let id, _), .setstat(let id, _, _), .fsetstat(let id, _, _),
             .opendir(let id, _), .readdir(let id, _), .remove(let id, _), .mkdir(let id, _, _),
             .rmdir(let id, _), .realpath(let id, _), .stat(let id, _), .rename(let id, _, _),
+            .posixRename(let id, _, _),
             .status(let id, _, _), .handle(let id, _), .data(let id, _), .name(let id, _),
             .attrs(let id, _):
             return id
@@ -213,7 +224,9 @@ public enum SFTPPacket: Equatable, Sendable {
         var w = SFTPWriter()
         switch self {
         case .initialize(let version): w.u8(SFTP.Kind.initialize); w.u32(version)
-        case .version(let version): w.u8(SFTP.Kind.version); w.u32(version)
+        case .version(let version, let extensions):
+            w.u8(SFTP.Kind.version); w.u32(version)
+            for (name, data) in extensions.sorted(by: { $0.key < $1.key }) { w.string(name); w.string(data) }
         case .open(let id, let path, let pflags, let attributes):
             w.u8(SFTP.Kind.open); w.u32(id); w.string(path); w.u32(pflags); w.attributes(attributes)
         case .close(let id, let handle): w.u8(SFTP.Kind.close); w.u32(id); w.byteString(handle)
@@ -237,6 +250,9 @@ public enum SFTPPacket: Equatable, Sendable {
         case .stat(let id, let path): w.u8(SFTP.Kind.stat); w.u32(id); w.string(path)
         case .rename(let id, let oldPath, let newPath):
             w.u8(SFTP.Kind.rename); w.u32(id); w.string(oldPath); w.string(newPath)
+        case .posixRename(let id, let oldPath, let newPath):
+            w.u8(SFTP.Kind.extended); w.u32(id); w.string(SFTP.posixRename)
+            w.string(oldPath); w.string(newPath)
         case .status(let id, let code, let message):
             w.u8(SFTP.Kind.status); w.u32(id); w.u32(code); w.string(message); w.string("")
         case .handle(let id, let handle): w.u8(SFTP.Kind.handle); w.u32(id); w.byteString(handle)
@@ -277,7 +293,16 @@ public enum SFTPPacket: Equatable, Sendable {
         let type = try r.u8()
         switch type {
         case SFTP.Kind.initialize: return .initialize(version: try r.u32())
-        case SFTP.Kind.version: return .version(version: try r.u32())
+        case SFTP.Kind.version:
+            let version = try r.u32()
+            // Pairs of strings to the end of the packet. Bounded, as everything the server
+            // chooses is: a server listing more than this is not one worth understanding.
+            var extensions: [String: String] = [:]
+            while r.remaining > 0, extensions.count < 64 {
+                let name = String(decoding: try r.byteString(), as: UTF8.self)
+                extensions[name] = String(decoding: try r.byteString(), as: UTF8.self)
+            }
+            return .version(version: version, extensions: extensions)
         case SFTP.Kind.open:
             return .open(id: try r.u32(), path: try r.string(), pflags: try r.u32(), attributes: try r.attributes())
         case SFTP.Kind.close: return .close(id: try r.u32(), handle: try r.byteString())
@@ -298,6 +323,10 @@ public enum SFTPPacket: Equatable, Sendable {
         case SFTP.Kind.realpath: return .realpath(id: try r.u32(), path: try r.string())
         case SFTP.Kind.stat: return .stat(id: try r.u32(), path: try r.string())
         case SFTP.Kind.rename: return .rename(id: try r.u32(), oldPath: try r.string(), newPath: try r.string())
+        case SFTP.Kind.extended:
+            let id = try r.u32()
+            guard try r.string() == SFTP.posixRename else { throw .unknownPacket(type) }
+            return .posixRename(id: id, oldPath: try r.string(), newPath: try r.string())
         case SFTP.Kind.status:
             let id = try r.u32()
             let code = try r.u32()

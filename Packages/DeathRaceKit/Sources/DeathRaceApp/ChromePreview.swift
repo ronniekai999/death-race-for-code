@@ -332,11 +332,10 @@
             func name(of host: HostRef) -> String { "host" }
             func address(of host: HostRef) -> String? { nil }
             func connect(_ host: HostRef, for pane: PaneID) async -> ConnectResult { .failed(.cancelled) }
-            func plainLaunch(_ host: HostRef) async -> ShellLaunch? { nil }
+            func plainLaunch(_ host: HostRef) async -> ConnectResult { .failed(.cancelled) }
             func openSFTP(_ host: HostRef) async -> (any RemoteFiles)? { nil }
             func closeSFTP(_ host: HostRef) {}
             func release(_ pane: PaneID) {}
-            func cancel(_ host: HostRef) {}
             func paletteHosts() -> [PaletteItem] { [] }
             var openConnections: [String] { [] }
             var openTunnelCount: Int { 1 }

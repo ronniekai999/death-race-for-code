@@ -27,6 +27,21 @@ public struct VaultStore: Sendable {
         case undecodable(path: String, reason: String)
         case newer(path: String, version: Int)
         case unwritable(path: String, errno: Int32)
+
+        /// What's wrong with the file, in a sentence, with `home` written as `~`.
+        public func sentence(home: String) -> String {
+            func shown(_ path: String) -> String {
+                !home.isEmpty && path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
+            }
+            switch self {
+            case .unreadable(let path): return "\(shown(path)) can’t be read."
+            case .undecodable(let path, let reason): return "\(shown(path)) isn’t a vault WRLD can read: \(reason)."
+            case .newer(let path, let version):
+                return "\(shown(path)) is from a newer Death Race (format \(version)), so this one won’t write over it."
+            case .unwritable(let path, let code):
+                return "\(shown(path)) can’t be written: \(String(cString: strerror(code)))."
+            }
+        }
     }
 
     public let path: String

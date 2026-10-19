@@ -4,13 +4,16 @@ import ScreenProtocol
 import SurfaceCore
 
 extension TerminalSurfaceView {
+    /// The most matches Find keeps: the newest, since it starts at the bottom and works back.
+    static let mostFindMatches = 1000
+
     @objc public func showFind(_ sender: Any?) {
         if findBar == nil {
             let bar = TerminalFindBar()
             bar.onChange = { [weak self] query in
                 self?.searchText = query; self?.refreshFind()
             }
-            bar.onStep = { [weak self] back in self?.stepFind(back: back) }
+            bar.onStep = { [weak self] older in self?.stepFind(older: older) }
             bar.onClose = { [weak self] in self?.closeFind(nil) }
             bar.translatesAutoresizingMaskIntoConstraints = false
             addSubview(bar)
@@ -27,8 +30,9 @@ extension TerminalSurfaceView {
         refreshFind()
     }
 
-    @objc public func findNext(_ sender: Any?) { stepFind(back: false) }
-    @objc public func findPrevious(_ sender: Any?) { stepFind(back: true) }
+    /// Further back, away from the newest match Find starts at; Find Previous comes forward.
+    @objc public func findNext(_ sender: Any?) { stepFind(older: true) }
+    @objc public func findPrevious(_ sender: Any?) { stepFind(older: false) }
 
     @objc public func closeFind(_ sender: Any?) {
         findTask?.cancel()
@@ -59,9 +63,14 @@ extension TerminalSurfaceView {
         findTask = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
             var query = SearchQuery(text, endLine: lastLine)
+            // Oldest first, as the pages come; only the newest are kept, so the ones Find
+            // starts at are there however many the history holds.
+            let most = Self.mostFindMatches
             var matches: [TextRegion] = []
-            var seen: Set<TextRegion> = []
-            var limited = false
+            var total = 0
+            // A page resumes at the first match the last one left out, so only the page
+            // before can have reported a match again.
+            var previous: Set<TextRegion> = []
             repeat {
                 guard !Task.isCancelled else { return }
                 guard let page = await session.search(query, generation: generation),
@@ -72,28 +81,33 @@ extension TerminalSurfaceView {
                     self.findTask = nil
                     return
                 }
-                for match in page.matches where seen.insert(match).inserted {
+                for match in page.matches where !previous.contains(match) {
                     matches.append(match)
-                    if matches.count >= 1000 { break }
+                    total += 1
                 }
+                previous = Set(page.matches)
+                if matches.count >= 2 * most { matches.removeFirst(matches.count - most) }
                 query.startLine = page.nextLine
                 query.startColumn = page.nextColumn
-                if matches.count >= 1000 { limited = true; break }
                 await Task.yield()
             } while query.startLine != nil
+            if matches.count > most { matches.removeFirst(matches.count - most) }
             guard !Task.isCancelled, let self, self.model?.mirror.generation == generation else { return }
             self.searchMatches = matches
             self.searchGeneration = generation
             self.searchIndex = max(0, matches.count - 1)
-            self.findBar?.count.stringValue = matches.isEmpty ? "No matches" : "\(matches.count)\(limited ? "+" : "")"
+            let kept = total > matches.count ? " (newest \(matches.count))" : ""
+            self.findBar?.count.stringValue = matches.isEmpty ? "No matches" : "\(total)\(kept)"
             self.revealFindMatch()
             self.findTask = nil
         }
     }
 
-    private func stepFind(back: Bool) {
+    /// The match before the current one (`older`), or after it; past either end, round to
+    /// the other.
+    private func stepFind(older: Bool) {
         guard !searchMatches.isEmpty else { showFind(nil); return }
-        searchIndex = (searchIndex + (back ? -1 : 1) + searchMatches.count) % searchMatches.count
+        searchIndex = (searchIndex + (older ? -1 : 1) + searchMatches.count) % searchMatches.count
         revealFindMatch()
     }
 
@@ -141,6 +155,7 @@ extension TerminalSurfaceView {
     let field = NSSearchField()
     let count = NSTextField(labelWithString: "")
     var onChange: ((String) -> Void)?
+    /// To an older match (true) or a newer one.
     var onStep: ((Bool) -> Void)?
     var onClose: (() -> Void)?
 
@@ -155,10 +170,10 @@ extension TerminalSurfaceView {
         field.target = self
         field.action = #selector(changed)
         field.setAccessibilityLabel("Find in terminal history")
-        let previous = NSButton(title: "↑", target: self, action: #selector(previousMatch))
-        previous.setAccessibilityLabel("Previous match")
-        let next = NSButton(title: "↓", target: self, action: #selector(nextMatch))
-        next.setAccessibilityLabel("Next match")
+        let previous = NSButton(title: "↑", target: self, action: #selector(olderMatch))
+        previous.setAccessibilityLabel("Older match")
+        let next = NSButton(title: "↓", target: self, action: #selector(newerMatch))
+        next.setAccessibilityLabel("Newer match")
         let close = NSButton(title: "×", target: self, action: #selector(closeBar))
         close.setAccessibilityLabel("Close find")
         let stack = NSStackView(views: [field, count, previous, next, close])
@@ -177,12 +192,16 @@ extension TerminalSurfaceView {
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("created in code") }
     func controlTextDidChange(_ notification: Notification) { onChange?(field.stringValue) }
     @objc private func changed() { onChange?(field.stringValue) }
-    @objc private func previousMatch() { onStep?(true) }
-    @objc private func nextMatch() { onStep?(false) }
+    @objc private func olderMatch() { onStep?(true) }
+    @objc private func newerMatch() { onStep?(false) }
     @objc private func closeBar() { onClose?() }
+    /// Return goes on back through history, as ⌘G does; ⇧Return comes forward.
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         if selector == #selector(NSResponder.cancelOperation(_:)) { onClose?(); return true }
-        if selector == #selector(NSResponder.insertNewline(_:)) { onStep?(false); return true }
+        if selector == #selector(NSResponder.insertNewline(_:)) {
+            onStep?(NSApp.currentEvent?.modifierFlags.contains(.shift) != true)
+            return true
+        }
         return false
     }
 }

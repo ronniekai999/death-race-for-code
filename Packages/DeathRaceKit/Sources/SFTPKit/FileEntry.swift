@@ -20,7 +20,9 @@ public struct FileEntry: Equatable, Sendable, Identifiable {
         self.modified = modified
     }
 
-    public var id: String { name }
+    /// The name's bytes, not the name: Swift calls two spellings of `résumé` equal (composed
+    /// and decomposed), and a Linux host can hold both as different files.
+    public var id: [UInt8] { Array(name.utf8) }
     public var isDirectory: Bool { kind == .directory }
 }
 
@@ -67,10 +69,13 @@ public enum Listing {
     /// Duplicates are dropped too — `FileEntry`'s identity is its name, and `ForEach` must
     /// not see the same id twice.
     public static func remote(_ names: [SFTPName]) -> [FileEntry] {
-        var seen: Set<String> = []
+        // By bytes, for the reason `FileEntry.id` is: compared as strings, a host's composed
+        // and decomposed `résumé.pdf` collapsed into one row, and Download fetched whichever
+        // happened to be listed first.
+        var seen: Set<[UInt8]> = []
         let entries =
             names
-            .filter { isUsableName($0.filename) && seen.insert($0.filename).inserted }
+            .filter { isUsableName($0.filename) && seen.insert(Array($0.filename.utf8)).inserted }
             .map {
                 FileEntry(
                     name: $0.filename, kind: kind(of: $0.attributes),

@@ -537,6 +537,31 @@ struct DaemonHostTests {
         session.close()
     }
 
+    /// ⌘W removes a pane's view at once, so its session can be let go of moments after
+    /// `close()`. The close was still queued when the link saw it was let go, and it left
+    /// without it; the daemon read the silence as a detach and kept the shell, which came back
+    /// at the next launch.
+    @Test("a session let go of straight after closing it still ends")
+    func closeThenLetGo() throws {
+        let rig = try DaemonRig()
+        defer { rig.finish() }
+        let host = try rig.host()
+        for _ in 0..<10 {
+            var session: (any ShellSession)? = try host.start(
+                testShell(), configuration: Terminal.Configuration(columns: 40, rows: 8), metadata: [], onUpdate: {})
+            session?.close()
+            session = nil
+            _ = session
+        }
+        var running = try host.existing()
+        let deadline = UnixSocket.monotonicMilliseconds() + 5_000
+        while !running.isEmpty, UnixSocket.monotonicMilliseconds() < deadline {
+            usleep(20_000)
+            running = try host.existing()
+        }
+        #expect(running.isEmpty, "\(running.count) of 10 closed sessions were left running")
+    }
+
     @Test("it can be asked what is in the foreground, and for the text on screen")
     func theTwoQuestions() async throws {
         let rig = try DaemonRig()
@@ -580,6 +605,11 @@ struct DaemonHostTests {
             _ = await session.foregroundProcess()
         }
         #expect(answered, "a question was left waiting on a daemon that had gone")
+        // And the session says so, which is what lets its pane say so rather than freeze.
+        let deadline = UnixSocket.monotonicMilliseconds() + 5_000
+        while session.isLinked, UnixSocket.monotonicMilliseconds() < deadline { usleep(10_000) }
+        #expect(!session.isLinked)
+        #expect(session.status == .running, "the shell may still be running; only the link has gone")
     }
 
     /// Nothing listening and no launcher: the app has to be told, so it can run its sessions

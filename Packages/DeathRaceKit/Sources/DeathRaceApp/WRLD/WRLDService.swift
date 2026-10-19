@@ -54,6 +54,10 @@ final class WRLDService: HostConnecting {
     private var board: TunnelBoard?
     /// New Secure Enclave keys waiting to go onto their hosts, over the first connection.
     private var pendingKeys: [HostID: KeyID] = [:]
+    /// The pool user each open Maze holds, by host. Kept rather than worked out again at close:
+    /// a host removed while its Maze was open has no target any more, and its master was held
+    /// until the app quit.
+    private var mazeUsers: [HostRef: String] = [:]
     private var login: [String: String]?
     private var starting: Task<MasterPool?, Never>?
 
@@ -97,13 +101,21 @@ final class WRLDService: HostConnecting {
             log.error("WRLD couldn't read its vault: \(String(describing: error), privacy: .public)")
         }
         discovered = SSHConfigDiscovery.aliases(inFileAt: home + "/.ssh/config", home: home)
+        let before = generated.settings
         generated = GeneratedConfig(vault: vault, paths: paths, aliases: discovered.map(\.name))
         do {
             try AtomicFile.write(Array(generated.text.utf8), to: paths.generatedConfig)
         } catch {
             log.error("WRLD couldn't write its ssh config: \(String(describing: error), privacy: .public)")
         }
+        // A pane joins a host's master with no login of its own, so it gets whatever the
+        // master connected with: one made before the host's settings changed has to go.
+        for (key, settings) in before where generated.settings[key] != settings { pool?.retire(key) }
     }
+
+    /// Hosts, by key, whose connection still has the settings they had before an edit: it
+    /// ends, and the new ones apply, once its panes and tunnels close.
+    var staleKeys: Set<String> { Set(pool?.stale ?? []) }
 
     /// How the pool sees `host`; nil when the generated config left it out.
     func target(for host: HostRef) -> ConnectionTarget? {
@@ -157,14 +169,22 @@ final class WRLDService: HostConnecting {
 
     func address(of host: HostRef) -> String? { target(for: host)?.address }
 
+    /// Why WRLD has no way to connect to `host` at all — what its generated config found wrong
+    /// with the host's settings — or nil when it has one. Said before trying, so a failure is
+    /// put down to the settings rather than to the network.
+    func problem(with host: HostRef) -> String? {
+        guard target(for: host) == nil else { return nil }
+        return settingsProblem(host) ?? "WRLD has no way to connect to \(name(of: host)) any more."
+    }
+
+    /// What the generated config found wrong with `host`'s settings, if it left it out.
+    private func settingsProblem(_ host: HostRef) -> String? {
+        guard case .vault(let id) = host else { return nil }
+        return generated.problems.first { $0.host == id }?.message
+    }
+
     func connect(_ host: HostRef, for pane: PaneID) async -> ConnectResult {
-        guard let target = target(for: host) else {
-            let why = generated.problems.first { problem in
-                if case .vault(let id) = host { return problem.host == id }
-                return false
-            }
-            return .failed(.other(why?.message ?? "WRLD can't connect to \(name(of: host))."))
-        }
+        guard let target = target(for: host) else { return .failed(.unconnectable(reason: settingsProblem(host))) }
         guard let pool = await startPool() else {
             return .failed(.other("Death Race couldn't start what answers ssh's questions."))
         }
@@ -201,12 +221,13 @@ final class WRLDService: HostConnecting {
         }
     }
 
-    func plainLaunch(_ host: HostRef) async -> ShellLaunch? {
-        guard let target = target(for: host) else { return nil }
+    func plainLaunch(_ host: HostRef) async -> ConnectResult {
+        guard let target = target(for: host) else { return .failed(.unconnectable(reason: settingsProblem(host))) }
         let login = await loginEnvironment()
-        return ShellLaunchPlan.ssh(
-            arguments: SSHCommand.plainSession(alias: target.alias, config: paths.generatedConfig), login: login,
-            environment: environment, appVersion: DeathRaceApplication.version)
+        return .ready(
+            ShellLaunchPlan.ssh(
+                arguments: SSHCommand.plainSession(alias: target.alias, config: paths.generatedConfig), login: login,
+                environment: environment, appVersion: DeathRaceApplication.version))
     }
 
     func openSFTP(_ host: HostRef) async -> (any RemoteFiles)? {
@@ -217,6 +238,7 @@ final class WRLDService: HostConnecting {
         // at once, with no second login. Holding a pool user keeps that master up while the
         // window is open, even after the last pane on the host closes.
         guard case .ready = await pool.connect(target, for: user, secrets: savedSecrets) else { return nil }
+        mazeUsers[host] = user
         connected(host, alias: target.alias)
         // A host added from Open in Maze is first connected here, not by a pane: a new Secure
         // Enclave key goes on now, as `connect` would put it, or not until a pane connects.
@@ -231,6 +253,7 @@ final class WRLDService: HostConnecting {
         } catch {
             log.error("Maze couldn't start ssh: \(String(describing: error), privacy: .public)")
             pool.release(user)
+            mazeUsers[host] = nil
             return nil
         }
         let client = SFTPClient(transport: session)
@@ -257,22 +280,19 @@ final class WRLDService: HostConnecting {
                 """)
             await client.shutDown()
             pool.release(user)
+            mazeUsers[host] = nil
             return nil
         }
     }
 
     func closeSFTP(_ host: HostRef) {
-        guard let key = target(for: host)?.key else { return }
-        pool?.release(Self.mazeUser(key))
+        guard let user = mazeUsers.removeValue(forKey: host) ?? target(for: host).map({ Self.mazeUser($0.key) })
+        else { return }
+        pool?.release(user)
     }
 
     func release(_ pane: PaneID) {
         pool?.release(Self.user(pane))
-    }
-
-    func cancel(_ host: HostRef) {
-        guard let key = target(for: host)?.key else { return }
-        pool?.cancel(key)
     }
 
     func paletteHosts() -> [PaletteItem] {
@@ -355,25 +375,37 @@ final class WRLDService: HostConnecting {
     /// false when it couldn't be saved, and nothing changed.
     @discardableResult
     func edit(_ change: (inout Vault) -> Void) -> Bool {
+        do {
+            try self.change(change)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// `edit`, saying why the vault couldn't be saved.
+    func change(_ change: (inout Vault) -> Void) throws(VaultStore.Failure) {
         var updated = vault
         change(&updated)
-        guard updated != vault else { return true }
+        guard updated != vault else { return }
         do {
             try store.save(updated)
         } catch {
             log.error("WRLD couldn't save its vault: \(String(describing: error), privacy: .public)")
-            return false
+            throw error
         }
         reload()
         Self.changed()
-        return true
     }
+
+    /// What's wrong with wrld.json, in a sentence.
+    func sentence(for failure: VaultStore.Failure) -> String { failure.sentence(home: home) }
 
     func sidebar(query: String, expanded: Set<GroupID>) -> SidebarModel {
         SidebarModel(
             .init(
                 vault: vault, state: state, connected: connectedKeys, openTunnels: openTunnelIDs,
-                expandedGroups: expanded, query: query))
+                expandedGroups: expanded, query: query, vaultUnreadable: loadProblem != nil))
     }
 
     func host(_ id: HostID) -> WRLDHost? { vault.host(id) }
@@ -652,7 +684,7 @@ final class WRLDService: HostConnecting {
             case .key(.notDownloaded(let line)): "The key was made, but ssh couldn’t read it back: \(line)"
             case .key(.notFound): "The key was made, but ssh couldn’t tell which key it is."
             case .key(.notSaved(let line)): "The key couldn’t be kept: \(line)"
-            case .notSaved: "WRLD couldn’t save the host."
+            case .notSaved(let failure): "WRLD couldn’t save the host. " + failure.sentence(home: NSHomeDirectory())
             }
         }
     }
@@ -699,20 +731,42 @@ final class WRLDService: HostConnecting {
     /// Puts `key` on the host through its master, then has the host sign in with it.
     private func install(_ key: KeyID, on hostID: HostID, alias: String) async {
         guard let publicKey = vault.keys.first(where: { $0.id == key })?.publicKey else { return }
+        let environment = LoginEnvironment.merging(login ?? [:], into: environment)
         do {
             try await AuthorizedKeys.install(
                 publicKey, alias: alias, config: paths.generatedConfig, runner: SystemProcessRunner(),
-                environment: LoginEnvironment.merging(login ?? [:], into: environment))
+                environment: environment)
         } catch {
             log.error("The Secure Enclave key didn't go onto its host: \(String(describing: error), privacy: .public)")
             return
         }
-        var updated = vault
-        guard let index = updated.hosts.firstIndex(where: { $0.id == hostID }),
-            case .wrld(var connection) = updated.hosts[index].source
-        else { return }
-        connection.identity = .secureEnclave(key)
-        updated.hosts[index].source = .wrld(connection)
+        // The vault with the host signing in with the key, as it is when asked: the check
+        // below waits on Touch ID, and edits made meanwhile are kept.
+        func switched(_ vault: Vault) -> Vault? {
+            var updated = vault
+            guard let index = updated.hosts.firstIndex(where: { $0.id == hostID }),
+                case .wrld(var connection) = updated.hosts[index].source
+            else { return nil }
+            connection.identity = .secureEnclave(key)
+            updated.hosts[index].source = .wrld(connection)
+            return updated
+        }
+        guard let trialVault = switched(vault) else { return }
+        // The key signs in once on its own before the host is switched to it: a server can
+        // take the line and refuse the key, and the host would then be locked out. Still
+        // pending if not, so the next connection tries again.
+        let trial = paths.generatedConfig + ".trial"
+        do {
+            let config = GeneratedConfig(vault: trialVault, paths: paths, aliases: discovered.map(\.name))
+            try AtomicFile.write(Array(config.text.utf8), to: trial)
+            defer { try? FileManager.default.removeItem(atPath: trial) }
+            try await AuthorizedKeys.verify(
+                alias: alias, config: trial, runner: SystemProcessRunner(), environment: environment)
+        } catch {
+            log.error("The Secure Enclave key didn't sign in: \(String(describing: error), privacy: .public)")
+            return
+        }
+        guard let updated = switched(vault) else { return }
         do {
             try store.save(updated)
         } catch {

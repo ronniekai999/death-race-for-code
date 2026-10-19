@@ -60,10 +60,18 @@ public protocol TerminalSession: AnyObject, Sendable {
     func search(_ query: SearchQuery, generation: UInt64) async -> SearchPage?
 }
 
+extension ShellSession {
+    public var isLinked: Bool { true }
+}
+
 /// What a pane needs on top of the screen: which session this is, who is in the foreground,
 /// and the two different ways of letting go.
 public protocol ShellSession: TerminalSession {
     var id: SessionID { get }
+    /// Whether this process can still reach the shell. A session in this process always can;
+    /// one the daemon holds cannot once the link to it has gone — the daemon killed, crashed,
+    /// or replaced — though the shell may well still be running there.
+    var isLinked: Bool { get }
     /// Whether this session's shell keeps running when this process goes. The app asks before
     /// deciding whether a pane is worth a question at quit, and whether to detach or close.
     var outlivesItsClient: Bool { get }

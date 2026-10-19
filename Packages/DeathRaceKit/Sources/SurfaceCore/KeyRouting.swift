@@ -136,7 +136,13 @@ public enum KeyRouting {
         let action: KeyEvent.Action = press.isRepeat ? .repeat : .press
 
         if let key = MacKeyCode.key(for: press.keyCode) {
-            return .encode(KeyEvent(key, modifiers: modifiers, action: action))
+            // The keypad's decimal key types the layout's decimal separator: a comma in much of
+            // Europe, which the encoder's "." would get wrong.
+            let typed = press.plainCharacters
+            let separator =
+                key == .keypad(.decimal) && typed.unicodeScalars.count == 1
+                && typed.unicodeScalars.allSatisfy { $0.value >= 0x20 && $0.value != 0x7F }
+            return .encode(KeyEvent(key, modifiers: modifiers, action: action, text: separator ? typed : nil))
         }
         let commandLike = flags.contains(.control) || flags.contains(.command) || modifiers.contains(.alt)
         guard commandLike, let key = characterKey(press) else { return .inputMethod }

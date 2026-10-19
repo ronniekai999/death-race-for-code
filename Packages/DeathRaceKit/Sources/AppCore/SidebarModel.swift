@@ -68,10 +68,13 @@ public struct SidebarModel: Equatable, Sendable {
         public var query: String
         public var now: Date
         public var calendar: Calendar
+        /// wrld.json couldn't be read, so `vault` is empty for now.
+        public var vaultUnreadable: Bool
 
         public init(
             vault: Vault, state: WRLDState = WRLDState(), connected: Set<String> = [], openTunnels: Set<TunnelID> = [],
-            expandedGroups: Set<GroupID> = [], query: String = "", now: Date = Date(), calendar: Calendar = .current
+            expandedGroups: Set<GroupID> = [], query: String = "", now: Date = Date(), calendar: Calendar = .current,
+            vaultUnreadable: Bool = false
         ) {
             self.vault = vault
             self.state = state
@@ -81,10 +84,13 @@ public struct SidebarModel: Equatable, Sendable {
             self.query = query
             self.now = now
             self.calendar = calendar
+            self.vaultUnreadable = vaultUnreadable
         }
     }
 
     public var sections: [Section]
+    /// What the WRLD section says when it has no hosts.
+    public var hint: String
 
     /// Searching: every match shows, out of its group, and empty sections go.
     public var isSearching: Bool
@@ -94,6 +100,7 @@ public struct SidebarModel: Equatable, Sendable {
         let query = inputs.query.lowercased().split(whereSeparator: \.isWhitespace)
         let searching = !query.isEmpty
         isSearching = searching
+        hint = inputs.vaultUnreadable ? Self.unreadableHint : Self.emptyHint
         func found(_ fields: [String]) -> Bool {
             let text = fields.joined(separator: " ").lowercased()
             return query.allSatisfy { text.contains($0) }
@@ -180,4 +187,6 @@ public struct SidebarModel: Equatable, Sendable {
 
     /// What the sidebar says when WRLD has no hosts.
     public static let emptyHint = "Add a host to connect and browse its files."
+    /// And when that's because wrld.json couldn't be read.
+    public static let unreadableHint = "WRLD couldn’t read wrld.json. Open WRLD (⌘O) to see why."
 }

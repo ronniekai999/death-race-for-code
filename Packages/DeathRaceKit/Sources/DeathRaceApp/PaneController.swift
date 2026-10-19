@@ -5,6 +5,7 @@ import Foundation
 import PTYKit
 import RenderKit
 import SSHKit
+import ScreenProtocol
 import SessionKit
 import SurfaceCore
 import TerminalUI
@@ -124,14 +125,94 @@ final class PaneController {
             self?.onFocusChange?()
         }
         surface.onOutput = { [weak self] in self?.onOutput?() }
-        surface.onReturnKey = { [weak self] in self?.refreshSoon() }
+        surface.onReturnKey = { [weak self] in
+            self?.refreshSoon()
+            self?.putBashOfferAway()
+            self?.putNoteAway()
+        }
         surface.onHoverLink = { [weak self] _ in self?.onLinkHover?() }
         surface.onOpenLink = { [weak self] link in self?.open(link) }
         switch paneLaunch {
-        case .shell: start(launch)
+        case .shell:
+            start(launch)
+            if !noteMissingCommand() { offerBashLine(for: launch.executable) }
         case .connection(let host): connect(host)
         case .plainSSH(let host): startPlain(host)
         }
+    }
+
+    // MARK: - bash's line
+
+    /// The file a bash pane's offer would add our line to, while the offer is up.
+    private var bashLineFile: String?
+    /// Not Now, once, holds for every pane until the app quits: the offer is for the shell,
+    /// not for each tab it runs in.
+    private static var bashOfferPutAway = false
+
+    /// zsh and fish are set up through the environment; bash reads only your startup files, so
+    /// a bash pane without our line in them offers to add it — shown first, never written
+    /// unasked. Only for a local shell: a host's bash reads the host's files.
+    private func offerBashLine(for executable: String) {
+        guard config.shellIntegration, !Self.bashOfferPutAway, let directory = ShellIntegration.directory(),
+            let file = ShellIntegration.bashFileNeedingLine(
+                executable: executable, home: NSHomeDirectory(), directory: directory)
+        else { return }
+        bashLineFile = file
+        setBanner(.bashLineOffer(file: Self.tilde(file)))
+    }
+
+    /// The offer sits over the pane's bottom rows, which is where the prompt is once the
+    /// screen fills: the first Return puts it away rather than leave it over what you type.
+    /// A `command` setting that names nothing runnable starts your login shell instead: the
+    /// pane says so, or you'd think the setting did nothing. True when it did.
+    private func noteMissingCommand() -> Bool {
+        guard let problem = ShellLaunchPlan.commandProblem(config: config) else { return false }
+        setBanner(.note(problem))
+        return true
+    }
+
+    /// Typing on puts a note away, as OK does.
+    private func putNoteAway() {
+        if banner?.buttons == [.dismiss] { setBanner(nil) }
+    }
+
+    private func putBashOfferAway() {
+        guard bashLineFile != nil else { return }
+        bashLineFile = nil
+        if banner?.buttons.contains(.addBashLine) == true { setBanner(nil) }
+    }
+
+    private func addBashLine() {
+        guard let file = bashLineFile, let directory = ShellIntegration.directory() else { return putBashOfferAway() }
+        let alert = NSAlert()
+        alert.messageText = "Add this line to \(Self.tilde(file))?"
+        alert.informativeText = """
+            \(ShellIntegration.bashLine(directory: directory))
+
+            bash then loads Death Race’s command marks when it starts, and skips them when the \
+            app isn’t there. New bash panes have them; this one does once it restarts.
+            """
+        alert.addButton(withTitle: "Add the Line")
+        alert.addButton(withTitle: "Cancel")
+        Task {
+            guard await presentAlert?(alert) == .alertFirstButtonReturn else { return }
+            do {
+                try ShellIntegration.addBashLine(to: file, directory: directory)
+                putBashOfferAway()
+            } catch {
+                let failed = NSAlert()
+                failed.alertStyle = .warning
+                failed.messageText = "Death Race couldn’t add the line to \(Self.tilde(file))."
+                failed.informativeText = error.localizedDescription
+                _ = await presentAlert?(failed)
+            }
+        }
+    }
+
+    /// `path` as you would type it, with your home folder as `~`.
+    private static func tilde(_ path: String) -> String {
+        let home = NSHomeDirectory()
+        return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
     }
 
     // MARK: - A session on a host
@@ -161,8 +242,7 @@ final class PaneController {
                     for input in TypedInput.snippet(command, run: true) { self.surface.receive(input) }
                 }
             case .failed(let failure):
-                self.failure = failure
-                self.setBanner(.failed(failure, host: name, address: connections.address(of: host)))
+                self.failed(failure, on: host)
             }
         }
     }
@@ -173,9 +253,20 @@ final class PaneController {
         setBanner(nil)
         connecting?.cancel()
         connecting = Task { [weak self] in
-            guard let launch = await connections.plainLaunch(host), let self, !Task.isCancelled else { return }
-            self.start(launch)
+            let result = await connections.plainLaunch(host)
+            guard let self, !Task.isCancelled else { return }
+            switch result {
+            case .ready(let launch): self.start(launch)
+            case .failed(let failure): self.failed(failure, on: host)
+            }
         }
+    }
+
+    /// Says why the pane has no session on `host`, with what might help.
+    private func failed(_ failure: ConnectionFailure, on host: HostRef) {
+        self.failure = failure
+        let name = connections?.name(of: host) ?? shellName
+        setBanner(.failed(failure, host: name, address: connections?.address(of: host)))
     }
 
     private func setBanner(_ banner: PaneBanner?) {
@@ -188,10 +279,14 @@ final class PaneController {
     func press(_ button: PaneBanner.Button) {
         switch button {
         case .cancel:
-            // Stop the pane's own connect task too, not just the pool's startup, so nothing
-            // finishes connecting for a pane you cancelled.
+            // Stop the pane's own connect task, so nothing finishes connecting for a pane you
+            // cancelled, and let go of the host: a master only this pane wanted stops, and one
+            // another pane is waiting on, or already using, carries on for it.
             connecting?.cancel()
-            if let host = launch.host { connections?.cancel(host) }
+            connecting = nil
+            guard let host = launch.host else { return }
+            connections?.release(id)
+            failed(.cancelled, on: host)
         case .reconnect, .restart:
             restart()
         case .plainSSH:
@@ -202,6 +297,13 @@ final class PaneController {
             NSWorkspace.shared.open(Self.localNetworkSettings)
         case .forgetHostKey:
             forgetHostKey()
+        case .addBashLine:
+            addBashLine()
+        case .dismiss:
+            putNoteAway()
+        case .notNow:
+            Self.bashOfferPutAway = true
+            putBashOfferAway()
         }
     }
 
@@ -256,7 +358,10 @@ final class PaneController {
                 // (a @MainActor class) is Sendable and may cross into this @Sendable callback;
                 // the view, an NSView subclass, is not, so we reach it through `self` on main.
                 DispatchQueue.main.async {
-                    MainActor.assumeIsolated { self?.surface.sessionDidUpdate() }
+                    MainActor.assumeIsolated {
+                        self?.surface.sessionDidUpdate()
+                        self?.noticeALostLink()
+                    }
                 }
             }
             self.session = session
@@ -272,6 +377,17 @@ final class PaneController {
         }
     }
 
+    /// The daemon holding this pane's shell went away — killed, crashed, or replaced — and the
+    /// link with it. The shell may still be running there, but nothing typed reaches it and
+    /// nothing it prints arrives; it used to look like a pane that had simply frozen.
+    private func noticeALostLink() {
+        guard let session, !session.isLinked, end == nil, banner == nil else { return }
+        setBanner(
+            PaneBanner(
+                message: "Death Race lost touch with the helper that keeps this shell. Restart opens a new one here.",
+                buttons: [.restart]))
+    }
+
     /// A new shell in the same place after the last one ended badly, or a new connection.
     func restart() {
         failure = nil
@@ -284,6 +400,7 @@ final class PaneController {
         case .shell:
             start(
                 ShellLaunchPlan.launch(config: config, directory: directory, appVersion: DeathRaceApplication.version))
+            _ = noteMissingCommand()
         case .connection(let host): connect(host)
         case .plainSSH(let host): startPlain(host)
         }
@@ -418,14 +535,17 @@ final class PaneController {
                     fromProgram: CommandRecord.cleaned(title), body: CommandRecord.cleaned(body),
                     in: programName ?? shellName, wasWatched: isWatched?() ?? false)
                 if let spoken { notifier.deliver(spoken, paneID: UInt64(clamping: id.rawValue)) }
-            case .promptMark(.commandEnd, let rowID):
+            case .promptMark(.commandEnd(let exitCode), let rowID):
                 // The record is on the row, not in the event: the mark carries only the exit
                 // code, while the duration and the text come from `OSC 633;E` and `dur=`. The
-                // row is in view at the moment a command ends, because the cursor is on it.
-                guard let mirror = surface.model?.mirror,
-                    let row = mirror.lines.firstIndex(where: { $0.id == rowID }),
-                    let command = mirror.lines[row].command
-                else { continue }
+                // row is in view at the moment a command ends, because the cursor is on it —
+                // unless the view is scrolled back, which is the engine's to answer.
+                guard let mirror = surface.model?.mirror else { continue }
+                guard let row = mirror.lines.firstIndex(where: { $0.id == rowID }) else {
+                    finishedOutOfView(exitCode: exitCode, in: mirror)
+                    continue
+                }
+                guard let command = mirror.lines[row].command else { continue }
                 // Which line that row is, taken here and only here: it is the one moment the
                 // row is certainly in view, and the number stays with the line for good, so a
                 // tap on the bar can still find the command after it has scrolled away.
@@ -676,6 +796,30 @@ final class PaneController {
                 wasWatched: isWatched?() ?? false, programNotified: saidSoItself),
             thresholdSeconds: UInt32(clamping: config.ringRingThresholdSeconds))
         if let notice { notifier.deliver(notice, paneID: UInt64(clamping: id.rawValue)) }
+    }
+
+    /// A command ended while the view was scrolled back, so the row its end landed on is below
+    /// what the mirror holds, and it went unrecorded: no Fast run, no best, no Ring Ring for the
+    /// build you scrolled up to read while it ran. The engine answers, as it does for ⌘↑: the
+    /// command is the block before the one the cursor is in.
+    ///
+    /// The exit code is checked against the mark's, and a block already counted is not counted
+    /// twice, because a second command can end before the answer comes back.
+    private func finishedOutOfView(exitCode: Int32?, in mirror: MirrorGrid) {
+        guard let session, let generation = mirror.generation else { return }
+        let cursorLine = Blocks.cursorLine(in: mirror)
+        Task { @MainActor [weak self] in
+            guard let current = await session.promptSpan(at: cursorLine, generation: generation),
+                let previous = current.previousPrompt,
+                let span = await session.promptSpan(at: previous, generation: generation),
+                let command = span.command, command.exitCode == exitCode,
+                let self, self.lastCommandLine != current.lines.lowerBound
+            else { return }
+            // The line `scrollToLastCommand` expects: the one the next prompt starts, whose
+            // block before it is this command.
+            self.lastCommandLine = current.lines.lowerBound
+            self.finished(command)
+        }
     }
 
     /// Whether this pane is the one being looked at, asked of the window rather than guessed.

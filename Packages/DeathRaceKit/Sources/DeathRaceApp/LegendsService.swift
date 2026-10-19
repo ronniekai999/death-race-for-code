@@ -185,18 +185,26 @@ final class LegendsService {
     /// window is rebuilding one; otherwise it starts a new one wherever sessions live.
     var maker: SessionMaker {
         { [weak self] launch, configuration, mayOutliveTheApp, onUpdate in
-            guard let self, mayOutliveTheApp, let daemon = self.daemon else {
+            // Through `host`, as `start` lists them: a session kept from a run when the setting
+            // was on is still taken back up with it off. Gating this on `daemon` rebuilt the
+            // windows around fresh shells and left the real ones running where nothing could
+            // reach them — after BETA.md had suggested turning the setting off.
+            guard let self, mayOutliveTheApp, let host = self.host else {
                 return try PaneController.realSession(launch, configuration, mayOutliveTheApp, onUpdate)
             }
             if let id = self.waiting.first {
                 self.waiting.removeFirst()
                 do {
-                    return try daemon.adopt(id, onUpdate: onUpdate)
+                    return try host.adopt(id, onUpdate: onUpdate)
                 } catch {
                     // It ended, or something else took it: the pane still gets a shell.
                     self.log.error(
                         "Session \(id.value) could not be taken up: \(String(describing: error), privacy: .public)")
                 }
+            }
+            // New sessions go to the daemon only while the setting wants them kept.
+            guard let daemon = self.daemon else {
+                return try PaneController.realSession(launch, configuration, mayOutliveTheApp, onUpdate)
             }
             if let session = self.startOnDaemon(daemon, launch, configuration, onUpdate) { return session }
             return try PaneController.realSession(launch, configuration, mayOutliveTheApp, onUpdate)

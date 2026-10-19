@@ -122,6 +122,14 @@ final class ShellRig {
         return read(until: marker, withinMilliseconds: limit)
     }
 
+    /// Types `keys` as they are, with no Return — a control key such as Ctrl-L — and reads for
+    /// a fixed while. Not until a marker: fish repaints its prompt twice after a clear, and a
+    /// wait that ended on the first would leave the second to end the next one early.
+    func pressAndSettle(_ keys: String, milliseconds: Int = 500) {
+        terminal.writeAll(keys)
+        _ = read(until: "\u{0}deathrace-never", withinMilliseconds: milliseconds)
+    }
+
     /// Types a line and then reads for a fixed while, for the cases where the point is that
     /// *nothing* should come back — an empty line must produce no record at all, and waiting
     /// for a mark that should never arrive is the only way to find out that it did not.

@@ -8,7 +8,8 @@ name: beta
 #
 # Cut one from the Actions tab (Run workflow on main, with a tag such as v0.1.0-beta.1), or push
 # that tag. The tests ran on the commit in macos.yml; this checks the bundle testers get. A pull
-# request that changes this file runs everything except the publishing.
+# request that changes this file, or how the bundle is made, runs everything except the
+# publishing.
 
 on:
   push:
@@ -21,6 +22,8 @@ on:
   pull_request:
     paths:
       - ".github/workflows/beta.yml"
+      - "scripts/bundle.sh"
+      - "App/**"
 
 permissions:
   contents: write
@@ -105,6 +108,14 @@ jobs:
           # The spike's helper and LaunchAgent are a debug investigation, never something to ship.
           [[ ! -e "$app/Contents/MacOS/legendsd-spike" && ! -e "$app/Contents/Library/LaunchAgents" ]] \
             || { echo "::error::The privacy spike's helper is in a beta bundle."; exit 1; }
+          # Both run, release-optimized, on this machine: with no app to ask, askpass answers
+          # nothing, and with no socket to listen on, legendsd refuses (as in macos.yml).
+          if "$app/Contents/MacOS/deathrace-askpass" "user@host's password: "; then
+            echo "::error::The askpass helper answered with no app to ask."; exit 1
+          fi
+          if "$app/Contents/MacOS/legendsd" >/dev/null 2>&1; then
+            echo "::error::legendsd ran with no socket to listen on."; exit 1
+          fi
           echo "architectures: $(lipo -archs "$app/Contents/MacOS/DeathRace")"
       - name: Zip and checksum
         run: |

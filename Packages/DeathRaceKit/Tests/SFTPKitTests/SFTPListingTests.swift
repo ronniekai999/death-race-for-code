@@ -86,7 +86,7 @@ private final class Scratch {
         #expect(fs.writeFile([1, 2, 3, 4], Listing.join(scratch.path, "a.bin"), false))
         #expect(fs.createDirectory(Listing.join(scratch.path, "sub")))
 
-        let rows = fs.entries(scratch.path)
+        let rows = try fs.entries(scratch.path)
         #expect(Set(rows.map(\.name)) == ["a.bin", "sub"])
         #expect(rows.map(\.name) == ["sub", "a.bin"])  // directory first
         let aFile = try #require(rows.first { $0.name == "a.bin" })
@@ -96,6 +96,7 @@ private final class Scratch {
 
         #expect(fs.readFile(Listing.join(scratch.path, "a.bin")) == [1, 2, 3, 4])
         #expect(fs.readFile(Listing.join(scratch.path, "missing")) == nil)
-        #expect(fs.entries(Listing.join(scratch.path, "does-not-exist")).isEmpty)
+        // A folder that can't be listed says so, rather than looking empty.
+        #expect(throws: (any Error).self) { try fs.entries(Listing.join(scratch.path, "does-not-exist")) }
     }
 }

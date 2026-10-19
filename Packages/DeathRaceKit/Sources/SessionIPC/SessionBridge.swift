@@ -92,7 +92,10 @@ final class SessionBridge {
             if ready.readable, heldInput == nil { readFrames() }
             offerDelta()
             noticeTheEnd()
-            if !writeOut() { break }
+            if !writeOut() {
+                readWhatIsLeft()
+                break
+            }
             if stalled() { break }
         }
         finish()
@@ -201,6 +204,21 @@ final class SessionBridge {
         }
         reader.keep(payloads)
         if reader.isBroken { running = false }
+    }
+
+    /// The client has gone — a write to it failed — but what it said just before going may
+    /// still be unread: a pass reads only if the socket was readable when it polled, and a
+    /// `close` that landed after that, followed by the hang-up, sat in the buffer while this
+    /// read the failed write as a detach. The shell was kept, and came back at the next launch.
+    /// So read it out first. Bounded and without waiting: whatever is there is there already.
+    private func readWhatIsLeft() {
+        drainReader()
+        for _ in 0..<64 {
+            guard running, !closing, heldInput == nil,
+                UnixSocket.wait(socket, forWriting: false, timeoutMilliseconds: 0).readable
+            else { return }
+            readFrames()
+        }
     }
 
     private func handle(_ request: StreamRequest) {

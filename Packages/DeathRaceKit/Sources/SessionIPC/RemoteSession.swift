@@ -264,7 +264,10 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
                 socket, forWriting: !writer.isEmpty, wake: wake.readFD, timeoutMilliseconds: -1)
             wake.drain()
 
-            if state.withLock({ $0.stopping }) { break }
+            if state.withLock({ $0.stopping }) {
+                sendWhatIsQueued(to: socket, writer: &writer, state: state)
+                break
+            }
 
             // Hand over as much as the writer has room for, and no more: what does not fit
             // waits for the next pass. The count comes off as each piece is taken, so the
@@ -313,18 +316,36 @@ public final class RemoteSession: ShellSession, @unchecked Sendable {
             }
 
             if running {
-                running = writer.write { bytes in
-                    guard let base = bytes.baseAddress, bytes.count > 0 else { return .wouldBlock }
-                    let written = cpty_write_no_sigpipe(socket, base, bytes.count)
-                    if written > 0 { return .wrote(written) }
-                    if written < 0, errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK {
-                        return .wouldBlock
-                    }
-                    return .gone
-                }
+                running = writer.write { send($0, to: socket) }
             }
         }
         unlink(socket: socket, state: state, onUpdate: onUpdate)
+    }
+
+    private static func send(_ bytes: UnsafeRawBufferPointer, to socket: Int32) -> FrameWriter.Sent {
+        guard let base = bytes.baseAddress, bytes.count > 0 else { return .wouldBlock }
+        let written = cpty_write_no_sigpipe(socket, base, bytes.count)
+        if written > 0 { return .wrote(written) }
+        if written < 0, errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK { return .wouldBlock }
+        return .gone
+    }
+
+    /// The last reference has let go: what is still queued — a `close` above all — goes out
+    /// before the link does. A pane released straight after `close()` (⌘W removes its view at
+    /// once) left the close unsent, and the daemon reads silence as a detach: the shell kept
+    /// running and came back at the next launch. Bounded, because nothing can wait on a peer
+    /// that has stopped reading.
+    private static func sendWhatIsQueued(to socket: Int32, writer: inout FrameWriter, state: Locked<State>) {
+        let queued = state.withLock { state -> [StreamRequest] in
+            defer { state.outgoing = [] }
+            return state.outgoing
+        }
+        for request in queued where !writer.queue(request.encode(), request.lane) { break }
+        let deadline = UnixSocket.monotonicMilliseconds() + 200
+        while !writer.isEmpty, UnixSocket.monotonicMilliseconds() < deadline {
+            guard writer.write({ send($0, to: socket) }) else { return }
+            if !writer.isEmpty { _ = UnixSocket.wait(socket, forWriting: true, timeoutMilliseconds: 10) }
+        }
     }
 
     /// False when what arrived means the connection is no longer worth keeping.

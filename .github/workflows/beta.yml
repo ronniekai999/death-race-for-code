@@ -25,8 +25,10 @@ on:
 permissions:
   contents: write
 
+# One group per tag however the run started: a push of a tag and a dispatch naming it would
+# otherwise both reach `gh release create`, and the second would fail.
 concurrency:
-  group: beta-${{ github.event.inputs.tag || github.ref }}
+  group: beta-${{ github.event.inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -37,8 +39,6 @@ jobs:
     env:
       # A pull request has no tag of its own: it builds as beta 0 and publishes nothing.
       BETA_TAG: ${{ github.event.inputs.tag || (github.event_name == 'push' && github.ref_name) || 'v0.1.0-beta.0' }}
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v5
       - name: The tag and the commit
@@ -125,7 +125,11 @@ jobs:
       # never marks it the latest release. A re-run replaces the files on the same release.
       - name: Publish the prerelease
         if: github.event_name != 'pull_request'
+        # The token can write releases, so only the step that publishes is given it: not the
+        # build scripts or the font downloads before it.
         env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           NAME: ${{ steps.tag.outputs.name }}
           SHA: ${{ steps.tag.outputs.sha }}
           VERSION: ${{ steps.tag.outputs.version }}
@@ -138,16 +142,21 @@ jobs:
           **Apple silicon, macOS 26 or later.** This beta is **not notarized**, so macOS needs one step before the first launch. From Terminal, after downloading the zip:
 
           \`\`\`sh
+          pkill -x legendsd; rm -rf "/Applications/Death Race for Code.app"   # only if an earlier beta is installed; ends its kept sessions
           ditto -x -k ~/Downloads/${NAME}.zip /Applications
           xattr -dr com.apple.quarantine "/Applications/Death Race for Code.app"
           open "/Applications/Death Race for Code.app"
           \`\`\`
 
+          Safari unzips downloads: if you have \`Death Race for Code.app\` in Downloads rather than the zip, use \`ditto ~/Downloads/"Death Race for Code.app" "/Applications/Death Race for Code.app"\` in place of the \`ditto -x -k\` line.
+
           Install, what to try, and the known issues: [BETA.md](https://github.com/${GITHUB_REPOSITORY}/blob/${SHA}/docs/BETA.md).
           Found something? [Send beta feedback](https://github.com/${GITHUB_REPOSITORY}/issues/new?template=beta-feedback.yml).
           EOF
           if gh release view "$BETA_TAG" >/dev/null 2>&1; then
+            # A re-run is a new build number and a new checksum: the notes say both.
             gh release upload "$BETA_TAG" --clobber "build/$NAME.zip" "build/$NAME.zip.sha256"
+            gh release edit "$BETA_TAG" --notes-file build/notes.md
           else
             gh release create "$BETA_TAG" --prerelease --target "$SHA" \
               --title "Death Race for Code ${BETA_TAG#v}" --notes-file build/notes.md \

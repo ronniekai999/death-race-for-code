@@ -11,7 +11,10 @@ beta adds is you, on a real Mac, finding where it falls short.
   needs one step before the first launch, shown below.
 - **Approvals reset with each beta.** Every build has a new signature, so after an update
   macOS asks again before the app reads saved passwords from your Keychain or a folder such as
-  Documents. Choose **Always Allow** or **Allow**.
+  Documents, and again before it shows notifications. Choose **Always Allow** or **Allow**.
+- **Local Network access.** The first connection to a server on your own network may ask for
+  it. If you missed or declined that, turn it on in **System Settings › Privacy & Security ›
+  Local Network**; without it, connections to LAN hosts fail with "No route to host".
 
 ## Install
 
@@ -29,10 +32,19 @@ open "/Applications/Death Race for Code.app"
 
 `xattr` clears the download's quarantine from the app and from the two helpers inside it.
 
+**Downloaded with Safari?** Safari opens a zip after downloading it, so you may find
+`Death Race for Code.app` in Downloads instead. Then skip `shasum`, and in place of the
+`ditto -x -k` line run:
+
+```sh
+ditto ~/Downloads/"Death Race for Code.app" "/Applications/Death Race for Code.app"
+```
+
 Prefer Finder? Open the zip, drag the app into Applications and open it. When macOS says it
 cannot verify the app, open **System Settings › Privacy & Security**, choose **Open Anyway** for
-Death Race for Code and confirm. Run it from Applications either way, so the session helper
-beside it stays where it was started.
+Death Race for Code and confirm. Run the `xattr` line above as well: Open Anyway approves the
+app, but the two helpers inside it can keep the download's quarantine. Run it from
+Applications either way, so the session helper beside it stays where it was started.
 
 ## Your first ten minutes
 
@@ -43,13 +55,21 @@ beside it stays where it was started.
 | The command palette | ⇧⌘P, **Hear Me Calling**: every action, host, snippet and tunnel by name. |
 | Your servers | ⌘O opens **WRLD**. Add a host, or add the hosts `~/.ssh/config` already names from the offer above the cards. Password and host-key questions appear as sheets. A second pane on the same host reuses the login. |
 | Files | ⇧⌘P › **Open in Maze**, from any pane: a local shell asks which host, or adds one. Upload, download, drag between the two sides, or drop Finder files on it. No server to hand? Turn on System Settings › General › Sharing › Remote Login and add `localhost` as a host. |
-| Quick terminal | ⌥Space from any app: **Lucid Dreams** drops down from the notch and keeps its session. |
-| Command history | Run a few commands. ⌘↑ and ⌘↓ jump between prompts, ⇧⌘A selects a command with its output, ⌘F searches history. A long command finishing in another tab sends a notification. |
+| Quick terminal | ⌥Space from any app: **Lucid Dreams** drops down from the notch and keeps its session while the app runs. |
+| Command history | Run a few commands. ⌘↑ and ⌘↓ jump between prompts, ⇧⌘A selects a command with its output, ⌘F searches history. A failed command gets a red rail. A command in another tab that fails, or runs 30 seconds or more, sends a notification when it ends. |
 | Sessions that survive | Start `top`, quit with ⌘Q and reopen. **Legends Never Die** puts the shell, its scrollback, your splits and tabs back. |
 | Broadcast | ⇧⌘I in a tab with splits sends your typing to every pane in it. The border shows it is armed. Use it carefully. |
 
-zsh and fish get command marks automatically. For bash, the app offers one line to add to your
-startup file.
+zsh and fish get command marks automatically. bash needs one line, added by hand for now, at the
+end of `~/.bash_profile` (create the file if you don't have one):
+
+```sh
+[ -r '/Applications/Death Race for Code.app/Contents/Resources/shell-integration/bash/deathrace.bash' ] && . '/Applications/Death Race for Code.app/Contents/Resources/shell-integration/bash/deathrace.bash'
+```
+
+Without it, bash panes have no command marks, so none of the command history row above works
+in them. With it, macOS's own `/bin/bash` (3.2) gives marks and exit codes but no durations, so
+it never sends notifications; Homebrew's bash 5 does.
 
 ## Known issues and limits
 
@@ -60,8 +80,15 @@ startup file.
   names something other than Death Race for Code, please report it. To turn the feature off,
   clear **Keep local shells running when Death Race quits** in Settings › General, or add
   `legends-never-die = false` to `~/.config/deathrace/config`.
-- SSH panes end when the app quits. Only local shells are kept.
-- Maze cannot yet drag remote files out to Finder.
+- SSH panes end when the app quits. Only local shells are kept, and Lucid Dreams' session is
+  not one of them.
+- bash is not set up for you yet: add the line above. The in-app offer is still to come.
+- Maze moves files, not folders: a folder can't be uploaded, downloaded or dropped yet. It
+  also cannot yet drag remote files out to Finder.
+- **If ⌥Space does nothing**, please report it with the log command below: macOS may refuse
+  a shortcut whose only modifier is Option, and the log says so. Until then, add
+  `lucid-dreams-hotkey = ctrl+opt+space` to `~/.config/deathrace/config` and use ⌃⌥Space, or
+  open Lucid Dreams from the Shell menu.
 - Inline images support the Kitty protocol's direct RGB, RGBA and PNG data only. Sixel and
   iTerm images are not supported.
 - **XDR Neon** is off by default (`xdr-neon = true` to try it on an XDR display).
@@ -110,7 +137,11 @@ rm -rf ~/.deathrace                             # runtime state, generated ssh c
 rm -rf ~/.config/deathrace                      # settings and WRLD; back up wrld.json to keep hosts
 ```
 
-Deleting `~/.deathrace/keys` makes any Secure Enclave keys created in the app unusable. Remove
-their public halves from your servers' `authorized_keys`. Saved passwords are in Keychain Access
-under **Death Race for Code**. If you set `XDG_CONFIG_HOME`, settings live under it instead of
-`~/.config`.
+Also clear the app's preferences with `defaults delete local.deathraceforcode.DeathRace`, and
+remove the bash line from `~/.bash_profile` if you added it (left there, it does nothing).
+
+Secure Enclave keys made in the app stay in the Secure Enclave after this. List them with
+`sc_auth list-ctk-identities` and remove one with `sc_auth delete-ctk-identity` (see
+`man sc_auth`), and take their public halves out of your servers' `authorized_keys`. Saved
+passwords are in Keychain Access under **Death Race for Code**. If you set `XDG_CONFIG_HOME`,
+settings live under it instead of `~/.config`.

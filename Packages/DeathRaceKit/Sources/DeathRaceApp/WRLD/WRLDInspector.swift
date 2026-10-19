@@ -88,15 +88,18 @@ struct WRLDInspector: View {
                     }
                 }
 
+                // Connect and the host's files side by side, as the board draws them: Maze is
+                // otherwise only in menus, where nobody looking for files would find it.
                 HStack(spacing: 8) {
                     Button("Connect") { model.connect(host) }.buttonStyle(.wrld(.primary))
-                    if let publicKey = publicKey {
-                        Button("Copy Public Key") { WRLDBoardModel.copy(publicKey) }.buttonStyle(.wrld(.ghost))
-                    }
+                    Button("Open in Maze") { model.openMaze(host) }.buttonStyle(.wrld)
                     Spacer(minLength: 0)
                     Button("Remove…") { WRLDRemoval.confirm(host, in: model) }.buttonStyle(.wrld(.destructive))
                 }
                 .padding(.top, 6)
+                if let publicKey = publicKey {
+                    Button("Copy Public Key") { WRLDBoardModel.copy(publicKey) }.buttonStyle(.wrld(.ghost))
+                }
             }
             .padding(18)
         }

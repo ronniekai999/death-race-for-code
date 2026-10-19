@@ -13,8 +13,11 @@ import VTCore
 extension WindowTests {
 
     /// What a shell with the integration installed sends for one command.
+    /// What a shell sends for one command: the prompt, Return's newline, the command and its
+    /// output, then `D` at the start of the next row, from the hook that draws the next prompt.
+    /// A following prompt goes straight after it, on that row, as zsh, bash and fish draw it.
     private func transcript(_ text: String, exit: Int32, milliseconds: UInt32) -> String {
-        "\u{1B}]133;A\u{7}$ \(text)\u{1B}]133;B\u{7}\u{1B}]633;E;\(text)\u{7}\u{1B}]133;C\u{7}"
+        "\u{1B}]133;A\u{7}$ \(text)\u{1B}]133;B\u{7}\r\n\u{1B}]633;E;\(text)\u{7}\u{1B}]133;C\u{7}"
             + "\u{1B}]133;D;\(exit);dur=\(milliseconds)\u{7}"
     }
 
@@ -113,7 +116,7 @@ extension WindowTests {
 
         // Row 0: a command slow enough to be worth a word. Row 1: the prompt after it.
         session.replay.feed(transcript("swift build", exit: 0, milliseconds: 12_400))
-        session.replay.feed("\r\n\u{1B}]133;A\u{7}$ ")
+        session.replay.feed("\u{1B}]133;A\u{7}$ ")
         surface.sessionDidUpdate()
 
         await eventually(within: 5) { drawnBadges(of: surface, in: window) != nil }
@@ -137,7 +140,7 @@ extension WindowTests {
         let surface = pane.surface
 
         session.replay.feed(transcript("ls", exit: 0, milliseconds: 8))
-        session.replay.feed("\r\n\u{1B}]133;A\u{7}$ ")
+        session.replay.feed("\u{1B}]133;A\u{7}$ ")
         surface.sessionDidUpdate()
         // Long enough for a frame to have been drawn, then nothing: a badge that was going to
         // appear would be there by now.
@@ -156,7 +159,7 @@ extension WindowTests {
         let surface = pane.surface
 
         session.replay.feed(transcript("false", exit: 1, milliseconds: 4))
-        session.replay.feed("\r\n\u{1B}]133;A\u{7}$ ")
+        session.replay.feed("\u{1B}]133;A\u{7}$ ")
         surface.sessionDidUpdate()
         await eventually(within: 5) { drawnBadges(of: surface, in: window) != nil }
         #expect(drawnBadges(of: surface, in: window) != nil, "no badge was drawn: \(badgeState(of: surface))")

@@ -104,21 +104,27 @@ extension Terminal {
         let end = next.map { $0 - 1 } ?? below
 
         return PromptSpan(
-            lines: start...end, command: command(in: start...end), previousPrompt: previous,
+            lines: start...end, command: command(in: start...end, next: next), previousPrompt: previous,
             nextPrompt: next)
     }
 
-    /// The command record in a block: the last one, because the engine takes marks from the
-    /// stream by design and cannot tell whose bytes they are — a program that printed a mark of
-    /// its own earlier is overruled by the shell's, which always comes after the output.
-    /// Found by walking up from the end rather than down from the start: the answer is the last
-    /// record in the range either way, and the shell's `commandEnd` is on or near the block's
-    /// last row, so this is one lookup where the forward walk was a second pass over every line
-    /// of the output.
-    private func command(in lines: ClosedRange<UInt64>) -> CommandRecord? {
+    /// The record of the command a block holds.
+    ///
+    /// The shell sends `D` from the hook that draws the next prompt, so it lands at the start of
+    /// that prompt's row: the record is on `next`, and one on the block's own prompt row is the
+    /// block above's. Otherwise the last one wins, because the engine takes marks from the stream
+    /// by design and cannot tell whose bytes they are — a mark a program printed is overruled by
+    /// the shell's, which always comes after the output. Walked up from the end: the answer is
+    /// the last record either way, so this is one lookup rather than a pass over the output.
+    private func command(in lines: ClosedRange<UInt64>, next: UInt64?) -> CommandRecord? {
+        if let next, let command = storedRow(next)?.command { return command }
         var line = lines.upperBound
         while true {
-            if let command = storedRow(line)?.command { return command }
+            if let row = storedRow(line), let command = row.command,
+                line != lines.lowerBound || !row.promptMarks.contains(.promptStart)
+            {
+                return command
+            }
             if line == lines.lowerBound { return nil }
             line &-= 1
         }

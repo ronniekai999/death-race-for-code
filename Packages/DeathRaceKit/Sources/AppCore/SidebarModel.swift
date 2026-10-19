@@ -179,5 +179,5 @@ public struct SidebarModel: Equatable, Sendable {
     }
 
     /// What the sidebar says when WRLD has no hosts.
-    public static let emptyHint = "Add a host to WRLD to connect with one click."
+    public static let emptyHint = "Add a host to connect and browse its files."
 }

@@ -301,7 +301,7 @@ public enum ConfigSchema {
         ConfigKey(
             "foreground", .colors,
             help: ["The default text color, instead of the theme's."],
-            example: "foreground = #EDE7FF",
+            example: "foreground = #D6CBFA",
             read: { value, config throws(ConfigValueError) in config.colorOverrides.foreground = try Value.color(value)
             },
             write: { $0.colorOverrides.foreground.map(Value.format) }),

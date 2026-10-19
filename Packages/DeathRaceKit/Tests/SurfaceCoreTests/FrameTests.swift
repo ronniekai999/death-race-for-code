@@ -389,25 +389,23 @@ private struct Surface {
 
     /// A transcript the shell integration would send for two commands, the second still being
     /// typed. Three rows, so both blocks and the band are in view at once.
-    private static func twoCommands(_ surface: Surface) {
+    private static func twoCommands(_ surface: Surface, firstExit: Int32 = 0) {
         surface.feed("\u{1B}]133;A\u{7}$ ls\u{1B}]133;B\u{7}\u{1B}]133;C\u{7}")
-        surface.feed("\r\nout\u{1B}]633;E;ls\u{7}\u{1B}]133;D;0;dur=2000\u{7}")
+        surface.feed("\r\nout\u{1B}]633;E;ls\u{7}\u{1B}]133;D;\(firstExit);dur=2000\u{7}")
         surface.feed("\r\n\u{1B}]133;A\u{7}$ ")
     }
 
     private static func chrome(_ runs: [BlockRun]) -> BlockChrome {
         BlockChrome(
             runs: runs,
-            colors: BlockColors(
-                rail: RGB(0x40, 0x40, 0x40), railFailed: RGB(0xFF, 0x00, 0x00), band: RGB(0xFF, 0xFF, 0xFF),
-                bandAmount: 0.5))
+            colors: BlockColors(railFailed: RGB(0xFF, 0x00, 0x00), band: RGB(0xFF, 0xFF, 0xFF), bandAmount: 0.5))
     }
 
     /// The rail and the band go on after the row cache, like composing text and the hovered
     /// link, so a block appearing or the cursor moving between two of them rebuilds no rows.
     @Test func blockChromeIsDrawnWithoutRebuildingRows() {
         let surface = Surface(columns: 8, rows: 3)
-        Self.twoCommands(surface)
+        Self.twoCommands(surface, firstExit: 1)
         _ = surface.frame()
         let runs = Blocks.runs(in: surface.model.mirror)
         #expect(runs.count == 2, "two prompts in view, so two blocks")
@@ -416,29 +414,35 @@ private struct Surface {
             mirror: surface.model.mirror, theme: surface.theme, cell: Surface.cell, selection: nil,
             glyphs: surface.glyphs, blocks: Self.chrome(runs))
         #expect(surface.builder.rebuiltRows == 0)
-        // One instance per block, a single cell wide, as tall as the block.
+        // One instance for the failed block, a single cell wide, as tall as the block; none for
+        // the prompt being typed at.
         let rails = frame.decorations.filter { $0.kind == DecorationKind.rail.rawValue }
         #expect(
             rails.map { [Int($0.cellX), Int($0.cellY), Int($0.cellCount), Int($0.height)] }
-                == [[0, 0, 1, 2 * Surface.cell.height], [0, 2, 1, Surface.cell.height]])
+                == [[0, 0, 1, 2 * Surface.cell.height]])
         // And none of it sticks: a plain frame is the terminal as it was.
         #expect(surface.frame().decorations.filter { $0.kind == DecorationKind.rail.rawValue }.isEmpty)
     }
 
-    /// The rail says "this is a command" and nothing more, except on a failure — which always
-    /// has a badge, so the ✗ `docs/DESIGN.md` asks for is always beside the danger color.
-    @Test func onlyAFailedBlocksRailTakesTheDangerColor() {
-        let surface = Surface(columns: 8, rows: 2)
-        surface.feed("\u{1B}]133;A\u{7}$ x\u{1B}]133;D;3\u{7}")
-        surface.feed("\r\n\u{1B}]133;A\u{7}$ y\u{1B}]133;D;0\u{7}")
+    /// Only a failed command has a rail, beside its own rows and in danger. It always has a
+    /// badge, so the ✗ `docs/DESIGN.md` asks for is always beside the danger color. A rail on
+    /// every block joined into one line down the whole screen.
+    ///
+    /// Fed as a shell sends it: `D` from the hook that draws the next prompt, at the start of
+    /// that prompt's row. Read as that prompt's, `x`'s failure drew its rail beside `y`.
+    @Test func onlyAFailedCommandHasARailBesideItsOwnRows() {
+        let surface = Surface(columns: 8, rows: 3)
+        surface.feed("\u{1B}]133;A\u{7}$ x\u{1B}]133;C\u{7}\r\n")
+        surface.feed("\u{1B}]133;D;3\u{7}\u{1B}]133;A\u{7}$ y\u{1B}]133;C\u{7}\r\n")
+        surface.feed("\u{1B}]133;D;0\u{7}\u{1B}]133;A\u{7}$ ")
         let runs = Blocks.runs(in: surface.model.mirror)
+        #expect(runs.map(\.failed) == [true, false, nil])
         let frame = surface.builder.build(
             mirror: surface.model.mirror, theme: surface.theme, cell: Surface.cell, selection: nil,
             glyphs: surface.glyphs, blocks: Self.chrome(runs))
         let rails = frame.decorations.filter { $0.kind == DecorationKind.rail.rawValue }
-        #expect(rails.count == 2)
-        #expect(rails.first?.color == RGB(0xFF, 0x00, 0x00).packed, "the one that exited 3")
-        #expect(rails.last?.color == RGB(0x40, 0x40, 0x40).packed, "the one that worked")
+        #expect(rails.map { [Int($0.cellY), Int($0.height)] } == [[0, Surface.cell.height]], "x's row, and only x's")
+        #expect(rails.first?.color == RGB(0xFF, 0x00, 0x00).packed)
     }
 
     /// The band tints only the block the cursor is in. Twenty tinted bands read as stripes.

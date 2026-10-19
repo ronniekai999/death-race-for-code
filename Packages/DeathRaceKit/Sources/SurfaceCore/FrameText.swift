@@ -23,7 +23,7 @@ extension Frame {
     /// with nothing but the default colors are left out. Columns count from 1.
     ///
     ///     size 80x24 · clear #100822
-    ///     3: bg 1-11 #3A2B6A 12-80 #100822 · fg 1-3 #FF5277 5-9 #EDE7FF · underline 5-9 #EDE7FF
+    ///     3: bg 1-11 #3A2B6A 12-80 #100822 · fg 1-3 #FF5277 5-9 #D6CBFA · underline 5-9 #D6CBFA
     public func summary(defaultForeground: RGB, defaultBackground: RGB) -> String {
         var out = "size \(columns)x\(rows) · clear \(hex(clearColor))\n"
         var glyphsByRow: [[GlyphInstance]] = Array(repeating: [], count: rows)

@@ -466,6 +466,49 @@ import VTCore
 
     // MARK: - What a program prints is not what the shell said
 
+    // MARK: - Whose outcome it is
+
+    /// Every shell sends `D` from the hook that draws the next prompt, so it arrives at the start
+    /// of that prompt's row, beside its `A`. The outcome is still the command's above it. Read as
+    /// the next block's, a failure's ✗ and its rail sat beside a command that had worked.
+    private func expectEachOutcomeOnItsOwnCommand(_ rig: ShellRig) throws {
+        #expect(rig.waitForFirstPrompt())
+        // `false` rather than `(exit 7)`: fish has no subshell syntax, and bash's hook never sees
+        // a bare subshell as a command.
+        #expect(rig.run("false", awaiting: ShellRig.promptStart))
+        #expect(rig.run("true", awaiting: ShellRig.promptStart))
+
+        let screen = rig.screen()
+        let lines = (0..<UInt64(screen.rows)).lazy
+        let first = try #require(lines.compactMap { screen.promptSpan(at: $0) }.first)
+        #expect(first.command?.text == "false", "\(rig.raw.debugDescription)")
+        #expect(first.command?.exitCode == 1)
+        let second = try #require(first.nextPrompt.flatMap { screen.promptSpan(at: $0) })
+        #expect(second.command?.text == "true")
+        #expect(second.command?.exitCode == 0)
+        let typing = try #require(second.nextPrompt.flatMap { screen.promptSpan(at: $0) })
+        #expect(typing.command == nil, "the prompt being typed at has no outcome yet")
+    }
+
+    @Test func zshPinsEachOutcomeOnItsOwnCommand() throws {
+        let zsh = try #require(TestShells.path("zsh"), TestShells.missing("zsh"))
+        try expectEachOutcomeOnItsOwnCommand(try ShellRig(shell: .zsh, executable: zsh, rc: "PS1='$ '\n"))
+    }
+
+    @Test func bashPinsEachOutcomeOnItsOwnCommand() throws {
+        let bash = try #require(TestShells.path("bash"), TestShells.missing("bash"))
+        let directory = try #require(ShellIntegration.directory())
+        try expectEachOutcomeOnItsOwnCommand(
+            try ShellRig(
+                shell: .bash, executable: bash, rc: "PS1='$ '\n\(ShellIntegration.bashLine(directory: directory))\n"))
+    }
+
+    @Test func fishPinsEachOutcomeOnItsOwnCommand() throws {
+        let fish = try #require(TestShells.path("fish"), TestShells.missing("fish"))
+        try expectEachOutcomeOnItsOwnCommand(
+            try ShellRig(shell: .fish, executable: fish, rc: "function fish_prompt\n  echo -n '$ '\nend\n"))
+    }
+
     /// A command's own output can print anything, a mark included. The engine takes marks from
     /// the stream by design, so what this pins down is that the shell's own `D` — which comes
     /// after the output — is the one whose exit code ends up on the row.

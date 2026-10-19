@@ -126,7 +126,7 @@ public enum ThemeCatalog {
                     0x3A2B6A, 0xFF5277, 0x4FE3A9, 0xFFC45C, 0x80A4FC, 0xEC48C4, 0x5CC8FC, 0xC3B5EE,
                     0x7B6BB0, 0xFF7D99, 0x86F0C8, 0xFFD98A, 0xA9C1FF, 0xF37FD8, 0x97DDFF, 0xFFFFFF,
                 ],
-                foreground: 0xEDE7FF, background: 0x100822, cursor: 0xEC48C4),
+                foreground: 0xD6CBFA, background: 0x100822, cursor: 0xEC48C4),
             selectionBackground: RGB(hex: 0x463279)),
         chrome: ChromeColors(
             ground: 0x160C2E,

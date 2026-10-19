@@ -9,10 +9,16 @@ import Testing
 /// reason the engine is asked rather than the mirror.
 @Suite("Prompt spans") struct PromptSpanTests {
 
-    /// What a shell with the integration installed sends for one command.
-    private static func command(_ text: String, exit: Int32 = 0, milliseconds: UInt32 = 1_500) -> String {
-        "\u{1B}]133;A\u{7}$ \(text)\u{1B}]133;B\u{7}\u{1B}]633;E;\(text)\u{7}\u{1B}]133;C\u{7}"
-            + "\u{1B}]133;D;\(exit);dur=\(milliseconds)\u{7}"
+    /// What a shell with the integration installed sends for one command: the prompt, the
+    /// newline Return makes, the command and its output — and then `D`, from the hook that draws
+    /// the next prompt, at the start of the row after the output. That is where the next
+    /// command's `A` follows it, so commands are fed back to back with nothing in between, as
+    /// `RealShellTests` shows zsh, bash and fish all doing.
+    private static func command(
+        _ text: String, output: [String] = [], exit: Int32 = 0, milliseconds: UInt32 = 1_500
+    ) -> String {
+        "\u{1B}]133;A\u{7}$ \(text)\u{1B}]133;B\u{7}\r\n\u{1B}]633;E;\(text)\u{7}\u{1B}]133;C\u{7}"
+            + output.map { $0 + "\r\n" }.joined() + "\u{1B}]133;D;\(exit);dur=\(milliseconds)\u{7}"
     }
 
     private func terminal(columns: Int = 20, rows: Int = 4, scrollback: Int = 1 << 20) -> Terminal {
@@ -63,7 +69,7 @@ import Testing
     /// below the prompt is part of it.
     @Test func theNewestBlockRunsToTheEndOfTheScreen() {
         let screen = terminal(rows: 4)
-        feed(screen, Self.command("ls") + "\r\n\u{1B}]133;A\u{7}$ ")
+        feed(screen, Self.command("ls") + "\u{1B}]133;A\u{7}$ ")
         let span = try! #require(screen.promptSpan(at: 1))
         #expect(span.lines == 1...3, "the prompt's line to the bottom of the screen")
         #expect(span.previousPrompt == 0)
@@ -74,7 +80,7 @@ import Testing
     /// click in the middle of one select the whole thing.
     @Test func anyLineInABlockFindsTheSameSpan() {
         let screen = terminal(rows: 4)
-        feed(screen, Self.command("make") + "\r\nfirst\r\nsecond")
+        feed(screen, Self.command("make", output: ["first", "second"]))
         let fromPrompt = try! #require(screen.promptSpan(at: 0))
         let fromOutput = try! #require(screen.promptSpan(at: 2))
         #expect(fromPrompt == fromOutput)
@@ -84,7 +90,7 @@ import Testing
     /// The three prompts a ⌘↑ walk needs: where it is, where it came from, where it goes.
     @Test func theSpanNamesThePromptsEitherSide() {
         let screen = terminal(rows: 6)
-        feed(screen, Self.command("one") + "\r\n" + Self.command("two") + "\r\n" + Self.command("three"))
+        feed(screen, Self.command("one") + Self.command("two") + Self.command("three"))
         let middle = try! #require(screen.promptSpan(at: 1))
         #expect(middle.command?.text == "two")
         #expect(middle.previousPrompt == 0)
@@ -94,14 +100,12 @@ import Testing
     // MARK: - Into history, which is the point
 
     /// The case the app cannot answer and the engine can: a prompt that has scrolled out of the
-    /// viewport entirely. A four-row screen with six commands keeps the first two in scrollback.
+    /// viewport entirely. Six commands are seven lines — each prompt, then the last one's end —
+    /// so a four-row screen keeps the first three in scrollback.
     @Test func aPromptOnlyInScrollbackIsStillFound() {
         let screen = terminal(rows: 4)
-        for index in 0..<6 {
-            feed(screen, Self.command("c\(index)"))
-            if index < 5 { feed(screen, "\r\n") }
-        }
-        #expect(screen.scrollbackCount == 2, "six lines through a four-row screen")
+        for index in 0..<6 { feed(screen, Self.command("c\(index)")) }
+        #expect(screen.scrollbackCount == 3, "seven lines through a four-row screen")
         // Line 0 is off the top of the active area now, and its mark went to scrollback with it.
         let oldest = try! #require(screen.promptSpan(at: 0))
         #expect(oldest.lines == 0...0)
@@ -115,10 +119,7 @@ import Testing
     @Test func aPromptTrimmedOutOfScrollbackIsGone() {
         // Room for a line or two of history, not six.
         let screen = terminal(rows: 2, scrollback: 400)
-        for index in 0..<6 {
-            feed(screen, Self.command("c\(index)"))
-            if index < 5 { feed(screen, "\r\n") }
-        }
+        for index in 0..<6 { feed(screen, Self.command("c\(index)")) }
         let kept = screen.linesScrolledOff - UInt64(screen.scrollbackCount)
         #expect(kept > 0, "some history was trimmed, or this test proves nothing")
         #expect(screen.promptSpan(at: 0)?.lines.lowerBound == kept, "clamped to the oldest kept")
@@ -142,7 +143,7 @@ import Testing
     /// rather than a wrong answer, so the invariant is pinned here rather than assumed.
     @Test func reflowKeepsTheArithmeticTheSpanDependsOn() {
         let screen = terminal(columns: 20, rows: 2)
-        feed(screen, Self.command("ls") + "\r\n" + String(repeating: "a", count: 20))
+        feed(screen, Self.command("ls", output: [String(repeating: "a", count: 20)]))
         #expect(screen.promptSpan(at: 0)?.command?.text == "ls")
 
         // Narrower: every line is re-added, and more rows come out than went in.
@@ -166,8 +167,7 @@ import Testing
         #expect(Terminal.promptSearchLimit > 0, "the real one is a bound, not a default of none")
         let screen = terminal(rows: 2)
         // A prompt, then more unmarked output below it than the search will look back through.
-        feed(screen, Self.command("far away") + "\r\n")
-        feed(screen, String(repeating: "x\r\n", count: 40))
+        feed(screen, Self.command("far away", output: Array(repeating: "x", count: 40)))
         let bottom = screen.linesScrolledOff + UInt64(screen.rows) - 1
         #expect(
             screen.promptSpan(at: bottom, limit: 5) == nil,
@@ -186,9 +186,8 @@ import Testing
     /// to prevent.
     @Test func theWalkDownIsBoundedAndTheSpanStopsWhereItLooked() throws {
         let screen = terminal(rows: 2)
-        feed(screen, Self.command("first") + "\r\n")
-        feed(screen, String(repeating: "x\r\n", count: 40))
-        feed(screen, Self.command("second") + "\r\n")
+        feed(screen, Self.command("first", output: Array(repeating: "x", count: 40)))
+        feed(screen, Self.command("second"))
         let first = try #require(screen.promptSpan(at: 0, limit: 10_000))
         #expect(first.command?.text == "first")
 

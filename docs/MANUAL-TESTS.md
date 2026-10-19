@@ -82,22 +82,23 @@ Phase 8 is done when all of these hold on the M5. The roadmap left this phase's 
 so these are the ones the work was built against.
 
 1. **Every command is marked, in all three shells, and nothing else breaks.** In zsh, bash and
-   fish, each command gets a rail and the right pass/fail mark, and `vim`, `tmux` and `htop`
-   still draw correctly — **with no rail inside the alternate screen**. macOS's `/bin/bash` is
+   fish, each command gets the right pass/fail mark **on its own line**, a failed one a `danger`
+   rail beside its own rows, and `vim`, `tmux` and `htop` still draw correctly — **with no rail
+   inside the alternate screen**. macOS's `/bin/bash` is
    3.2 and has no `$EPOCHREALTIME`: it gets marks, the command line and exit codes, and no
    duration. That is the documented limit, not a bug.
 2. **A second run is faster, and says so.** Run the same command twice, the second time
    quicker: it reads "Fast Xs · Ys faster than your best" and the text flashes the gradient. A
    slower run says nothing about the best and does not flash.
 3. **The record survives being killed.** With a long build running, `kill -9` the app and
-   relaunch. The finished command's rail **and** its badge are both there — which is what
+   relaunch. The finished command's badge is there, and its rail if it failed — which is what
    keeping `CommandRecord` on the row, in delta format 4, buys.
 4. **Ring Ring fires for what you did not watch, and not for what you did.** With Death Race
    hidden, a command over `ring-ring-threshold-seconds` (30) names itself and its duration, and
    a tap brings its pane forward. A command you watched finish in the front tab says nothing.
    One that sent its own `OSC 9` is not second-guessed.
 5. **Walking and selecting.** ⌘↑ and ⌘↓ walk prompts, including back into scrollback and after
-   a reattach, where the app has seen no history of its own. ⌘⇧A and a click on a block's rail
+   a reattach, where the app has seen no history of its own. ⌘⇧A and a click on a failed block's rail
    select the command and its output and **nothing of the next one**; ⌘C then gives exactly
    that. "Save Last Command to Wishing Well" saves the command, not the selection.
 6. **A tab pill fills and clears.** A progress-reporting command (`OSC 9;4`, e.g. a recent
@@ -106,13 +107,16 @@ so these are the ones the work was built against.
 7. **Idle still costs nothing.** With blocks on screen and a badge showing: 0 frames and ≤ 0.5
    wakeups a second, and `rebuiltRows` stays 0 while only a badge moves.
 8. **Off, and someone else's, both behave.** With `conversations = false` the terminal is
-   exactly as it was. With Ghostty's or iTerm2's integration installed instead of ours, rails
+   exactly as it was. With Ghostty's or iTerm2's integration installed instead of ours, pass/fail marks
    and exit codes still appear — durations do not, because `dur=` is ours.
 
 ## Conversations
 
-- [ ] A command whose output scrolls past a screen keeps one rail down the whole block.
-- [ ] A prompt with no command yet shows a rail and no badge.
+- [ ] A failed command whose output scrolls past a screen keeps one rail down the whole block.
+- [ ] `false` then `true`: the ✗ and the rail are beside `false`, `true` has neither, and the
+      prompt after them has no badge and no rail.
+- [ ] A command that worked, and a prompt with no command yet, have no rail at all.
+- [ ] The band covers the prompt being typed at and nothing below it.
 - [ ] A command that began above the screen reaches the top edge without a false start.
 - [ ] The band follows the cursor's block as you run commands, and only one block has it.
 - [ ] Scrolled back into history, the band is absent rather than on whatever row is in view.
@@ -122,7 +126,7 @@ so these are the ones the work was built against.
 - [ ] With no shell integration at all, a click on the first pixel of column 0 starts a
       selection rather than doing nothing.
 - [ ] Triple-click still selects a line, and ⌥-drag still selects a rectangle.
-- [ ] `--render-chrome` output carries rails, bands and badges in all eight themes.
+- [ ] `--render-chrome` output carries a failed command's rail, bands and badges in all eight themes.
 
 ## Fast
 

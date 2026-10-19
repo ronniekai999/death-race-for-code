@@ -29,15 +29,12 @@ struct Chrome {
         GradientText.render("999", font: GradientText.wordmarkFont(size: size), colors: colors.neon, scale: scale)
     }
 
-    /// What a block's rail and the band behind the one you are in are drawn in.
+    /// What a failed command's rail and the band behind the block you are in are drawn in.
     ///
-    /// The rail is neutral whatever happened, except on a failure: `docs/DESIGN.md` asks that
-    /// the danger color always arrive with a word or a ✗, and a failure always has a badge, so
-    /// it always does. A command quick enough to need no badge has neither, which is why a
-    /// successful one does not get the cyan it would otherwise have earned.
+    /// Only a failure has a rail, and in danger: `docs/DESIGN.md` asks that the danger color
+    /// always arrive with a word or a ✗, and a failure always has a badge, so it always does.
     var blockColors: BlockColors {
-        BlockColors(
-            rail: colors.lineStrong, railFailed: colors.danger, band: colors.surface, bandAmount: Self.bandAmount)
+        BlockColors(railFailed: colors.danger, band: colors.surface, bandAmount: Self.bandAmount)
     }
 
     /// A command's badge: its words, filled with the gradient when it beat its own best and in

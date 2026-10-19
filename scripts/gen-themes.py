@@ -71,7 +71,7 @@ def hex6(color):
 # plus the chrome's tint and the ANSI slots each theme fills from its own accents.
 THEMES = [
     dict(id="legends-never-die", name="Legends Never Die",
-         bg="#100822", fg="#ede7ff", c1="#ec48c4", c2="#9870fc", c3="#5cc8fc", c4="#4fe3a9",
+         bg="#100822", fg="#d6cbfa", c1="#ec48c4", c2="#9870fc", c3="#5cc8fc", c4="#4fe3a9",
          c5="#ffc45c", red="#ff5277", glow=("#9d63ff", 0.35), tint="c2"),
     dict(id="lucid-dreams", name="Lucid Dreams",
          bg="#141128", fg="#ece8ff", c1="#ff9ad5", c2="#b9a6ff", c3="#8fd3ff", c4="#9ff2d0",

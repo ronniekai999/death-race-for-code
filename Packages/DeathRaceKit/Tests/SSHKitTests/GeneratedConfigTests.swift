@@ -66,10 +66,10 @@ struct GeneratedConfigTests {
                     ProxyJump deathrace-bastion
                     ControlMaster no
                     ControlPersist no
-                    ControlPath \(controlPath)
+                    ControlPath "\(controlPath)"
                 """))
         // Your settings come after ours, for every host.
-        #expect(config.text.hasSuffix("\nMatch all\nInclude ~/.ssh/config\n"))
+        #expect(config.text.hasSuffix("\nMatch all\nInclude \"~/.ssh/config\"\n"))
     }
 
     @Test func aHostFromSshConfigGetsOnlyItsControlSettings() {
@@ -83,9 +83,9 @@ struct GeneratedConfigTests {
         #expect(config.controlPaths[HostID(rawValue: "h1")] == paths.controlPath(for: "alias:nas-999"))
         #expect(
             config.text.contains(
-                "Host nas-999\n    ControlMaster no\n    ControlPersist no\n    ControlPath \(paths.controlPath(for: "alias:nas-999"))\n"
+                "Host nas-999\n    ControlMaster no\n    ControlPersist no\n    ControlPath \"\(paths.controlPath(for: "alias:nas-999"))\"\n"
             ))
-        #expect(config.text.hasSuffix("Match all\nInclude ~/.ssh/config\nInclude /etc/ssh/ssh_config\n"))
+        #expect(config.text.hasSuffix("Match all\nInclude \"~/.ssh/config\"\nInclude \"/etc/ssh/ssh_config\"\n"))
     }
 
     @Test func aliasesFoundInYourConfigGetControlSettingsToo() {
@@ -97,7 +97,7 @@ struct GeneratedConfigTests {
         #expect(config.aliasControlPaths == ["pi-hole": paths.controlPath(for: "alias:pi-hole")])
         #expect(
             config.text.contains(
-                "Host pi-hole\n    ControlMaster no\n    ControlPersist no\n    ControlPath \(paths.controlPath(for: "alias:pi-hole"))\n"
+                "Host pi-hole\n    ControlMaster no\n    ControlPersist no\n    ControlPath \"\(paths.controlPath(for: "alias:pi-hole"))\"\n"
             ))
         #expect(!config.text.contains("prod-*"))
         #expect(!config.text.contains("bad alias"))
@@ -204,13 +204,70 @@ struct GeneratedConfigTests {
 
     @Test func pathsArePercentSafeAndQuoted() {
         #expect(GeneratedConfig.pathValue("/a b/%d") == "\"/a b/%%d\"")
-        #expect(GeneratedConfig.pathValue("/plain") == "/plain")
-        #expect(GeneratedConfig.quotedIfSpaced("/a b/c%") == "\"/a b/c%\"")
+        #expect(GeneratedConfig.pathValue("/plain") == "\"/plain\"")
+        #expect(GeneratedConfig.quoted("/a b/c%") == "\"/a b/c%\"")
+    }
+
+    /// OpenSSH 9.8's `argv_split` as it splits a config line, `misc.c`: whitespace ends an
+    /// argument outside quotes, `'` and `"` open and close them, `\` escapes a quote, a
+    /// backslash or (outside quotes) a space, and a quote left open is an error — for the
+    /// whole file, not just the line.
+    private func openSSHArguments(_ line: String) throws -> [String] {
+        struct InvalidQuotes: Error {}
+        let s = Array(line)
+        var arguments: [String] = []
+        var i = 0
+        while i < s.count {
+            if s[i] == " " || s[i] == "\t" {
+                i += 1
+                continue
+            }
+            if s[i] == "#" { break }
+            var quote: Character?
+            var argument = ""
+            while i < s.count {
+                let c = s[i]
+                if c == "\\" {
+                    if i + 1 < s.count, "'\"\\".contains(s[i + 1]) || (quote == nil && s[i + 1] == " ") {
+                        i += 1
+                        argument.append(s[i])
+                    } else {
+                        argument.append(c)
+                    }
+                } else if quote == nil, c == " " || c == "\t" {
+                    break
+                } else if quote == nil, c == "\"" || c == "'" {
+                    quote = c
+                } else if let open = quote, c == open {
+                    quote = nil
+                } else {
+                    argument.append(c)
+                }
+                i += 1
+            }
+            if i >= s.count, quote != nil { throw InvalidQuotes() }
+            arguments.append(argument)
+        }
+        return arguments
+    }
+
+    /// Every path comes back from ssh's own splitting exactly as it went in — the apostrophe
+    /// that used to make ssh refuse the whole file, a `#` that would start a comment, a
+    /// backslash, spaces. (`%%` is ssh's next step, and stays doubled here.)
+    @Test func everyPathSurvivesOpenSSHsSplitting() throws {
+        for path in [
+            "~/.ssh/ronnie's_ed25519", "/Users/o'brien/.deathrace/run/c", "/k/#1", "/a b/c", "/back\\slash",
+            "/both' and \\", "/plain",
+        ] {
+            let line = "IdentityFile " + GeneratedConfig.pathValue(path)
+            let arguments = try openSSHArguments(line)
+            #expect(arguments == ["IdentityFile", path], "\(line)")
+        }
     }
 
     @Test func anEmptyVaultStillIncludesYourConfig() {
         let config = GeneratedConfig(vault: Vault(), paths: paths)
-        #expect(config.text.hasSuffix("\nMatch all\nInclude ~/.ssh/config\nInclude /etc/ssh/ssh_config\n"))
+        #expect(config.text.hasSuffix("\nMatch all\nInclude \"~/.ssh/config\"\nInclude \"/etc/ssh/ssh_config\"\n"))
         #expect(!config.text.contains("Host "))
     }
 }
@@ -236,7 +293,8 @@ struct GeneratedConfigOpenSSHTests {
     }
 
     @Test(.enabled(if: RealSSH.shouldRun)) func oursWinAndYoursFillIn() throws {
-        let home = NSTemporaryDirectory() + "wrld-ssh-" + UUID().uuidString
+        // An apostrophe in the home folder reaches the Include, the key and the control path.
+        let home = NSTemporaryDirectory() + "wrld-ssh-o'brien-" + UUID().uuidString
         defer { try? FileManager.default.removeItem(atPath: home) }
         try FileManager.default.createDirectory(atPath: home + "/.ssh", withIntermediateDirectories: true)
         // Your config: defaults that must not win over ours, and a setting only it has.

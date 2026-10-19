@@ -128,13 +128,14 @@ final class PaneController {
         surface.onReturnKey = { [weak self] in
             self?.refreshSoon()
             self?.putBashOfferAway()
+            self?.putNoteAway()
         }
         surface.onHoverLink = { [weak self] _ in self?.onLinkHover?() }
         surface.onOpenLink = { [weak self] link in self?.open(link) }
         switch paneLaunch {
         case .shell:
             start(launch)
-            offerBashLine(for: launch.executable)
+            if !noteMissingCommand() { offerBashLine(for: launch.executable) }
         case .connection(let host): connect(host)
         case .plainSSH(let host): startPlain(host)
         }
@@ -162,6 +163,19 @@ final class PaneController {
 
     /// The offer sits over the pane's bottom rows, which is where the prompt is once the
     /// screen fills: the first Return puts it away rather than leave it over what you type.
+    /// A `command` setting that names nothing runnable starts your login shell instead: the
+    /// pane says so, or you'd think the setting did nothing. True when it did.
+    private func noteMissingCommand() -> Bool {
+        guard let problem = ShellLaunchPlan.commandProblem(config: config) else { return false }
+        setBanner(.note(problem))
+        return true
+    }
+
+    /// Typing on puts a note away, as OK does.
+    private func putNoteAway() {
+        if banner?.buttons == [.dismiss] { setBanner(nil) }
+    }
+
     private func putBashOfferAway() {
         guard bashLineFile != nil else { return }
         bashLineFile = nil
@@ -285,6 +299,8 @@ final class PaneController {
             forgetHostKey()
         case .addBashLine:
             addBashLine()
+        case .dismiss:
+            putNoteAway()
         case .notNow:
             Self.bashOfferPutAway = true
             putBashOfferAway()
@@ -384,6 +400,7 @@ final class PaneController {
         case .shell:
             start(
                 ShellLaunchPlan.launch(config: config, directory: directory, appVersion: DeathRaceApplication.version))
+            _ = noteMissingCommand()
         case .connection(let host): connect(host)
         case .plainSSH(let host): startPlain(host)
         }

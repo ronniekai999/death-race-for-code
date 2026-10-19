@@ -147,12 +147,30 @@ final class WindowTests {
         windowTestRunning = false
     }
 
-    func makeWindow(_ host: TestHost) -> PitLaneWindowController {
+    func makeWindow(_ host: TestHost, config: Config = Config()) -> PitLaneWindowController {
         retainedHosts.append(host)
-        let controller = PitLaneWindowController(config: Config(), host: host, directory: nil)
+        let controller = PitLaneWindowController(config: config, host: host, directory: nil)
         controller.showWindow(nil)
         controller.window?.layoutIfNeeded()
         return controller
+    }
+
+    /// Run naming a program that can't be found starts your login shell, and says so, or the
+    /// setting would seem to do nothing.
+    @Test func aRunSettingThatNamesNothingSaysSo() throws {
+        var config = Config()
+        config.command = "no-such-program-for-death-race --login"
+        let controller = makeWindow(TestHost(), config: config)
+        defer { controller.window?.close() }
+        let pane = try #require(controller.activePane)
+        #expect(pane.session != nil)
+        #expect(
+            pane.banner
+                == .note(
+                    "Death Race couldn’t find “no-such-program-for-death-race”, the program Run names in Settings, so this is your login shell."
+                ))
+        pane.press(.dismiss)
+        #expect(pane.banner == nil)
     }
 
     /// A pane attaches its session before it is laid out. It used to send the one-cell grid it

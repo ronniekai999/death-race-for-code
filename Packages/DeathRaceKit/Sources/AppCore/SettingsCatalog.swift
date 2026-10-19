@@ -128,7 +128,9 @@ public enum SettingsCatalog {
                             note: "A particular folder can be set in the settings file."),
                         Setting(
                             "command", "Run", .text(placeholder: "Your login shell"),
-                            note: "A program and its arguments, like /opt/homebrew/bin/fish --login."),
+                            note:
+                                "A program and its arguments, like fish --login or ~/bin/myshell. Homebrew's are found too."
+                        ),
                     ]),
             ]
         case .appearance:

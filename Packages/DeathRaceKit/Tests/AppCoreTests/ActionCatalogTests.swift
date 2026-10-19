@@ -103,12 +103,48 @@ import Testing
         #expect(plan.arguments == ["fish", "--login"])
     }
 
-    @Test func aMissingCommandFallsBackToTheLoginShell() {
+    @Test func aMissingCommandFallsBackToTheLoginShellAndSaysSo() {
         var config = Config()
         config.command = "nushell"
         let plan = launch(config)
         #expect(plan.executable != "nushell")
         #expect(plan.arguments.first?.hasPrefix("-") == true)
+        #expect(
+            ShellLaunchPlan.commandProblem(config: config, environment: environment) { executables.contains($0) }
+                == "Death Race couldn’t find “nushell”, the program Run names in Settings, so this is your login shell."
+        )
+        config.command = "fish"
+        #expect(
+            ShellLaunchPlan.commandProblem(config: config, environment: environment) { executables.contains($0) } == nil
+        )
+        #expect(ShellLaunchPlan.commandProblem(config: Config(), environment: environment) { _ in false } == nil)
+    }
+
+    // Opened from the Finder, the app's PATH is the system's alone.
+    @Test func aCommandIsFoundWhereProgramsAreUsuallyInstalled() {
+        let finder = ["HOME": "/Users/ronnie", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/zsh"]
+        var config = Config()
+        config.command = "nu"
+        for place in ["/opt/homebrew/bin/nu", "/usr/local/bin/nu", "/Users/ronnie/.cargo/bin/nu"] {
+            let plan = ShellLaunchPlan.launch(
+                config: config, directory: nil, environment: finder, appVersion: "0.3.0", isExecutable: { $0 == place })
+            #expect(plan.executable == place)
+        }
+        // Your PATH comes first.
+        #expect(
+            ShellLaunchPlan.resolve("fish", path: "/usr/bin:/bin", home: "/Users/ronnie") {
+                ["/usr/bin/fish", "/opt/homebrew/bin/fish"].contains($0)
+            } == "/usr/bin/fish")
+    }
+
+    @Test func aCommandsTildeIsYourHome() {
+        var config = Config()
+        config.command = "~/bin/myshell -l"
+        let plan = ShellLaunchPlan.launch(
+            config: config, directory: nil, environment: environment, appVersion: "0.3.0",
+            isExecutable: { $0 == "/Users/ronnie/bin/myshell" })
+        #expect(plan.executable == "/Users/ronnie/bin/myshell")
+        #expect(plan.arguments == ["/Users/ronnie/bin/myshell", "-l"])
     }
 
     @Test func workingDirectories() {

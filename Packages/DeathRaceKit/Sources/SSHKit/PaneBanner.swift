@@ -18,6 +18,8 @@ public struct PaneBanner: Equatable, Sendable {
         case addBashLine
         /// Puts an offer away, for this pane.
         case notNow
+        /// Puts a note away.
+        case dismiss
 
         public var title: String {
             switch self {
@@ -29,6 +31,7 @@ public struct PaneBanner: Equatable, Sendable {
             case .forgetHostKey: "Forget the Old Key…"
             case .addBashLine: "Add the Line…"
             case .notNow: "Not Now"
+            case .dismiss: "OK"
             }
         }
     }
@@ -42,6 +45,11 @@ public struct PaneBanner: Equatable, Sendable {
         self.message = message
         self.buttons = buttons
         self.isWorking = isWorking
+    }
+
+    /// Something worth knowing about the pane, with nothing to do about it here.
+    public static func note(_ message: String) -> PaneBanner {
+        PaneBanner(message: message, buttons: [.dismiss])
     }
 
     public static func connecting(to host: String) -> PaneBanner {

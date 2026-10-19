@@ -31,7 +31,11 @@ final class FakeSession: PaneSession, @unchecked Sendable {
     var status: Session.Status { closed ? .exited(.exited(code: 0)) : .running }
     func send(_ bytes: [UInt8]) -> Bool { replay.send(bytes) }
     func sendReport(_ bytes: [UInt8]) -> Bool { replay.sendReport(bytes) }
+    /// Every size the pane asked for, in order.
+    private(set) var resizes: [(columns: Int, rows: Int)] = []
+
     func resize(columns: Int, rows: Int, cellPixelWidth: Int, cellPixelHeight: Int) {
+        resizes.append((columns, rows))
         replay.resize(columns: columns, rows: rows, cellPixelWidth: cellPixelWidth, cellPixelHeight: cellPixelHeight)
     }
     func scroll(by lines: Int) { replay.scroll(by: lines) }
@@ -147,6 +151,21 @@ final class WindowTests {
         controller.showWindow(nil)
         controller.window?.layoutIfNeeded()
         return controller
+    }
+
+    /// A pane attaches its session before it is laid out. It used to send the one-cell grid it
+    /// was made with, so a kept session reattached at launch was shrunk to 1×1 — its history
+    /// reflowed at one column and trimmed — before the real size arrived.
+    @Test func aNewPaneNeverShrinksItsSessionToOneCell() throws {
+        let host = TestHost()
+        let controller = makeWindow(host)
+        defer { controller.window?.close() }
+        let pane = try #require(controller.activePane)
+        let session = try #require(pane.session as? FakeSession)
+        #expect(!session.resizes.isEmpty, "the laid-out grid reached the session")
+        #expect(!session.resizes.contains { $0.columns == 1 || $0.rows == 1 }, "\(session.resizes)")
+        #expect(session.resizes.last?.columns == pane.surface.grid.columns)
+        #expect(session.resizes.last?.rows == pane.surface.grid.rows)
     }
 
     @Test func aWindowOpensWithOneTabAndPane() {

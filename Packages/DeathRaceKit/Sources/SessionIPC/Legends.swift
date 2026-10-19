@@ -25,16 +25,38 @@ public struct SessionPlacement: Sendable, Equatable {
         self.workspace = workspace
     }
 
+    /// Never more than `SessionWire.largestMetadata` bytes. The daemon refuses a larger note by
+    /// dropping the connection it came on — every later spawn then failed, and new tabs ran in
+    /// the app — and a title of 200 characters can be far more than 200 bytes: a flag or a
+    /// family emoji is 25 or more. So the title is cut by bytes as well, and a placement that
+    /// still doesn't fit goes without its workspace rather than not at all.
     public func encode() -> [UInt8] {
-        var w = ByteWriter()
         let saved = workspace.flatMap { $0.isValid ? $0 : nil }
+        let bytes = encode(saved)
+        return bytes.count <= SessionWire.largestMetadata ? bytes : encode(nil)
+    }
+
+    private func encode(_ saved: SavedWorkspace?) -> [UInt8] {
+        var w = ByteWriter()
         w.u8(saved == nil ? 1 : 2)
         w.u32(UInt32(clamping: window))
         w.u32(UInt32(clamping: tab))
         w.u32(UInt32(clamping: slot))
-        w.string(String(title.prefix(200)))
+        w.string(Self.clipped(title))
         if let saved { w.savedWorkspace(saved) }
         return w.bytes
+    }
+
+    /// At most 200 characters and 512 bytes, cut between characters.
+    static func clipped(_ title: String) -> String {
+        var clipped = ""
+        var bytes = 0
+        for character in title.prefix(200) {
+            bytes += character.utf8.count
+            guard bytes <= 512 else { break }
+            clipped.append(character)
+        }
+        return clipped
     }
 
     /// Nil for bytes this build does not understand — a daemon an older or newer app left

@@ -30,6 +30,19 @@ struct SessionPlacementTests {
         }
     }
 
+    /// 200 characters is no promise of a size: these are 25 bytes each. A note past the daemon's
+    /// limit made it drop the connection, so the title is cut by bytes too, between characters.
+    @Test("a title of wide characters still fits the daemon's limit")
+    func wideTitle() {
+        let family = "👨‍👩‍👧‍👦"
+        let place = SessionPlacement(window: 0, tab: 0, slot: 0, title: String(repeating: family, count: 200))
+        let bytes = place.encode()
+        #expect(bytes.count <= SessionWire.largestMetadata)
+        let title = try? #require(SessionPlacement.decode(bytes)?.title)
+        #expect(title?.utf8.count ?? 0 <= 512)
+        #expect(title?.allSatisfy { String($0) == family } == true, "cut between characters")
+    }
+
     /// A daemon an older or newer app left running holds notes this build cannot read. Its
     /// sessions are still perfectly usable; they just start in a new window.
     @Test("bytes it does not understand are nothing, not a crash")

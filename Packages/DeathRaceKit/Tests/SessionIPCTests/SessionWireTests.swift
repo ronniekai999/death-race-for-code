@@ -514,6 +514,24 @@ struct PreambleTests {
     /// `RemoteSession.ask` resumes a waiter with nothing only when the connection has gone, so
     /// the continuation would wait for ever. What a bump means for a daemon an older build left
     /// running is `HandOverTests`: it is told to hand over and keeps its sessions.
+    /// Settings allows 1G of history and the wire allowed 512M, so a spawn with more was refused
+    /// by dropping the daemon's connection. The two agree now, and more than the wire takes is
+    /// clamped rather than sent.
+    @Test("a spawn carries the largest history Settings allows, and clamps a larger one")
+    func scrollbackFitsTheSetting() throws {
+        for (asked, sent) in [(1 << 30, 1 << 30), (4 << 30, SessionWire.largestScrollback)] {
+            var configuration = sampleConfiguration()
+            configuration.scrollbackLimitBytes = asked
+            let request = ControlRequest.spawn(
+                request: 1, launch: sampleLaunch(), configuration: configuration, metadata: [])
+            guard case .spawn(_, _, let back, _) = try ControlRequest.decode(request.encode()) else {
+                Issue.record("not a spawn")
+                return
+            }
+            #expect(back.scrollbackLimitBytes == sent)
+        }
+    }
+
     @Test("this build speaks exactly one version")
     func whatWeSpeak() {
         #expect(SessionWire.versions == 6...6)

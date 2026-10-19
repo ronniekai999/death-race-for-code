@@ -46,7 +46,10 @@ public enum SessionWire {
     public static let largestTextReply = largestSessionFrame - 1_024
     public static let widestTerminal = 2_000
     public static let tallestTerminal = 1_000
-    public static let largestScrollback = 512 * 1024 * 1024
+    /// What Settings and the config file allow, 1G. It was 512M, and a larger setting made the
+    /// daemon refuse every spawn by dropping its connection, so sessions quietly stopped being
+    /// kept for the rest of the run.
+    public static let largestScrollback = 1 << 30
     /// Columns far enough out to be nothing but a forgery.
     public static let widestColumn = 1_000_000
     /// An attach token: single use, and short-lived.
@@ -196,7 +199,8 @@ extension ByteWriter {
     mutating func configuration(_ c: Terminal.Configuration) {
         u32(UInt32(clamping: c.columns))
         u32(UInt32(clamping: c.rows))
-        u64(UInt64(clamping: c.scrollbackLimitBytes))
+        // Clamped rather than refused: the far end would drop the whole connection over it.
+        u64(UInt64(clamping: min(max(c.scrollbackLimitBytes, 0), SessionWire.largestScrollback)))
         palette(c.palette)
         bool(c.answersChecksumRequests)
         string(c.version)

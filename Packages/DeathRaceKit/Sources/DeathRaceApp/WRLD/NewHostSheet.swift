@@ -152,7 +152,8 @@ struct NewHostView: View {
                 The key is made in this Mac’s Secure Enclave and never leaves it: it can’t be \
                 backed up or moved to another Mac. Touch ID asks now, and at each login, where \
                 macOS calls it “ctccardtoken”. The first connection signs in as usual and puts \
-                the key on the server. Servers need OpenSSH 8.2 or later.
+                the key on the server, then Touch ID asks once more to check it works before \
+                the host uses it. Servers need OpenSSH 8.2 or later.
                 """)
         case .keyFile:
             HStack(spacing: 8) {

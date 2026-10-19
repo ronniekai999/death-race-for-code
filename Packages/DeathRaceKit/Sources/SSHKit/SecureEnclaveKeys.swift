@@ -172,7 +172,8 @@ public enum AuthorizedKeys {
 
     /// The command that adds `publicKey` unless its key is there already, under any login
     /// shell: `sh -c '…'` reads the same in sh, bash, zsh and fish, as long as the script
-    /// holds no quote or backslash, which a checked key line can't.
+    /// holds no quote or backslash, which a checked key line can't. A file whose last line
+    /// has no newline gets one first, or the key would run on into that line and spoil both.
     public static func installCommand(for publicKey: String) throws(Failure) -> String {
         let fields = publicKey.split(separator: " ", omittingEmptySubsequences: true)
         guard fields.count >= 2, consists(of: fields[0], plainOr: "@._-"), consists(of: fields[1], plainOr: "+/="),
@@ -183,8 +184,25 @@ public enum AuthorizedKeys {
         let file = "~/.ssh/authorized_keys"
         let script =
             "umask 077; mkdir -p ~/.ssh && touch \(file) && "
-            + "{ grep -qF \"\(fields[1])\" \(file) || echo \"\(line)\" >> \(file); }"
+            + "{ grep -qF \"\(fields[1])\" \(file) || "
+            + "{ [ -z \"$(tail -c 1 \(file))\" ] || echo >> \(file); echo \"\(line)\" >> \(file); }; }"
         return "sh -c '\(script)'"
+    }
+
+    /// Logs in to the host `alias` names on its own, with no master and no password: whether
+    /// the keys `config` gives it work there. A server can take the line and still refuse the
+    /// key (a Secure Enclave key needs OpenSSH 8.2), and a host switched to it would then be
+    /// locked out. A Secure Enclave key asks for Touch ID.
+    public static func verify(
+        alias: String, config: String, runner: any ProcessRunner, environment: [String: String]
+    ) async throws(Failure) {
+        let result = try? await runner.run(
+            Command(
+                SSHCommand.keyLogin(alias: alias, config: config), environment: environment,
+                timeoutMilliseconds: 120_000))
+        guard let result, result.succeeded else {
+            throw .refused(SecureEnclaveKeys.lastLine(of: result?.errorText ?? "") ?? "ssh didn't run.")
+        }
     }
 
     /// Adds `publicKey` to the host `alias` names, through its master.

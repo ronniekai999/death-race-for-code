@@ -372,8 +372,11 @@ first macOS build to need compile fixes before any of this can be tried.
 
 - [ ] New Host… with "A new Secure Enclave key" makes it (Touch ID asks; macOS calls it
       "ctccardtoken"), and WRLD › Keys lists it with Copy Public Key.
-- [ ] The first connection puts it in the server's `~/.ssh/authorized_keys` once, and the host
-      switches to it; reconnecting asks Touch ID, not the password.
+- [ ] The first connection puts it in the server's `~/.ssh/authorized_keys` once, on a line
+      of its own even when the file's last line had no newline; Touch ID asks once to check it,
+      then the host switches to it; reconnecting asks Touch ID, not the password.
+- [ ] Declining that Touch ID, or a server older than OpenSSH 8.2: the host keeps signing in
+      as before, and the next connection tries the key again.
 
 ## WRLD window and sidebar
 

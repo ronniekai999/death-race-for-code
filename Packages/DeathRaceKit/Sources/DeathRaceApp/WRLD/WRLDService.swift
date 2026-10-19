@@ -731,20 +731,42 @@ final class WRLDService: HostConnecting {
     /// Puts `key` on the host through its master, then has the host sign in with it.
     private func install(_ key: KeyID, on hostID: HostID, alias: String) async {
         guard let publicKey = vault.keys.first(where: { $0.id == key })?.publicKey else { return }
+        let environment = LoginEnvironment.merging(login ?? [:], into: environment)
         do {
             try await AuthorizedKeys.install(
                 publicKey, alias: alias, config: paths.generatedConfig, runner: SystemProcessRunner(),
-                environment: LoginEnvironment.merging(login ?? [:], into: environment))
+                environment: environment)
         } catch {
             log.error("The Secure Enclave key didn't go onto its host: \(String(describing: error), privacy: .public)")
             return
         }
-        var updated = vault
-        guard let index = updated.hosts.firstIndex(where: { $0.id == hostID }),
-            case .wrld(var connection) = updated.hosts[index].source
-        else { return }
-        connection.identity = .secureEnclave(key)
-        updated.hosts[index].source = .wrld(connection)
+        // The vault with the host signing in with the key, as it is when asked: the check
+        // below waits on Touch ID, and edits made meanwhile are kept.
+        func switched(_ vault: Vault) -> Vault? {
+            var updated = vault
+            guard let index = updated.hosts.firstIndex(where: { $0.id == hostID }),
+                case .wrld(var connection) = updated.hosts[index].source
+            else { return nil }
+            connection.identity = .secureEnclave(key)
+            updated.hosts[index].source = .wrld(connection)
+            return updated
+        }
+        guard let trialVault = switched(vault) else { return }
+        // The key signs in once on its own before the host is switched to it: a server can
+        // take the line and refuse the key, and the host would then be locked out. Still
+        // pending if not, so the next connection tries again.
+        let trial = paths.generatedConfig + ".trial"
+        do {
+            let config = GeneratedConfig(vault: trialVault, paths: paths, aliases: discovered.map(\.name))
+            try AtomicFile.write(Array(config.text.utf8), to: trial)
+            defer { try? FileManager.default.removeItem(atPath: trial) }
+            try await AuthorizedKeys.verify(
+                alias: alias, config: trial, runner: SystemProcessRunner(), environment: environment)
+        } catch {
+            log.error("The Secure Enclave key didn't sign in: \(String(describing: error), privacy: .public)")
+            return
+        }
+        guard let updated = switched(vault) else { return }
         do {
             try store.save(updated)
         } catch {

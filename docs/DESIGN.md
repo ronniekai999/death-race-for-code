@@ -251,12 +251,23 @@ start: the list on the left, host cards in the middle and, for the host you pick
 inspector on the right. Its buttons come in four kinds: primary (on the gradient), plain (on
 `surface`), ghost (text alone) and destructive (`danger` text on `surface`).
 
-**Sheets** (New Host, and Wishing Well's fill and save) are 460 pt wide on `ground`, in the
-theme's appearance: a title row with its tile and a line of `inkFaint` help, a 1 px `line`,
-the fields as the inspector stacks them (each under its spaced-out label, on `groundDeep` with
-a `lineStrong` border, monospaced for addresses and commands), another line, then the buttons
-on the right of a `groundDeep` band: ghost Cancel, then the primary. Nothing in a sheet
-scrolls, so it is exactly as tall as its fields and grows when a row appears.
+**Sheets** (New Host, Wishing Well's fill and save, and Open in Maze's host) are 460 pt wide on
+`ground`, in the theme's appearance: a title row with its tile and a line of `inkFaint` help, a
+1 px `line`, the fields as the inspector stacks them (each under its spaced-out label, on
+`groundDeep` with a `lineStrong` border, monospaced for addresses and commands), another line,
+then the buttons on the right of a `groundDeep` band: ghost Cancel, then the primary. Nothing
+in a sheet scrolls, so it is exactly as tall as its fields and grows when a row appears. The
+one list, Open in Maze's hosts, is given a height instead: past seven rows it stops at seven
+and a half and scrolls, the half saying there is more.
+
+**Open in Maze** is on everywhere, because a local shell can still ask. A pane on a host
+opens that host. A local shell opens the one host there is, and otherwise asks which in a
+sheet, in Hear Me Calling's order: Legends, the rest of WRLD, then the `~/.ssh/config` names
+WRLD doesn't hold. Each is a plain button with its key in `inkFaint` on the left (↵ for the
+first, ⌘2 to ⌘9 for the next), the name in `ink` and the address monospaced in `inkFaint` on
+the right, and there is no OK, since picking a host is the answer. With no host at all it is
+New Host with its subtitle saying why ("Maze shows a host’s files beside this Mac’s. Add one
+and Maze opens on it."), and Maze opens on the host added.
 
 **Armed and Dangerous** swaps the focused pane's neon for the armed stops on *every* armed
 pane, so the tab can't be mistaken for an ordinary one:

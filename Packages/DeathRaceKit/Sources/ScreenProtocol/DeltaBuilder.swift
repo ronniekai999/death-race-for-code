@@ -57,7 +57,8 @@ public struct DeltaBuilder {
             isAlternateScreen: terminal.isAlternateScreen,
             title: terminal.title,
             palette: snapshot || delivered?.palette != terminal.palette ? terminal.palette : nil,
-            events: events, graphicsRevision: terminal.inlineGraphics.revision,
+            events: events, outcomeBelow: outcomeBelow(of: terminal),
+            graphicsRevision: terminal.inlineGraphics.revision,
             images: snapshot || delivered?.graphicsRevision != terminal.inlineGraphics.revision
                 ? terminal.inlineGraphics.images.values.sorted { $0.id < $1.id } : nil,
             placements: terminal.inlineGraphics.placements.values.sorted { $0.key < $1.key })
@@ -99,6 +100,27 @@ public struct DeltaBuilder {
         generationSeen = terminal.generation
         linesAddedSeen = added
         viewportOffset = min(viewportOffset, terminal.scrollbackCount)
+    }
+
+    /// What the rows between the bottom of a scrolled-back view and the output say about the
+    /// last block in view: the record on the first prompt row below it, or else the last record
+    /// before that row — `Terminal.promptSpan`'s rule, so the mirror and the engine agree.
+    ///
+    /// Walked down from the view, and no further than `Terminal.promptSearchLimit` lines, for
+    /// the reason that bound exists: with no integration there are no marks at all, and this
+    /// runs for every delta while scrolled back.
+    private func outcomeBelow(of terminal: Terminal) -> CommandRecord? {
+        guard viewportOffset > 0, !terminal.isAlternateScreen else { return nil }
+        let count = terminal.rows
+        let scrollback = terminal.scrollbackCount
+        var found: CommandRecord?
+        for index in count..<(count + min(viewportOffset, Terminal.promptSearchLimit)) {
+            let line = index - viewportOffset
+            let row = line < 0 ? terminal.scrollbackRow(scrollback + line) : terminal.row(line)
+            if let command = row.command { found = command }
+            if row.promptMarks.contains(.promptStart) { break }
+        }
+        return found
     }
 
     private func viewportRows(of terminal: Terminal) -> (rows: [Row], ids: [UInt64]) {

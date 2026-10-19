@@ -27,11 +27,14 @@ public final class SurfaceModel {
         public var graphicsChanged = false
         /// The view scrolled through history (or back to the bottom).
         public var viewportMoved = false
+        /// Scrolled back, the last block in view heard how it ended from below the view: its rail
+        /// changes though no row in view did.
+        public var outcomeBelowChanged = false
         public var events: [TerminalEvent] = []
 
         public var isEmpty: Bool {
             rows.isEmpty && !replaced && !cursorChanged && !paletteChanged && !titleChanged && !viewportMoved
-                && !graphicsChanged && events.isEmpty
+                && !outcomeBelowChanged && !graphicsChanged && events.isEmpty
         }
     }
 
@@ -59,6 +62,7 @@ public final class SurfaceModel {
             if mirror.viewportTopLine != before.viewportTopLine || mirror.viewportOffset != before.viewportOffset {
                 update.viewportMoved = true
             }
+            if mirror.outcomeBelow != before.outcomeBelow { update.outcomeBelowChanged = true }
         }
         update.events = TerminalEvent.coalesced(update.events)
         return update

@@ -516,7 +516,7 @@ struct PreambleTests {
     /// running is `HandOverTests`: it is told to hand over and keeps its sessions.
     @Test("this build speaks exactly one version")
     func whatWeSpeak() {
-        #expect(SessionWire.versions == 5...5)
-        #expect(DeltaCodec.formatVersion == 5)
+        #expect(SessionWire.versions == 6...6)
+        #expect(DeltaCodec.formatVersion == 6)
     }
 }

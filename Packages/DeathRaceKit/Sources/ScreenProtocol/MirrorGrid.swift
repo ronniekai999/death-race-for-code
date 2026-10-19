@@ -26,6 +26,9 @@ public struct MirrorGrid: Sendable {
     /// The line number of `lines[0]`; `lines[y]` is line `viewportTopLine + y`.
     public private(set) var viewportTopLine: UInt64 = 0
     public private(set) var readingPassword = false
+    /// `ScreenDelta.outcomeBelow`: the record of the last block in a scrolled-back view, from
+    /// the rows below it.
+    public private(set) var outcomeBelow: CommandRecord?
     public private(set) var graphicsRevision: UInt64 = 0
     public private(set) var images: [UInt32: InlineImage] = [:]
     public private(set) var placements: [InlinePlacement] = []
@@ -81,6 +84,7 @@ public struct MirrorGrid: Sendable {
         scrollbackCount = delta.scrollbackCount
         viewportTopLine = delta.viewportTopLine
         readingPassword = delta.readingPassword
+        outcomeBelow = delta.outcomeBelow
         graphicsRevision = delta.graphicsRevision
         images = assets
         placements = delta.placements

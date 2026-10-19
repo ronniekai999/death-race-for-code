@@ -120,6 +120,8 @@ so these are the ones the work was built against.
 - [ ] A command that began above the screen reaches the top edge without a false start.
 - [ ] The band follows the cursor's block as you run commands, and only one block has it.
 - [ ] Scrolled back into history, the band is absent rather than on whatever row is in view.
+- [ ] Scrolled back one line after a failed command, its rail stays; scrolled up into the middle
+      of a long failure's output, the rail runs down the whole view.
 - [ ] The starfield is still visible inside a band (a theme with stars, a block over a short
       line's empty tail).
 - [ ] A click a few points right of the rail starts an ordinary selection, not a block one.
@@ -253,7 +255,15 @@ Phase 6 is done when all of these hold on the M5, against a real host:
       rather than hanging.
 - [ ] Opening Maze on a second host gives a second window, cascaded, each on its own host.
 - [ ] Open in Maze appears in the Shell menu, Hear Me Calling, and the host's context menu in
-      the sidebar and the WRLD window — and is off in a local-shell pane.
+      the sidebar and the WRLD window — and is on in a local-shell pane too.
+- [ ] From a local shell with several hosts, Open in Maze asks which, Legends first and
+      `~/.ssh/config` names WRLD hasn't imported last; ↵ opens the first, ⌘2 the second, a
+      click any, and Esc cancels. With one host it opens that host at once.
+- [ ] From a local shell with no host saved and no `~/.ssh/config` names, Open in Maze shows
+      New Host saying Maze needs a host; adding one opens Maze on it, and no tab opens for it.
+      With a new Secure Enclave key, the key is on the server once Maze has connected.
+- [ ] With Lucid Dreams in front, Open in Maze and New Host… put their sheet on a Pit Lane
+      window, and asking again while one is open brings it forward.
 - [ ] Changing the theme re-colours an open Maze window at once.
 - [ ] Quitting with a Maze window open leaves no `ssh` or `sftp` process behind.
 

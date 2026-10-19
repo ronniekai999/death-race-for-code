@@ -1,6 +1,7 @@
 import AppCore
 import AppKit
 import Carbon
+import os
 
 /// Registers one system-wide hotkey. Behind a seam so the controller's "read the setting,
 /// register this key, re-register when it changes" logic is testable without Carbon; the real
@@ -110,6 +111,8 @@ final class CarbonHotKeyRegistrar: HotKeyRegistrar {
     private static var nextID: UInt32 = 1
     /// 'DRfc', this app's four-char hotkey signature.
     private static let signature: OSType = 0x4452_6663
+    /// A hotkey that doesn't take is otherwise silent: ⌥Space would just do nothing.
+    private static let log = Logger(subsystem: "local.deathraceforcode.DeathRace", category: "Lucid Dreams")
 
     init() {
         id = Self.nextID
@@ -134,6 +137,7 @@ final class CarbonHotKeyRegistrar: HotKeyRegistrar {
                 return noErr
             }, 1, &type, context, &handler)
         guard installed == noErr else {
+            Self.log.error("Lucid Dreams' hotkey handler didn't install (status \(installed, privacy: .public)).")
             self.onPress = nil
             return false
         }
@@ -141,6 +145,13 @@ final class CarbonHotKeyRegistrar: HotKeyRegistrar {
         let registered = RegisterEventHotKey(
             keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKey)
         if registered != noErr {
+            // Recent macOS refuses a system-wide shortcut whose only modifier is Option (or
+            // Option and Shift), which is what the default ⌥Space is.
+            Self.log.error(
+                """
+                macOS refused Lucid Dreams' hotkey (status \(registered, privacy: .public)). A shortcut whose \
+                only modifier is Option may not be allowed: set lucid-dreams-hotkey in ~/.config/deathrace/config.
+                """)
             unregister()
             return false
         }

@@ -29,10 +29,9 @@ protocol HostConnecting: AnyObject, Sendable {
     func openSFTP(_ host: HostRef) async -> (any RemoteFiles)?
     /// Maze closed: the master can idle out once nothing else holds it.
     func closeSFTP(_ host: HostRef)
-    /// `pane` is done with its host; the last one out lets the master go after a while.
+    /// `pane` is done with its host, or stopped connecting to it; the last one out lets the
+    /// master go after a while, or at once while it's still connecting.
     func release(_ pane: PaneID)
-    /// Stops connecting to `host`: a pending pane's Cancel.
-    func cancel(_ host: HostRef)
     /// Hear Me Calling's hosts.
     func paletteHosts() -> [PaletteItem]
     /// The hosts with a connection open, by name, for the quit question.

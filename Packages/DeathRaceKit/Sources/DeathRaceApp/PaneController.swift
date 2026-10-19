@@ -255,10 +255,15 @@ final class PaneController {
     func press(_ button: PaneBanner.Button) {
         switch button {
         case .cancel:
-            // Stop the pane's own connect task too, not just the pool's startup, so nothing
-            // finishes connecting for a pane you cancelled.
+            // Stop the pane's own connect task, so nothing finishes connecting for a pane you
+            // cancelled, and let go of the host: a master only this pane wanted stops, and one
+            // another pane is waiting on, or already using, carries on for it.
             connecting?.cancel()
-            if let host = launch.host { connections?.cancel(host) }
+            connecting = nil
+            guard let host = launch.host, let connections else { return }
+            connections.release(id)
+            failure = .cancelled
+            setBanner(.failed(.cancelled, host: connections.name(of: host), address: connections.address(of: host)))
         case .reconnect, .restart:
             restart()
         case .plainSSH:

@@ -286,11 +286,6 @@ final class WRLDService: HostConnecting {
         pool?.release(Self.user(pane))
     }
 
-    func cancel(_ host: HostRef) {
-        guard let key = target(for: host)?.key else { return }
-        pool?.cancel(key)
-    }
-
     func paletteHosts() -> [PaletteItem] {
         PaletteSearch.hosts(vault: vault, aliases: discovered.map(\.name))
     }

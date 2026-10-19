@@ -95,11 +95,13 @@ final class TestHost: WindowHost {
 }
 
 /// Waits for work the window starts in a task (a new tab asks its pane where it is first).
+/// Still false after a second is a failure, so a test can't pass on a wait that never ended.
 @MainActor
-func eventually(_ condition: () -> Bool) async {
+func eventually(sourceLocation: SourceLocation = #_sourceLocation, _ condition: () -> Bool) async {
     for _ in 0..<200 where !condition() {
         try? await Task.sleep(nanoseconds: 5_000_000)
     }
+    if !condition() { Issue.record("Still not true after a second", sourceLocation: sourceLocation) }
 }
 
 /// Set while a window test runs. The first run of these tests on CI ended the test process

@@ -17,8 +17,7 @@ final class FakeConnections: HostConnecting {
     var results: [ConnectResult] = []
     private(set) var connected: [(host: HostRef, pane: PaneID)] = []
     private(set) var released: [PaneID] = []
-    private(set) var cancelled: [HostRef] = []
-    private var waiting: [CheckedContinuation<ConnectResult, Never>] = []
+    private var waiting: [(pane: PaneID, continuation: CheckedContinuation<ConnectResult, Never>)] = []
 
     static let session = ShellLaunch(
         executable: "/usr/bin/ssh", arguments: ["/usr/bin/ssh", "-F", "/x/ssh_config", "nas-999"], environment: [:])
@@ -35,14 +34,14 @@ final class FakeConnections: HostConnecting {
     func connect(_ host: HostRef, for pane: PaneID) async -> ConnectResult {
         connected.append((host, pane))
         if !results.isEmpty { return results.removeFirst() }
-        return await withCheckedContinuation { waiting.append($0) }
+        return await withCheckedContinuation { waiting.append((pane, $0)) }
     }
 
     /// Ends every connection still waiting.
     func finish(_ result: ConnectResult) {
         let continuations = waiting
         waiting = []
-        for continuation in continuations { continuation.resume(returning: result) }
+        for (_, continuation) in continuations { continuation.resume(returning: result) }
     }
 
     var isWaiting: Bool { !waiting.isEmpty }
@@ -60,11 +59,12 @@ final class FakeConnections: HostConnecting {
 
     func closeSFTP(_ host: HostRef) { sftpClosed.append(host) }
 
-    func release(_ pane: PaneID) { released.append(pane) }
-
-    func cancel(_ host: HostRef) {
-        cancelled.append(host)
-        finish(.failed(.cancelled))
+    /// As the pool does for the last one out: a connection still coming up stops.
+    func release(_ pane: PaneID) {
+        released.append(pane)
+        let stopped = waiting.filter { $0.pane == pane }
+        waiting.removeAll { $0.pane == pane }
+        for (_, continuation) in stopped { continuation.resume(returning: .failed(.cancelled)) }
     }
 
     func paletteHosts() -> [PaletteItem] { PaletteSearch.hosts(vault: Vault(), aliases: ["nas-999"]) }
@@ -182,9 +182,17 @@ extension WindowTests {
         let pane = try #require(controller.activePane)
         await eventually { connections.isWaiting }
         pane.press(.cancel)
-        #expect(connections.cancelled == [nas])
-        await eventually { pane.banner?.buttons == [.reconnect] }
+        // Only this pane's hold goes: a master another pane shares isn't ended for it.
+        #expect(connections.released == [pane.id])
+        #expect(!connections.isWaiting)
+        #expect(pane.banner == .failed(.cancelled, host: "nas-999", address: "192.168.1.5"))
+        #expect(pane.banner?.buttons == [.reconnect])
         #expect(pane.session == nil)
+
+        connections.results = [.ready(FakeConnections.session)]
+        pane.press(.reconnect)
+        await eventually { pane.session != nil }
+        #expect(pane.banner == nil)
     }
 
     @Test func aSplitFromAPaneOnAHostOpensTheSameHost() async throws {

@@ -336,7 +336,6 @@
             func openSFTP(_ host: HostRef) async -> (any RemoteFiles)? { nil }
             func closeSFTP(_ host: HostRef) {}
             func release(_ pane: PaneID) {}
-            func cancel(_ host: HostRef) {}
             func paletteHosts() -> [PaletteItem] { [] }
             var openConnections: [String] { [] }
             var openTunnelCount: Int { 1 }

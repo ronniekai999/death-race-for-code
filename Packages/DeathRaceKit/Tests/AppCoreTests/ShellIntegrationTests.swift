@@ -193,6 +193,86 @@ import Testing
         #expect(ShellIntegration.bashProfile(home: "/home/r", contentsOfFile: { _ in nil }) == "/home/r/.bash_profile")
     }
 
+    // MARK: - Whether to offer, and adding the line
+
+    /// A bash with none of its startup files loading the script is offered the line, for the
+    /// file a login bash reads; any other shell, never.
+    @Test func onlyABashWithoutTheLineIsOffered() {
+        let none: (String) -> String? = { _ in nil }
+        #expect(
+            ShellIntegration.bashFileNeedingLine(
+                executable: "/bin/bash", home: "/home/r", directory: scripts, contentsOfFile: none)
+                == "/home/r/.bash_profile")
+        #expect(
+            ShellIntegration.bashFileNeedingLine(
+                executable: "/bin/zsh", home: "/home/r", directory: scripts, contentsOfFile: none) == nil)
+    }
+
+    /// The line anywhere bash reads it counts: put in `~/.bash_profile` by hand, and that file
+    /// sourcing `~/.bashrc`, the offer would otherwise name `~/.bashrc` and ask again.
+    @Test func aLineInAnyStartupFileIsNotOfferedAgain() {
+        let line = ShellIntegration.bashLine(directory: scripts)
+        let files = ["/home/r/.bash_profile": ". ~/.bashrc\n\(line)\n", "/home/r/.bashrc": "alias ll='ls -l'\n"]
+        #expect(
+            ShellIntegration.bashFileNeedingLine(
+                executable: "/usr/local/bin/bash-5.2", home: "/home/r", directory: scripts,
+                contentsOfFile: { files[$0] }) == nil)
+    }
+
+    private func temporaryHome() throws -> URL {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "deathrace-bash-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        return home
+    }
+
+    /// Added to the end of what is there, after a line break the file lacked, and only once:
+    /// asked again, the file it was added to no longer needs it.
+    @Test func theLineIsAddedAfterWhatIsThere() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let profile = home.appendingPathComponent(".bash_profile").path
+        try "export PATH=/opt/bin:$PATH".write(toFile: profile, atomically: true, encoding: .utf8)
+
+        try ShellIntegration.addBashLine(to: profile, directory: scripts)
+        let written = try String(contentsOfFile: profile, encoding: .utf8)
+        #expect(written == "export PATH=/opt/bin:$PATH\n" + ShellIntegration.bashLine(directory: scripts) + "\n")
+        #expect(
+            ShellIntegration.bashFileNeedingLine(executable: "/bin/bash", home: home.path, directory: scripts)
+                == nil)
+    }
+
+    /// No startup file at all: one is made, holding just the line, readable as any other is.
+    @Test func aMissingProfileIsCreatedWithTheLine() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let profile = try #require(
+            ShellIntegration.bashFileNeedingLine(executable: "/bin/bash", home: home.path, directory: scripts))
+        try ShellIntegration.addBashLine(to: profile, directory: scripts)
+        #expect(
+            try String(contentsOfFile: profile, encoding: .utf8) == ShellIntegration.bashLine(directory: scripts) + "\n"
+        )
+        let mode = try FileManager.default.attributesOfItem(atPath: profile)[.posixPermissions] as? NSNumber
+        #expect(mode?.intValue == 0o644)
+    }
+
+    /// A startup file kept in a dotfiles repository is a symlink. Appending through it keeps it
+    /// one, and the line lands in the repository's file.
+    @Test func aSymlinkedProfileStaysALink() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let real = home.appendingPathComponent("dotfiles-bash_profile").path
+        try "export X=1\n".write(toFile: real, atomically: true, encoding: .utf8)
+        let profile = home.appendingPathComponent(".bash_profile").path
+        try FileManager.default.createSymbolicLink(atPath: profile, withDestinationPath: real)
+
+        try ShellIntegration.addBashLine(to: profile, directory: scripts)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: profile) == real)
+        #expect(
+            try String(contentsOfFile: real, encoding: .utf8).hasSuffix(
+                ShellIntegration.bashLine(directory: scripts) + "\n"))
+    }
+
     // MARK: - Through the launch the app actually composes
 
     @Test func aLaunchCarriesTheIntegrationForTheShellItWillRun() {

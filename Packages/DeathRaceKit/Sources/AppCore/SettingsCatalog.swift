@@ -116,8 +116,8 @@ public enum SettingsCatalog {
                         Setting(
                             "shell-integration", "Let your shell say where each command begins and ends", .toggle,
                             note: "Where a command's duration and its pass or fail mark come from. zsh and fish "
-                                + "are set up through the environment; bash needs one line in ~/.bash_profile, added by "
-                                + "hand for now: the beta's notes give it."),
+                                + "are set up through the environment; a bash pane offers one line for the file bash reads "
+                                + "at startup."),
                     ]),
                 Group(
                     title: "New tabs",

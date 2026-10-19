@@ -14,6 +14,10 @@ public struct PaneBanner: Equatable, Sendable {
         case restart
         /// After a host's key changed: asks first, then forgets the old key and reconnects.
         case forgetHostKey
+        /// A bash with no command marks: shows the line and the file, then adds it.
+        case addBashLine
+        /// Puts an offer away, for this pane.
+        case notNow
 
         public var title: String {
             switch self {
@@ -23,6 +27,8 @@ public struct PaneBanner: Equatable, Sendable {
             case .allowLocalNetwork: "Allow Local Network Access…"
             case .restart: "Restart"
             case .forgetHostKey: "Forget the Old Key…"
+            case .addBashLine: "Add the Line…"
+            case .notNow: "Not Now"
             }
         }
     }
@@ -40,6 +46,14 @@ public struct PaneBanner: Equatable, Sendable {
 
     public static func connecting(to host: String) -> PaneBanner {
         PaneBanner(message: "Connecting to \(host)…", buttons: [.cancel], isWorking: true)
+    }
+
+    /// A bash pane whose startup files don't load the script: the marks it is missing, and the
+    /// one file a line would go in, named as you would type it.
+    public static func bashLineOffer(file: String) -> PaneBanner {
+        PaneBanner(
+            message: "bash isn’t marking its commands. One line in \(file) turns on ⌘↑, ⇧⌘A and notifications.",
+            buttons: [.addBashLine, .notNow])
     }
 
     /// The connection didn't come up: why, and what may help.

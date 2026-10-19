@@ -125,14 +125,80 @@ final class PaneController {
             self?.onFocusChange?()
         }
         surface.onOutput = { [weak self] in self?.onOutput?() }
-        surface.onReturnKey = { [weak self] in self?.refreshSoon() }
+        surface.onReturnKey = { [weak self] in
+            self?.refreshSoon()
+            self?.putBashOfferAway()
+        }
         surface.onHoverLink = { [weak self] _ in self?.onLinkHover?() }
         surface.onOpenLink = { [weak self] link in self?.open(link) }
         switch paneLaunch {
-        case .shell: start(launch)
+        case .shell:
+            start(launch)
+            offerBashLine(for: launch.executable)
         case .connection(let host): connect(host)
         case .plainSSH(let host): startPlain(host)
         }
+    }
+
+    // MARK: - bash's line
+
+    /// The file a bash pane's offer would add our line to, while the offer is up.
+    private var bashLineFile: String?
+    /// Not Now, once, holds for every pane until the app quits: the offer is for the shell,
+    /// not for each tab it runs in.
+    private static var bashOfferPutAway = false
+
+    /// zsh and fish are set up through the environment; bash reads only your startup files, so
+    /// a bash pane without our line in them offers to add it — shown first, never written
+    /// unasked. Only for a local shell: a host's bash reads the host's files.
+    private func offerBashLine(for executable: String) {
+        guard config.shellIntegration, !Self.bashOfferPutAway, let directory = ShellIntegration.directory(),
+            let file = ShellIntegration.bashFileNeedingLine(
+                executable: executable, home: NSHomeDirectory(), directory: directory)
+        else { return }
+        bashLineFile = file
+        setBanner(.bashLineOffer(file: Self.tilde(file)))
+    }
+
+    /// The offer sits over the pane's bottom rows, which is where the prompt is once the
+    /// screen fills: the first Return puts it away rather than leave it over what you type.
+    private func putBashOfferAway() {
+        guard bashLineFile != nil else { return }
+        bashLineFile = nil
+        if banner?.buttons.contains(.addBashLine) == true { setBanner(nil) }
+    }
+
+    private func addBashLine() {
+        guard let file = bashLineFile, let directory = ShellIntegration.directory() else { return putBashOfferAway() }
+        let alert = NSAlert()
+        alert.messageText = "Add this line to \(Self.tilde(file))?"
+        alert.informativeText = """
+            \(ShellIntegration.bashLine(directory: directory))
+
+            bash then loads Death Race’s command marks when it starts, and skips them when the \
+            app isn’t there. New bash panes have them; this one does once it restarts.
+            """
+        alert.addButton(withTitle: "Add the Line")
+        alert.addButton(withTitle: "Cancel")
+        Task {
+            guard await presentAlert?(alert) == .alertFirstButtonReturn else { return }
+            do {
+                try ShellIntegration.addBashLine(to: file, directory: directory)
+                putBashOfferAway()
+            } catch {
+                let failed = NSAlert()
+                failed.alertStyle = .warning
+                failed.messageText = "Death Race couldn’t add the line to \(Self.tilde(file))."
+                failed.informativeText = error.localizedDescription
+                _ = await presentAlert?(failed)
+            }
+        }
+    }
+
+    /// `path` as you would type it, with your home folder as `~`.
+    private static func tilde(_ path: String) -> String {
+        let home = NSHomeDirectory()
+        return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
     }
 
     // MARK: - A session on a host
@@ -203,6 +269,11 @@ final class PaneController {
             NSWorkspace.shared.open(Self.localNetworkSettings)
         case .forgetHostKey:
             forgetHostKey()
+        case .addBashLine:
+            addBashLine()
+        case .notNow:
+            Self.bashOfferPutAway = true
+            putBashOfferAway()
         }
     }
 

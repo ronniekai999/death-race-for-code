@@ -124,6 +124,10 @@ so these are the ones the work was built against.
       of a long failure's output, the rail runs down the whole view.
 - [ ] Ctrl-L in zsh and in bash, then `false`: the cleared screen's prompt has the band, the ✗
       and rail are beside `false`, and ⌘↑ from the newest prompt lands on it.
+- [ ] A bash pane with no line in its startup files offers one along its bottom; Add the Line…
+      shows the line and the file, and after it a new bash pane marks its commands. Not Now
+      keeps it away until the app restarts, and Return puts it away in that pane.
+- [ ] With `~/.bash_profile` a symlink into a dotfiles folder, adding the line keeps the link.
 - [ ] The starfield is still visible inside a band (a theme with stars, a block over a short
       line's empty tail).
 - [ ] A click a few points right of the rail starts an ordinary selection, not a block one.

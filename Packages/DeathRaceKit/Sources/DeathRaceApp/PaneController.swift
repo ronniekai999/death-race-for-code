@@ -328,7 +328,10 @@ final class PaneController {
                 // (a @MainActor class) is Sendable and may cross into this @Sendable callback;
                 // the view, an NSView subclass, is not, so we reach it through `self` on main.
                 DispatchQueue.main.async {
-                    MainActor.assumeIsolated { self?.surface.sessionDidUpdate() }
+                    MainActor.assumeIsolated {
+                        self?.surface.sessionDidUpdate()
+                        self?.noticeALostLink()
+                    }
                 }
             }
             self.session = session
@@ -342,6 +345,17 @@ final class PaneController {
             alert.informativeText = "Death Race could not run \(launch.executable): \(error)"
             Task { _ = await presentAlert?(alert) }
         }
+    }
+
+    /// The daemon holding this pane's shell went away — killed, crashed, or replaced — and the
+    /// link with it. The shell may still be running there, but nothing typed reaches it and
+    /// nothing it prints arrives; it used to look like a pane that had simply frozen.
+    private func noticeALostLink() {
+        guard let session, !session.isLinked, end == nil, banner == nil else { return }
+        setBanner(
+            PaneBanner(
+                message: "Death Race lost touch with the helper that keeps this shell. Restart opens a new one here.",
+                buttons: [.restart]))
     }
 
     /// A new shell in the same place after the last one ended badly, or a new connection.

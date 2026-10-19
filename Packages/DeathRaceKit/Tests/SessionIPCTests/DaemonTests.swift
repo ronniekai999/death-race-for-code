@@ -605,6 +605,11 @@ struct DaemonHostTests {
             _ = await session.foregroundProcess()
         }
         #expect(answered, "a question was left waiting on a daemon that had gone")
+        // And the session says so, which is what lets its pane say so rather than freeze.
+        let deadline = UnixSocket.monotonicMilliseconds() + 5_000
+        while session.isLinked, UnixSocket.monotonicMilliseconds() < deadline { usleep(10_000) }
+        #expect(!session.isLinked)
+        #expect(session.status == .running, "the shell may still be running; only the link has gone")
     }
 
     /// Nothing listening and no launcher: the app has to be told, so it can run its sessions

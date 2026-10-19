@@ -122,6 +122,8 @@ so these are the ones the work was built against.
 - [ ] Scrolled back into history, the band is absent rather than on whatever row is in view.
 - [ ] Scrolled back one line after a failed command, its rail stays; scrolled up into the middle
       of a long failure's output, the rail runs down the whole view.
+- [ ] Ctrl-L in zsh and in bash, then `false`: the cleared screen's prompt has the band, the ✗
+      and rail are beside `false`, and ⌘↑ from the newest prompt lands on it.
 - [ ] The starfield is still visible inside a band (a theme with stars, a block over a short
       line's empty tail).
 - [ ] A click a few points right of the rail starts an ordinary selection, not a block one.

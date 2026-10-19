@@ -83,6 +83,9 @@ it never sends notifications; Homebrew's bash 5 does.
 - SSH panes end when the app quits. Only local shells are kept, and Lucid Dreams' session is
   not one of them.
 - bash is not set up for you yet: add the line above. The in-app offer is still to come.
+- After `exec zsh` in a pane, that pane's command marks stop: the new shell reads only your own
+  startup files, by design, so nothing the app starts leaks into the programs you run. Open a
+  new tab or pane to get them back.
 - Maze moves files, not folders: a folder can't be uploaded, downloaded or dropped yet. It
   also cannot yet drag remote files out to Finder.
 - **If ⌥Space does nothing**, please report it with the log command below: macOS may refuse

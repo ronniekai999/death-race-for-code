@@ -251,6 +251,21 @@ private func press(
                 == .encode(KeyEvent(.keypad(.digit(1)))))
     }
 
+    // A German layout's keypad types a comma there; the program should get one.
+    @Test func theKeypadsDecimalKeyTypesTheLayoutsSeparator() {
+        let comma = KeyRouting.route(press(0x41, .numericPad, typed: ","), optionAsMeta: .left, composing: false)
+        #expect(comma == .encode(KeyEvent(.keypad(.decimal), text: ",")))
+        guard case .encode(let event) = comma else { return }
+        #expect(KeyEncoder.encode(event, modes: TerminalModes(), kittyFlags: 0) == Array(",".utf8))
+        // Application keypad mode names the key, not what it types.
+        var application = TerminalModes()
+        application.applicationKeypad = true
+        #expect(KeyEncoder.encode(event, modes: application, kittyFlags: 0) == Array("\u{1B}On".utf8))
+        let point = KeyRouting.route(press(0x41, .numericPad, typed: "."), optionAsMeta: .left, composing: false)
+        guard case .encode(let dot) = point else { return }
+        #expect(KeyEncoder.encode(dot, modes: TerminalModes(), kittyFlags: 0) == Array(".".utf8))
+    }
+
     @Test func controlChordsSkipTheInputMethod() {
         let route = KeyRouting.route(
             press(0x08, .control, typed: "\u{3}", plain: "c"), optionAsMeta: .left, composing: false)

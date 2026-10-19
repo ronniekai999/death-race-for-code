@@ -42,7 +42,7 @@ beside it stays where it was started.
 | Tabs and splits | ⌘T, ⌘D (right), ⇧⌘D (down), ⇧⌘Return to zoom a pane, ⌘W to close it. |
 | The command palette | ⇧⌘P, **Hear Me Calling**: every action, host, snippet and tunnel by name. |
 | Your servers | ⌘O opens **WRLD**. Add a host, or add the hosts `~/.ssh/config` already names from the offer above the cards. Password and host-key questions appear as sheets. A second pane on the same host reuses the login. |
-| Files | In a pane on a host, ⇧⌘P › **Open in Maze**. Upload, download, drag between the two sides, or drop Finder files on it. |
+| Files | ⇧⌘P › **Open in Maze**, from any pane: a local shell asks which host, or adds one. Upload, download, drag between the two sides, or drop Finder files on it. No server to hand? Turn on System Settings › General › Sharing › Remote Login and add `localhost` as a host. |
 | Quick terminal | ⌥Space from any app: **Lucid Dreams** drops down from the notch and keeps its session. |
 | Command history | Run a few commands. ⌘↑ and ⌘↓ jump between prompts, ⇧⌘A selects a command with its output, ⌘F searches history. A long command finishing in another tab sends a notification. |
 | Sessions that survive | Start `top`, quit with ⌘Q and reopen. **Legends Never Die** puts the shell, its scrollback, your splits and tabs back. |

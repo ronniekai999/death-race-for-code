@@ -253,7 +253,11 @@ Phase 6 is done when all of these hold on the M5, against a real host:
       rather than hanging.
 - [ ] Opening Maze on a second host gives a second window, cascaded, each on its own host.
 - [ ] Open in Maze appears in the Shell menu, Hear Me Calling, and the host's context menu in
-      the sidebar and the WRLD window — and is off in a local-shell pane.
+      the sidebar and the WRLD window — and is on in a local-shell pane too.
+- [ ] From a local shell with several hosts saved, Open in Maze asks which, Legends first;
+      picking one opens it and Esc cancels. With one host saved it opens that host at once.
+- [ ] From a local shell with no host saved, Open in Maze shows New Host saying Maze needs a
+      host; adding one opens Maze on it, and no tab opens for it.
 - [ ] Changing the theme re-colours an open Maze window at once.
 - [ ] Quitting with a Maze window open leaves no `ssh` or `sftp` process behind.
 

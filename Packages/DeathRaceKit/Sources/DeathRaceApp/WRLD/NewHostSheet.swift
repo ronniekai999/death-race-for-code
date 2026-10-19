@@ -5,56 +5,36 @@ import SwiftUI
 import Vault
 
 /// "New Host…": a sheet on the window in front, or a window of its own when there is none.
-/// Adding opens the host in a new tab of that window.
+/// Adding opens the host in a new tab of that window, or, from Open in Maze, in Maze.
 @MainActor
 final class NewHostSheet {
-    let panel: NSPanel
-    private weak var parent: NSWindow?
+    private let sheet: ThemedSheet
+    private let view: NewHostView
 
-    /// `add` saves the host and returns its id, or says what's wrong. `finished` hears once
-    /// the sheet is gone: the new host's id, or nil when cancelled.
+    /// `subtitle` says what the host is for, under the title; `NewHostView.savedSubtitle`
+    /// when nil. `add` saves the host and returns its id, or says what's wrong. `finished`
+    /// hears once the sheet is gone: the new host's id, or nil when cancelled.
     init(
-        jumpHosts: [(id: HostID, name: String)], parent: NSWindow?, chrome: Chrome,
+        jumpHosts: [(id: HostID, name: String)], subtitle: String? = nil, parent: NSWindow?, chrome: Chrome,
         add: @escaping @MainActor (HostDraft) async -> Result<HostID, WRLDService.AddFailure>,
         finished: @escaping @MainActor (HostID?) -> Void
     ) {
-        self.parent = parent
-        panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 420), styleMask: [.titled], backing: .buffered,
-            defer: false)
-        panel.title = "New Host"
-        panel.appearance = chrome.appearance
-        panel.backgroundColor = chrome.colors.ground.nsColor
-        let view = NewHostView(
+        let sheet = ThemedSheet(title: "New Host", parent: parent, chrome: chrome)
+        self.sheet = sheet
+        // Weak: the view is the panel's, and the panel is the sheet's.
+        view = NewHostView(
             jumpHosts: jumpHosts.map { NewHostView.JumpHost(id: $0.id, name: $0.name) },
-            add: add,
-            done: { [weak self] id in
-                self?.close()
+            subtitle: subtitle ?? NewHostView.savedSubtitle, add: add,
+            done: { [weak sheet] id in
+                sheet?.close()
                 finished(id)
             })
-        // The panel fits the view, which has a height of its own now that nothing in it
-        // scrolls, and follows it as rows come and go: the key file's, a problem.
-        let content = NSHostingView(rootView: view.environment(\.legends, LegendsPalette(chrome)))
-        content.sizingOptions = [.minSize, .intrinsicContentSize, .maxSize]
-        panel.contentView = content
-        panel.setContentSize(content.fittingSize)
     }
+
+    var panel: NSPanel { sheet.panel }
 
     func show() {
-        if let parent, parent.attachedSheet == nil {
-            parent.beginSheet(panel)
-        } else {
-            panel.center()
-            panel.makeKeyAndOrderFront(nil)
-        }
-    }
-
-    private func close() {
-        if let parent = panel.sheetParent {
-            parent.endSheet(panel)
-        } else {
-            panel.orderOut(nil)
-        }
+        sheet.show(view)
     }
 }
 
@@ -70,7 +50,13 @@ struct NewHostView: View {
         case automatic, secureEnclave, keyFile
     }
 
+    /// What New Host… says: where the host goes, and what it leaves alone.
+    static let savedSubtitle = "Saved in WRLD on this Mac. Your ~/.ssh/config isn’t changed."
+    /// What Open in Maze says with no host to open.
+    static let mazeSubtitle = "Maze shows a host’s files beside this Mac’s. Add one and Maze opens on it."
+
     let jumpHosts: [JumpHost]
+    let subtitle: String
     let add: @MainActor (HostDraft) async -> Result<HostID, WRLDService.AddFailure>
     /// The new host's id, or nil when cancelled.
     let done: @MainActor (HostID?) -> Void
@@ -84,10 +70,7 @@ struct NewHostView: View {
     @Environment(\.legends) private var palette
 
     var body: some View {
-        SheetLayout(
-            symbol: "server.rack", title: "New host",
-            subtitle: "Saved in WRLD on this Mac. Your ~/.ssh/config isn’t changed."
-        ) {
+        SheetLayout(symbol: "server.rack", title: "New host", subtitle: subtitle) {
             LabeledField("Name") {
                 TextField("prod-api", text: $draft.name).wrldField().focused($nameFocused)
             }
@@ -135,7 +118,7 @@ struct NewHostView: View {
         } buttons: {
             if working { ProgressView().controlSize(.small) }
             Button("Cancel") { done(nil) }
-                .buttonStyle(.wrld(.plain))
+                .buttonStyle(.wrld(.ghost))
                 .keyboardShortcut(.cancelAction)
             Button("Add host", action: submit)
                 .buttonStyle(.wrld(.primary))

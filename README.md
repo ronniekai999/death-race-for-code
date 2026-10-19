@@ -78,6 +78,10 @@ See [asset provenance](docs/assets/README.md).
 Maze puts this Mac's folder beside the remote folder, using an SFTP channel on the existing
 SSH master. Upload, download, drag between the panes, or drop Finder files onto the host.
 
+Open it with **Shell › Open in Maze** or ⇧⌘P › Open in Maze, from the host's inspector in WRLD,
+or by right-clicking a host in the sidebar. From a pane on a host it opens that host; from a
+local shell it asks which host, or offers New Host when there is none.
+
 Transfers use bounded 32 KiB chunks and an eight-request pipeline. Fresh destination checks
 and explicit replacement approval protect existing files; staged downloads publish only
 after success. Progress updates are capped at 20 Hz, and transfers support cancellation and

@@ -4,48 +4,6 @@ import LegendsUI
 import SwiftUI
 import Vault
 
-/// A Wishing Well sheet on the window in front, or a panel of its own when that window has
-/// one already: a snippet's fields, or a selection being saved.
-@MainActor
-final class WishingWellSheet {
-    let panel: NSPanel
-    private weak var parent: NSWindow?
-    private let chrome: Chrome
-
-    init(title: String, parent: NSWindow?, chrome: Chrome) {
-        self.parent = parent
-        self.chrome = chrome
-        panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 320), styleMask: [.titled], backing: .buffered,
-            defer: false)
-        panel.title = title
-        panel.appearance = chrome.appearance
-        panel.backgroundColor = chrome.colors.ground.nsColor
-    }
-
-    func show(_ view: some View) {
-        // Fits the view and follows it, as NewHostSheet's does.
-        let content = NSHostingView(rootView: view.environment(\.legends, LegendsPalette(chrome)))
-        content.sizingOptions = [.minSize, .intrinsicContentSize, .maxSize]
-        panel.contentView = content
-        panel.setContentSize(content.fittingSize)
-        if let parent, parent.attachedSheet == nil {
-            parent.beginSheet(panel)
-        } else {
-            panel.center()
-            panel.makeKeyAndOrderFront(nil)
-        }
-    }
-
-    func close() {
-        if let parent = panel.sheetParent {
-            parent.endSheet(panel)
-        } else {
-            panel.orderOut(nil)
-        }
-    }
-}
-
 /// What a snippet's sheet was closed with.
 enum SnippetChoice: Equatable {
     /// Typed in, without Return.

@@ -300,11 +300,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     /// Hosts whose files are opening: a second Open in Maze waits rather than making a
     /// second connection.
     private var openingMaze: Set<HostRef> = []
+    /// The host to open in Maze, asked of a local shell, while it's open.
+    private var mazeHostSheet: ThemedSheet?
 
-    /// Open in Maze: the files of the host the pane in front runs on.
+    /// Open in Maze: the files of the host the pane in front runs on. A local shell has none,
+    /// so it asks which, or with no host saved goes by New Host and opens Maze on that one.
     @objc func openMaze(_ sender: Any?) {
-        guard let host = frontPitLaneWindow?.activePane?.launch.host else { return }
-        showMaze(host)
+        guard let wrld else { return }
+        switch MazeRoute(pane: frontPitLaneWindow?.activePane?.launch.host, hosts: wrld.vault.hosts) {
+        case .open(let host):
+            showMaze(host)
+        case .choose(let hosts):
+            chooseMazeHost(among: hosts)
+        case .addHost:
+            presentNewHost(subtitle: NewHostView.mazeSubtitle) { [weak self] id, _ in self?.showMaze(.vault(id)) }
+        }
+    }
+
+    /// Which of `hosts` to open in Maze, in a sheet on the window in front.
+    private func chooseMazeHost(among hosts: [HostID]) {
+        guard let wrld, mazeHostSheet == nil else { return }
+        let sheet = ThemedSheet(
+            title: "Open in Maze", parent: NSApp.keyWindow ?? NSApp.mainWindow,
+            chrome: Chrome(configStore.config.namedTheme))
+        let choices = hosts.map {
+            MazeHostView.Choice(id: $0, name: wrld.name(of: .vault($0)), address: wrld.address(of: .vault($0)))
+        }
+        mazeHostSheet = sheet
+        sheet.show(
+            MazeHostView(choices: choices) { [weak self, weak sheet] id in
+                sheet?.close()
+                self?.mazeHostSheet = nil
+                if let id { self?.showMaze(.vault(id)) }
+            })
     }
 
     /// Maze on `host`: its window when one is open, else the host's files and a window on
@@ -361,10 +389,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
 
     /// "New Host…": a sheet on the window in front; the host opens in a new tab once added.
     @objc func newHost(_ sender: Any?) {
+        presentNewHost(subtitle: nil) { [weak self] id, parent in
+            // The sheet's parent may be the WRLD window or Settings, not a Pit Lane window;
+            // open the host in the frontmost one and bring it forward, so the new tab isn't
+            // hidden behind a background window.
+            let controller = self?.windows.first { $0.window === parent } ?? self?.frontWindow
+            controller?.open(.vault(id), beside: false)
+            controller?.window?.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    /// The New Host sheet on the window in front, with `subtitle` under its title when given.
+    /// `added` hears the new host and the window the sheet was on; a cancel says nothing.
+    private func presentNewHost(
+        subtitle: String?, added: @escaping @MainActor (HostID, NSWindow?) -> Void
+    ) {
         guard let wrld, newHostSheet == nil else { return }
         let parent = NSApp.keyWindow ?? NSApp.mainWindow
         let sheet = NewHostSheet(
-            jumpHosts: wrld.jumpHostChoices, parent: parent, chrome: Chrome(configStore.config.namedTheme),
+            jumpHosts: wrld.jumpHostChoices, subtitle: subtitle, parent: parent,
+            chrome: Chrome(configStore.config.namedTheme),
             add: { draft in
                 // Name the thrown type: a closure doesn't infer it, so `error` would be
                 // `any Error` and wouldn't fit `Result<_, WRLDService.AddFailure>`.
@@ -376,13 +420,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
             },
             finished: { [weak self] id in
                 self?.newHostSheet = nil
-                guard let id else { return }
-                // The sheet's parent may be the WRLD window or Settings, not a Pit Lane
-                // window; open the host in the frontmost one and bring it forward, so the new
-                // tab isn't hidden behind a background window.
-                let controller = self?.windows.first { $0.window === parent } ?? self?.frontWindow
-                controller?.open(.vault(id), beside: false)
-                controller?.window?.makeKeyAndOrderFront(nil)
+                if let id { added(id, parent) }
             })
         newHostSheet = sheet
         sheet.show()
@@ -697,9 +735,10 @@ extension AppDelegate: NSMenuItemValidation {
             menuItem.state = (lucidDreams?.isOnScreen ?? false) ? .on : .off
             return true
         }
-        // Maze needs a host: off in a local shell.
+        // On in a local shell too, which asks for a host rather than having none to say why
+        // the item is off.
         if menuItem.action == #selector(openMaze(_:)) {
-            return frontPitLaneWindow?.activePane?.launch.host != nil
+            return wrld != nil
         }
         guard menuItem.action == #selector(toggleSecureKeyboardEntry(_:)) else { return true }
         menuItem.state = secureInput.isChecked ? .on : .off

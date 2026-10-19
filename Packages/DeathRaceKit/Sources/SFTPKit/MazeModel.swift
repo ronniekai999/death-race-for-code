@@ -271,6 +271,10 @@ import Observation
         transfers.clearCompleted()
     }
 
+    /// Whether the host's files can still be reached. Once the connection has closed every
+    /// action fails, so asking for the window again should make a new one.
+    public func isConnected() async -> Bool { await files.isConnected() }
+
     /// Close the connection. The one place the ssh subsystem is ended.
     public func shutDown() async {
         for task in running.values { task.cancel() }
@@ -312,7 +316,7 @@ import Observation
         switch error {
         case .status(_, let message) where !message.isEmpty: return message
         case .status(let code, _): return "the server refused it (code \(code))"
-        case .transportClosed: return "the connection closed"
+        case .transportClosed: return "the connection closed; Open in Maze again to reconnect"
         case .timedOut: return "it took too long"
         // `invalid` carries the reason, and some of them are about us, not the server: a file
         // past what a transfer will take in one piece, or a directory past what Maze will

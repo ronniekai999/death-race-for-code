@@ -84,6 +84,7 @@ actor FakeRemoteFiles: RemoteFiles {
     }
 
     func shutDown() async { isShutDown = true }
+    func isConnected() async -> Bool { !isShutDown }
 
     /// What every transfer does first: fail if the test said to, or run until cancelled.
     private func beginTransfer() async throws {
@@ -416,7 +417,8 @@ struct MazeModelTests {
     @Test func everyFailureReadsAsASentence() {
         #expect(MazeModel.sentence(SFTPError.status(code: 3, message: "Permission denied")) == "Permission denied")
         #expect(MazeModel.sentence(SFTPError.status(code: 4, message: "")) == "the server refused it (code 4)")
-        #expect(MazeModel.sentence(SFTPError.transportClosed) == "the connection closed")
+        #expect(
+            MazeModel.sentence(SFTPError.transportClosed) == "the connection closed; Open in Maze again to reconnect")
         #expect(MazeModel.sentence(SFTPError.timedOut) == "it took too long")
         #expect(MazeModel.sentence(CancellationError()) == "stopped")
         #expect(MazeModel.sentence(POSIXError(POSIXErrorCode.EACCES)) == "Permission denied")

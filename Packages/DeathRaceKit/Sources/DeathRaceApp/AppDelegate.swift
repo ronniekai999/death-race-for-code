@@ -358,7 +358,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     /// them. The window owns the connection from then on.
     func showMaze(_ host: HostRef) {
         if let controller = mazeWindows[host] {
-            controller.show()
+            // A window whose connection has closed — the Mac slept, the network changed, the
+            // master exited — fails every action, and bringing it back would bring back that.
+            // Close it, and open the host's files again.
+            Task {
+                if await controller.model.isConnected() { return controller.show() }
+                controller.close()
+                if mazeWindows[host] === controller { mazeWindows[host] = nil }
+                showMaze(host)
+            }
             return
         }
         guard let wrld, !openingMaze.contains(host) else { return }

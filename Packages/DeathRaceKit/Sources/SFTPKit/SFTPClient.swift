@@ -90,6 +90,8 @@ public actor SFTPClient {
         }
     }
 
+    public func isConnected() async -> Bool { serverVersion != nil && sessionError == nil }
+
     public func shutDown() async {
         readerTask?.cancel()
         failAll(with: SFTPError.transportClosed)

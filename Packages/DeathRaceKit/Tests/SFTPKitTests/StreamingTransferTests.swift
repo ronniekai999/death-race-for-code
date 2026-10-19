@@ -178,4 +178,17 @@ private actor ReorderingTransport: SFTPTransport {
         #expect(Listing.name(of: staging).utf8.count <= 255)
         #expect(Listing.name(of: staging).hasPrefix("."))
     }
+
+    /// Once the connection has gone every request fails, and the window says so by being asked:
+    /// Open in Maze then opens the host's files again rather than bringing back a dead window.
+    @Test func aClosedConnectionSaysItIsNotConnected() async throws {
+        let server = FakeSFTPServer()
+        let client = SFTPClient(transport: server)
+        #expect(await client.isConnected() == false, "nothing has been opened yet")
+        try await client.start()
+        #expect(await client.isConnected())
+        await server.close()
+        for _ in 0..<2_000 where await client.isConnected() { try await Task.sleep(for: .milliseconds(1)) }
+        #expect(await client.isConnected() == false)
+    }
 }

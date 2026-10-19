@@ -23,6 +23,9 @@ public protocol RemoteFiles: Sendable {
         _ path: String, destination: TransferDestination,
         progress: @Sendable @escaping (UInt64, UInt64) -> Void) async throws
     func shutDown() async
+    /// Whether requests can still be made: false once the connection has closed — the host
+    /// slept, the network changed, its master exited — after which every one fails.
+    func isConnected() async -> Bool
 }
 
 extension SFTPClient: RemoteFiles {}

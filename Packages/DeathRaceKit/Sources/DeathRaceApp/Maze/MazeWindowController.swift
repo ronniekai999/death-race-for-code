@@ -83,6 +83,28 @@ final class MazeWindowController: NSWindowController, NSWindowDelegate {
         return await alert.beginSheetModal(for: window) == .alertFirstButtonReturn
     }
 
+    /// Closing the window stops what is still moving, so it asks first, as quitting does: a
+    /// replace stopped part way leaves the old file, but a download left half done is gone.
+    private var closeAnswered = false
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        let moving = model.transfers.transfers.filter(\.isActive).count
+        guard moving > 0, !closeAnswered, sender.attachedSheet == nil else { return true }
+        let alert = NSAlert()
+        alert.messageText =
+            moving == 1
+            ? "1 file is still moving. Stop it and close?" : "\(moving) files are still moving. Stop them and close?"
+        alert.addButton(withTitle: "Stop and Close")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+        Task {
+            guard await alert.beginSheetModal(for: sender) == .alertFirstButtonReturn else { return }
+            closeAnswered = true
+            sender.performClose(nil)
+        }
+        return false
+    }
+
     func windowWillClose(_ notification: Notification) {
         let onClose = onClose
         self.onClose = nil

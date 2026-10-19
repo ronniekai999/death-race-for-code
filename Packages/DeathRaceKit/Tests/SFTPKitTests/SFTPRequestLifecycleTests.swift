@@ -82,6 +82,38 @@ actor StalledTransport: SFTPTransport {
         await client.shutDown()
     }
 
+    /// Stop pressed while a request's frame is still waiting to be written retires that request
+    /// alone. A transport writes a frame whole or not at all, so there is no half frame to fear;
+    /// treating it as one closed the session, which is what Stop in Maze did whenever any of a
+    /// transfer's pipelined requests was still queued — and every action after it failed.
+    @Test(arguments: [StalledTransport.Operation.stat, .read, .write])
+    func cancellingARequestStillBeingSentKeepsTheSession(_ operation: StalledTransport.Operation) async throws {
+        let transport = StalledTransport(operation, blockSend: true)
+        let client = SFTPClient(transport: transport)
+        try await client.start()
+        let handle = try await client.open("/home/user/file", pflags: SFTP.Open.read | SFTP.Open.write)
+        let task = Task {
+            switch operation {
+            case .stat: _ = try await client.stat("/home/user/file")
+            case .read: _ = try await client.read(handle, offset: 0, length: 3)
+            case .write: try await client.write(handle, offset: 0, data: [4])
+            case .handshake, .close, .open, .opendir: break
+            }
+        }
+        await transport.waitUntilStalled()
+        for _ in 0..<10_000 where await client.sendingRequestCount == 0 { await Task.yield() }
+        #expect(await client.sendingRequestCount == 1, "the request's frame is still being sent")
+        task.cancel()
+        let finished = await Finished.within(2) {
+            await #expect(throws: CancellationError.self) { try await task.value }
+        }
+        #expect(finished, "a cancelled request remained suspended")
+        // The frame goes out after all, and its reply is one the client no longer waits for.
+        try await transport.deliverLateReply()
+        #expect(try await client.realPath(".") == "/home/user")
+        await client.shutDown()
+    }
+
     @Test(arguments: [false, true])
     func deadlinesUnblockAReplyOrASend(_ blockSend: Bool) async throws {
         let transport = StalledTransport(.stat, blockSend: blockSend)

@@ -144,9 +144,14 @@ public actor SFTPClient {
         let sending = request.sender != nil
         retired[id] = request.lateReply
         complete(id, result: .failure(error))
-        // A blocked write may have sent half a frame: the stream cannot safely be reused.
-        // After a complete write, only this request is cancelled; late handles are closed.
-        if sending || id == 0 || retired.count >= 1024 {
+        // A transport writes a frame whole or not at all (`SFTPTransport.send`), so a request
+        // cancelled while its frame waits to be written is only retired, like one already
+        // sent: its reply is dropped when it comes, or its handle closed. Closing the session
+        // for it was what made Stop in Maze kill the whole connection whenever any of a
+        // transfer's pipelined requests was still queued. A send still blocked when its
+        // deadline passes is different: the pipe isn't moving, and nothing behind it would.
+        let stuck = sending && !(error is CancellationError)
+        if stuck || id == 0 || retired.count >= 1024 {
             failAll(with: error)
             await transport.close()
         }

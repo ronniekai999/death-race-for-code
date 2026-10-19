@@ -392,6 +392,8 @@ struct MazeModelTests {
         #expect(MazeModel.sentence(SFTPError.status(code: 4, message: "")) == "the server refused it (code 4)")
         #expect(MazeModel.sentence(SFTPError.transportClosed) == "the connection closed")
         #expect(MazeModel.sentence(SFTPError.timedOut) == "it took too long")
+        #expect(MazeModel.sentence(CancellationError()) == "stopped")
+        #expect(MazeModel.sentence(POSIXError(POSIXErrorCode.EACCES)) == "Permission denied")
         #expect(MazeModel.sentence(SFTPError.truncated) == "the server sent something unexpected")
         #expect(MazeModel.sentence(MazeModel.MazeFailure.cannotWrite("/x/y")) == "could not write /x/y")
     }

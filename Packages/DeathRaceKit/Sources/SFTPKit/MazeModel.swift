@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 
 /// What Maze shows and does: a folder on this Mac beside a folder on the host, and the
@@ -287,6 +288,10 @@ import Observation
             case .cannotWrite(let path): return "could not write \(path)"
             }
         }
+        // Swift's own spelling of these is a type name, and a row reading "CancellationError()"
+        // or "POSIXError(_nsError: …)" says nothing to anyone.
+        if error is CancellationError { return "stopped" }
+        if let error = error as? POSIXError { return String(cString: strerror(error.code.rawValue)) }
         guard let error = error as? SFTPError else { return "\(error)" }
         switch error {
         case .status(_, let message) where !message.isEmpty: return message

@@ -5,6 +5,8 @@
 /// once.
 public protocol SFTPTransport: Sendable {
     /// Write one complete frame (`uint32 length` + body), as produced by `SFTPPacket.encode()`.
+    /// The frame goes whole or not at all, even if the calling task is cancelled meanwhile:
+    /// `SFTPClient` relies on it to retire a cancelled request without closing the session.
     func send(_ frame: [UInt8]) async throws
     /// Read the next complete frame. Throws `SFTPError.transportClosed` at end of stream.
     func receive() async throws -> [UInt8]

@@ -54,6 +54,10 @@ final class WRLDService: HostConnecting {
     private var board: TunnelBoard?
     /// New Secure Enclave keys waiting to go onto their hosts, over the first connection.
     private var pendingKeys: [HostID: KeyID] = [:]
+    /// The pool user each open Maze holds, by host. Kept rather than worked out again at close:
+    /// a host removed while its Maze was open has no target any more, and its master was held
+    /// until the app quit.
+    private var mazeUsers: [HostRef: String] = [:]
     private var login: [String: String]?
     private var starting: Task<MasterPool?, Never>?
 
@@ -225,6 +229,7 @@ final class WRLDService: HostConnecting {
         // at once, with no second login. Holding a pool user keeps that master up while the
         // window is open, even after the last pane on the host closes.
         guard case .ready = await pool.connect(target, for: user, secrets: savedSecrets) else { return nil }
+        mazeUsers[host] = user
         connected(host, alias: target.alias)
         // A host added from Open in Maze is first connected here, not by a pane: a new Secure
         // Enclave key goes on now, as `connect` would put it, or not until a pane connects.
@@ -239,6 +244,7 @@ final class WRLDService: HostConnecting {
         } catch {
             log.error("Maze couldn't start ssh: \(String(describing: error), privacy: .public)")
             pool.release(user)
+            mazeUsers[host] = nil
             return nil
         }
         let client = SFTPClient(transport: session)
@@ -265,13 +271,15 @@ final class WRLDService: HostConnecting {
                 """)
             await client.shutDown()
             pool.release(user)
+            mazeUsers[host] = nil
             return nil
         }
     }
 
     func closeSFTP(_ host: HostRef) {
-        guard let key = target(for: host)?.key else { return }
-        pool?.release(Self.mazeUser(key))
+        guard let user = mazeUsers.removeValue(forKey: host) ?? target(for: host).map({ Self.mazeUser($0.key) })
+        else { return }
+        pool?.release(user)
     }
 
     func release(_ pane: PaneID) {

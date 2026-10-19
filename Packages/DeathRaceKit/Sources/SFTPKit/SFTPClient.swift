@@ -58,6 +58,8 @@ public actor SFTPClient {
     private var readerTask: Task<Void, Never>?
     private var sessionError: (any Error)?
     public private(set) var serverVersion: UInt32?
+    /// The extensions the server named in its `VERSION`.
+    public private(set) var serverExtensions: [String: String] = [:]
 
     public init(transport: any SFTPTransport, limits: Limits = .default, requestTimeout: Duration = .seconds(30)) {
         self.transport = transport
@@ -77,10 +79,11 @@ public actor SFTPClient {
         readerTask = Task { await self.readLoop() }
         do {
             let reply = try await request(.initialize(version: SFTP.version), id: 0)
-            guard case .version(let version) = reply, version == SFTP.version else {
+            guard case .version(let version, let extensions) = reply, version == SFTP.version else {
                 throw SFTPError.unexpectedReply("expected SFTP VERSION 3")
             }
             serverVersion = version
+            serverExtensions = extensions
         } catch {
             await shutDown()
             throw error
@@ -284,6 +287,13 @@ public actor SFTPClient {
         try expectOK(try await request(.remove(id: nextRequestID(), path: path)), "REMOVE")
     }
 
+    /// A rename that replaces whatever is at `newPath`, atomically: OpenSSH's extension, for a
+    /// server that named it. Version 3's own `rename` refuses an existing target.
+    public func posixRename(from oldPath: String, to newPath: String) async throws {
+        let reply = try await request(.posixRename(id: nextRequestID(), oldPath: oldPath, newPath: newPath))
+        try expectOK(reply, "POSIX-RENAME")
+    }
+
     public func rename(from oldPath: String, to newPath: String) async throws {
         try expectOK(
             try await request(.rename(id: nextRequestID(), oldPath: oldPath, newPath: newPath)), "RENAME")
@@ -405,6 +415,12 @@ public actor SFTPClient {
     }
 
     /// Bounded pipelining: no more than pipelineDepth chunks (default 256 KiB) resident.
+    ///
+    /// Staged: written beside the target under a hidden name, and renamed onto it once whole.
+    /// Writing into the target itself truncated it first, so a Stop, a dropped connection or a
+    /// full disk part way through left a fragment where the file had been — and a new file
+    /// stopped part way read as "already there" on the retry. A folder you may not create
+    /// files in, holding one you may write, is still replaced in place, as before.
     public func upload(
         _ path: String, source: TransferSource, overwrite: Bool,
         progress: @Sendable @escaping (UInt64, UInt64) -> Void
@@ -412,8 +428,64 @@ public actor SFTPClient {
         guard source.size <= limits.transferBytes else {
             throw SFTPError.invalid("the file exceeds the transfer limit")
         }
-        let flags = SFTP.Open.write | SFTP.Open.create | (overwrite ? SFTP.Open.truncate : SFTP.Open.exclusive)
-        let handle = try await open(path, pflags: flags)
+        let staging = Self.stagingPath(for: path)
+        var staged = true
+        let handle: Handle
+        do {
+            handle = try await open(staging, pflags: SFTP.Open.write | SFTP.Open.create | SFTP.Open.exclusive)
+        } catch SFTPError.status(let code, _) where overwrite && code == SFTP.Status.permissionDenied {
+            handle = try await open(path, pflags: SFTP.Open.write | SFTP.Open.create | SFTP.Open.truncate)
+            staged = false
+        }
+        do {
+            try await write(source, to: handle, progress: progress)
+        } catch {
+            if staged { await discard(staging) }
+            throw error
+        }
+        guard staged else { return }
+        do {
+            try await publish(staging, as: path, replacing: overwrite)
+        } catch {
+            await discard(staging)
+            throw error
+        }
+    }
+
+    /// The staged file onto its target. Without replacing, version 3's rename is the check:
+    /// it refuses a name that has come into being since. Replacing, OpenSSH's rename swaps it
+    /// in whole; a server without one has the old file taken away first — a moment with no
+    /// file, never a fragment of one.
+    private func publish(_ staging: String, as path: String, replacing: Bool) async throws {
+        guard replacing else { return try await rename(from: staging, to: path) }
+        if serverExtensions[SFTP.posixRename] != nil { return try await posixRename(from: staging, to: path) }
+        do {
+            try await remove(path)
+        } catch SFTPError.status(let code, _) where code == SFTP.Status.noSuchFile {}
+        try await rename(from: staging, to: path)
+    }
+
+    /// A staged file nothing will publish, removed — in a fresh task after a Stop, since a
+    /// cancelled task cannot send the request.
+    private func discard(_ staging: String) async {
+        if Task.isCancelled { Task { try? await self.remove(staging) } } else { try? await remove(staging) }
+    }
+
+    /// `.name.deathrace-<random>.part` beside `path`, with the name cut to 200 bytes so the
+    /// whole stays within what a file name may be.
+    static func stagingPath(for path: String) -> String {
+        var name = ""
+        for character in Listing.name(of: path) {
+            guard name.utf8.count + character.utf8.count <= 200 else { break }
+            name.append(character)
+        }
+        let token = String(UInt32.random(in: .min ... .max), radix: 16)
+        return Listing.join(Listing.parent(of: path), ".\(name).deathrace-\(token).part")
+    }
+
+    private func write(
+        _ source: TransferSource, to handle: Handle, progress: @Sendable @escaping (UInt64, UInt64) -> Void
+    ) async throws {
         do {
             progress(0, source.size)
             try await transferChunks(size: source.size, progress: progress) { offset, length in

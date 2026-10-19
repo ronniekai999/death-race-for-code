@@ -74,6 +74,9 @@ final class LucidDreamsController: NSObject, NSWindowDelegate {
 
     private func present() {
         let panel = ensurePanel()
+        // Its shell ended last time (`exit`, ⌃D, or it failed): a new one, in the same place.
+        // Nothing here draws a pane's banner, so a dead terminal used to stay until relaunch.
+        if let pane, pane.isDone { pane.restart() }
         let resting = restingFrame(size: panel.frame.size)
         // Spring down from the notch: start a little higher and clear, settle into place.
         let start = resting.offsetBy(dx: 0, dy: 20)
@@ -127,6 +130,8 @@ final class LucidDreamsController: NSObject, NSWindowDelegate {
         let pane = PaneController(
             id: ids.pane(), config: config(), directory: directory(), scale: scale, makeSession: makeSession,
             launch: .shell, connections: nil)
+        // `exit` closes a quick terminal: it goes away, and the next summon starts a new shell.
+        pane.onEnd = { [weak self] _ in self?.hideIfShowing() }
         let card = PaneCardView(pane: pane.id, surface: pane.surface, chrome: chrome)
         card.isActive = true
         card.isWindowKey = true

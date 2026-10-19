@@ -221,6 +221,7 @@ real thing.
 - [ ] An ssh pane is never kept: quitting with one open still asks, and it is gone next launch.
 - [ ] Lucid Dreams is never kept: ⌥Space, type something, quit, relaunch — a fresh shell, and
       no stray tab holding the old one.
+- [ ] `exit` in Lucid Dreams hides it, and the next summon opens a new shell rather than a dead one.
 - [ ] Move Tab to New Window, then quit and relaunch: the tab comes back in a second window.
 - [ ] `legendsd` with a session open and the app gone: `ps` shows one `legendsd`, in a session
       of its own (`ps -o pid,ppid,sess`), parented to launchd, and **not** double-forked.

@@ -546,6 +546,38 @@ struct MasterPoolTests {
         await rig.finish()
     }
 
+    // A host's settings changed after its master was made, so a pane joining it would get
+    // the old ones. In use, it carries on for its panes, then ends as the last one leaves,
+    // with no idle time; unused, it ends at once. The next connection logs in afresh.
+    @Test func aMasterMadeBeforeAnEditEndsOnceNoOneUsesIt() async throws {
+        let rig = try Rig(saved: [Rig.jumpRef: TestSSHD.jumpPassword])
+        let endings = EndingLog()
+        let pool = try rig.pool(endings: endings)
+        let jump = try rig.target(Rig.jumpID)
+        let key = Rig.jumpID.rawValue
+        #expect(await pool.connect(jump, for: "pane-1", secrets: rig.saved) == .ready)
+        pool.retire(key)
+        #expect(pool.stale == [key])
+        #expect(pool.connected == [key])
+        let whoami = try await rig.run(on: Rig.jumpID, "whoami")
+        #expect(whoami.outputText == TestSSHD.jumpUser + "\n")
+        pool.release("pane-1")
+        #expect(await eventually { endings.all == ["h-jump: closed"] })
+        #expect(pool.connected.isEmpty)
+        #expect(pool.stale.isEmpty)
+
+        #expect(await pool.connect(jump, for: "pane-2", secrets: rig.saved) == .ready)
+        pool.release("pane-2")
+        // Idling: an edit ends it now rather than in ten minutes.
+        #expect(pool.connected == [key])
+        pool.retire(key)
+        #expect(await eventually { endings.all == ["h-jump: closed", "h-jump: closed"] })
+        #expect(await pool.connect(jump, for: "pane-3", secrets: rig.saved) == .ready)
+        #expect(rig.presence.reasons.count == 3)
+        await pool.endAll()
+        await rig.finish()
+    }
+
     // Closing the only pane on a jump host must not take down the hosts behind it: their
     // ProxyJump hops reuse that master's socket, so it stays up while anything needs it.
     @Test func aJumpHostStaysUpWhileAHostBehindItIsConnected() async throws {

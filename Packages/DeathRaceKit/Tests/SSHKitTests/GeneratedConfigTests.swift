@@ -265,6 +265,23 @@ struct GeneratedConfigTests {
         }
     }
 
+    @Test func eachMastersSettingsAreKeptToTellAnEditApart() {
+        let before = GeneratedConfig(
+            vault: Vault(hosts: [host("h1", "bastion", address: "bastion.lan", user: "ops")]), paths: paths,
+            aliases: ["pi-hole"])
+        #expect(before.settings["h1"]?.first == "HostName bastion.lan")
+        #expect(before.settings["alias:pi-hole"]?.first == "ControlMaster no")
+        let renamed = GeneratedConfig(
+            vault: Vault(hosts: [host("h1", "jump", address: "bastion.lan", user: "ops")]), paths: paths,
+            aliases: ["pi-hole"])
+        #expect(renamed.settings == before.settings)
+        let otherUser = GeneratedConfig(
+            vault: Vault(hosts: [host("h1", "bastion", address: "bastion.lan", user: "root")]), paths: paths,
+            aliases: ["pi-hole"])
+        #expect(otherUser.settings["h1"] != before.settings["h1"])
+        #expect(otherUser.settings["alias:pi-hole"] == before.settings["alias:pi-hole"])
+    }
+
     @Test func anEmptyVaultStillIncludesYourConfig() {
         let config = GeneratedConfig(vault: Vault(), paths: paths)
         #expect(config.text.hasSuffix("\nMatch all\nInclude \"~/.ssh/config\"\nInclude \"/etc/ssh/ssh_config\"\n"))

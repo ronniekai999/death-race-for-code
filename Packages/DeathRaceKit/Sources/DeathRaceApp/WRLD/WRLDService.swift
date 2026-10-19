@@ -101,13 +101,21 @@ final class WRLDService: HostConnecting {
             log.error("WRLD couldn't read its vault: \(String(describing: error), privacy: .public)")
         }
         discovered = SSHConfigDiscovery.aliases(inFileAt: home + "/.ssh/config", home: home)
+        let before = generated.settings
         generated = GeneratedConfig(vault: vault, paths: paths, aliases: discovered.map(\.name))
         do {
             try AtomicFile.write(Array(generated.text.utf8), to: paths.generatedConfig)
         } catch {
             log.error("WRLD couldn't write its ssh config: \(String(describing: error), privacy: .public)")
         }
+        // A pane joins a host's master with no login of its own, so it gets whatever the
+        // master connected with: one made before the host's settings changed has to go.
+        for (key, settings) in before where generated.settings[key] != settings { pool?.retire(key) }
     }
+
+    /// Hosts, by key, whose connection still has the settings they had before an edit: it
+    /// ends, and the new ones apply, once its panes and tunnels close.
+    var staleKeys: Set<String> { Set(pool?.stale ?? []) }
 
     /// How the pool sees `host`; nil when the generated config left it out.
     func target(for host: HostRef) -> ConnectionTarget? {

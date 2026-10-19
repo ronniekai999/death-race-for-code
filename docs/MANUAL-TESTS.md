@@ -382,6 +382,9 @@ first macOS build to need compile fixes before any of this can be tried.
 - [ ] **The inspector** saves address, user, port, sign-in and jump host with Save; group,
       tags, Legend, agent forwarding and on-connect apply at once. A jump host can't be the
       host itself or loop back to it.
+- [ ] **An edit applies to the next connection.** Connect, close the pane, change the user and
+      Save, connect again: you log in again as the new user. With a pane still open, the
+      inspector says the change waits; once that pane closes, the next one uses it.
 - [ ] **Remove…** names the hosts that jump through it; they connect directly afterwards.
 - [ ] **Known hosts** lists `~/.ssh/known_hosts`; Forget… asks first.
 - [ ] **⌃⌘S** and the button after the traffic lights show and hide the sidebar per window; a

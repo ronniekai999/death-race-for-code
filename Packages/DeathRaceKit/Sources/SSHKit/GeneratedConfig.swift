@@ -59,6 +59,9 @@ public struct GeneratedConfig: Equatable, Sendable {
     public let controlPaths: [HostID: String]
     /// The control socket of each alias from `~/.ssh/config` that WRLD doesn't hold.
     public let aliasControlPaths: [String: String]
+    /// Each block's settings, less its `Host` line, by the master's key: what a master made
+    /// for the host connected with. Renaming a host doesn't change its own.
+    public let settings: [String: [String]]
     /// Hosts left out, and why.
     public let problems: [Problem]
 
@@ -131,6 +134,7 @@ public struct GeneratedConfig: Equatable, Sendable {
         var blocks: [String] = []
         var written: Set<String> = []
         var controlPaths: [HostID: String] = [:]
+        var blockSettings: [String: [String]] = [:]
         for host in vault.hosts {
             guard let alias = aliases[host.id], var lines = settings[host.id] else { continue }
             let controlPath = paths.controlPath(for: Self.controlKey(for: host))
@@ -140,6 +144,7 @@ public struct GeneratedConfig: Equatable, Sendable {
                 lines.append("ProxyJump " + jumpAlias)
             }
             lines += ["ControlMaster no", "ControlPersist no", "ControlPath " + Self.pathValue(controlPath)]
+            blockSettings[Self.controlKey(for: host)] = lines
             blocks.append((["Host " + alias] + lines.map { "    " + $0 }).joined(separator: "\n"))
         }
         var aliasControlPaths: [String: String] = [:]
@@ -148,6 +153,7 @@ public struct GeneratedConfig: Equatable, Sendable {
             let controlPath = paths.controlPath(for: Self.controlKey(forAlias: alias))
             aliasControlPaths[alias] = controlPath
             let lines = ["ControlMaster no", "ControlPersist no", "ControlPath " + Self.pathValue(controlPath)]
+            blockSettings[Self.controlKey(forAlias: alias)] = lines
             blocks.append((["Host " + alias] + lines.map { "    " + $0 }).joined(separator: "\n"))
         }
 
@@ -163,6 +169,7 @@ public struct GeneratedConfig: Equatable, Sendable {
         self.aliases = aliases
         self.controlPaths = controlPaths
         self.aliasControlPaths = aliasControlPaths
+        self.settings = blockSettings
         self.problems = problems
     }
 

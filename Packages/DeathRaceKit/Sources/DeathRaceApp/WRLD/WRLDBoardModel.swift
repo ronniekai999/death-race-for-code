@@ -31,6 +31,8 @@ final class WRLDBoardModel {
     var state = WRLDState()
     /// Hosts with a connection open, by `WRLDState.key(for:)`.
     var connected: Set<String> = []
+    /// Those still on the settings they had before an edit.
+    var stale: Set<String> = []
     /// Come & Go's rows, with what the board knows of each tunnel.
     var tunnels: [TunnelBoard.Row] = []
     /// Names in ~/.ssh/config WRLD doesn't hold and wasn't asked to leave be.
@@ -66,6 +68,7 @@ final class WRLDBoardModel {
         vault = wrld.vault
         state = wrld.state
         connected = wrld.connectedKeys
+        stale = wrld.staleKeys
         tunnels = wrld.tunnelRows
         importable = wrld.importable
         aliases = Dictionary(wrld.discovered.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
@@ -87,6 +90,9 @@ final class WRLDBoardModel {
         return HostStatus(
             facts: state.facts(ref), isConnected: connected.contains(host.connectionKey), now: now)
     }
+
+    /// An edit to how `host` is reached waits for its open connection to close.
+    func isStale(_ host: WRLDHost) -> Bool { stale.contains(host.connectionKey) }
 
     func chips(for host: WRLDHost) -> [HostChip] {
         HostChips.chips(for: host, in: vault, savedPassword: savedPasswords.contains(host.id))

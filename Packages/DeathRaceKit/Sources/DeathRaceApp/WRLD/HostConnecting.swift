@@ -21,8 +21,9 @@ protocol HostConnecting: AnyObject, Sendable {
     func address(of host: HostRef) -> String?
     /// Connects to `host` for `pane`, or joins the master it has.
     func connect(_ host: HostRef, for pane: PaneID) async -> ConnectResult
-    /// ssh to `host` on its own in the pane, logging in there, without the app's master.
-    func plainLaunch(_ host: HostRef) async -> ShellLaunch?
+    /// ssh to `host` on its own in the pane, logging in there, without the app's master; a
+    /// failure when WRLD has no way to name the host to ssh.
+    func plainLaunch(_ host: HostRef) async -> ConnectResult
     /// Opens `host`'s files for Maze: the sftp subsystem on the master a pane would use, so
     /// there's no second login. Nil when WRLD can't reach the host. Holds the master until
     /// `closeSFTP`, so Maze keeps working with no pane open.

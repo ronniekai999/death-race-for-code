@@ -194,6 +194,11 @@ struct ConnectionOfferTests {
         #expect(ConnectionFailure.noRoute.offers(address: nil) == [.reconnect, .plainSSH])
         #expect(ConnectionFailure.cancelled.offers(address: nil) == [.reconnect])
         #expect(ConnectionFailure.hostKeyRejected.offers(address: nil) == [.reconnect])
+        // Plain ssh reads the same config, which doesn't have the host.
+        #expect(ConnectionFailure.unconnectable(reason: nil).offers(address: "192.168.1.5") == [.reconnect])
+        #expect(
+            ConnectionFailure.unconnectable(reason: nil).sentence(host: "pi")
+                == "WRLD has no way to connect to pi any more.")
         #expect(
             ConnectionFailure.hostKeyChanged(fingerprint: nil, knownHostsLine: nil).offers(address: nil) == [.reconnect]
         )

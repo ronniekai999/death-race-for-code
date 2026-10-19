@@ -26,6 +26,9 @@ public enum ConnectionFailure: Equatable, Sendable {
     case closedByRemote
     /// Ended by the app: a prompt was cancelled or Touch ID declined.
     case cancelled
+    /// Never tried: WRLD has no way to name the host to ssh. It was removed, or its settings
+    /// left it out of the generated config, for `reason`.
+    case unconnectable(reason: String?)
     /// Anything else: the last line ssh wrote.
     case other(String)
 
@@ -50,6 +53,8 @@ public enum ConnectionFailure: Equatable, Sendable {
         case .hostKeyRejected: return "\(host)'s host key wasn't trusted, so Death Race didn't connect."
         case .closedByRemote: return "\(host) closed the connection."
         case .cancelled: return "Connecting to \(host) was cancelled."
+        case .unconnectable(let reason?): return "Death Race can't connect to \(host). \(reason)"
+        case .unconnectable(nil): return "WRLD has no way to connect to \(host) any more."
         case .other(let line): return "The connection to \(host) ended: \(line)"
         }
     }
@@ -153,10 +158,11 @@ extension ConnectionFailure {
             return [.allowLocalNetwork, .reconnect]
         }
         switch self {
-        // Plain ssh would stop at the same host key, or ask the question you just declined.
-        // Forgetting the old key is its own, confirmed step; then ssh asks about the new one.
+        // Plain ssh would stop at the same host key, or ask the question you just declined,
+        // or name a host the config doesn't have. Forgetting the old key is its own,
+        // confirmed step; then ssh asks about the new one.
         case .hostKeyChanged(_, _, .some): return [.forgetHostKey, .reconnect]
-        case .hostKeyChanged, .hostKeyRejected, .cancelled: return [.reconnect]
+        case .hostKeyChanged, .hostKeyRejected, .cancelled, .unconnectable: return [.reconnect]
         default: return [.reconnect, .plainSSH]
         }
     }

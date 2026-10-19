@@ -174,17 +174,17 @@ final class WRLDService: HostConnecting {
     /// put down to the settings rather than to the network.
     func problem(with host: HostRef) -> String? {
         guard target(for: host) == nil else { return nil }
-        let why = generated.problems.first { problem in
-            if case .vault(let id) = host { return problem.host == id }
-            return false
-        }
-        return why?.message ?? "WRLD can't connect to \(name(of: host))."
+        return settingsProblem(host) ?? "WRLD has no way to connect to \(name(of: host)) any more."
+    }
+
+    /// What the generated config found wrong with `host`'s settings, if it left it out.
+    private func settingsProblem(_ host: HostRef) -> String? {
+        guard case .vault(let id) = host else { return nil }
+        return generated.problems.first { $0.host == id }?.message
     }
 
     func connect(_ host: HostRef, for pane: PaneID) async -> ConnectResult {
-        guard let target = target(for: host) else {
-            return .failed(.other(problem(with: host) ?? "WRLD can't connect to \(name(of: host))."))
-        }
+        guard let target = target(for: host) else { return .failed(.unconnectable(reason: settingsProblem(host))) }
         guard let pool = await startPool() else {
             return .failed(.other("Death Race couldn't start what answers ssh's questions."))
         }
@@ -221,12 +221,13 @@ final class WRLDService: HostConnecting {
         }
     }
 
-    func plainLaunch(_ host: HostRef) async -> ShellLaunch? {
-        guard let target = target(for: host) else { return nil }
+    func plainLaunch(_ host: HostRef) async -> ConnectResult {
+        guard let target = target(for: host) else { return .failed(.unconnectable(reason: settingsProblem(host))) }
         let login = await loginEnvironment()
-        return ShellLaunchPlan.ssh(
-            arguments: SSHCommand.plainSession(alias: target.alias, config: paths.generatedConfig), login: login,
-            environment: environment, appVersion: DeathRaceApplication.version)
+        return .ready(
+            ShellLaunchPlan.ssh(
+                arguments: SSHCommand.plainSession(alias: target.alias, config: paths.generatedConfig), login: login,
+                environment: environment, appVersion: DeathRaceApplication.version))
     }
 
     func openSFTP(_ host: HostRef) async -> (any RemoteFiles)? {

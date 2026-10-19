@@ -228,8 +228,7 @@ final class PaneController {
                     for input in TypedInput.snippet(command, run: true) { self.surface.receive(input) }
                 }
             case .failed(let failure):
-                self.failure = failure
-                self.setBanner(.failed(failure, host: name, address: connections.address(of: host)))
+                self.failed(failure, on: host)
             }
         }
     }
@@ -240,9 +239,20 @@ final class PaneController {
         setBanner(nil)
         connecting?.cancel()
         connecting = Task { [weak self] in
-            guard let launch = await connections.plainLaunch(host), let self, !Task.isCancelled else { return }
-            self.start(launch)
+            let result = await connections.plainLaunch(host)
+            guard let self, !Task.isCancelled else { return }
+            switch result {
+            case .ready(let launch): self.start(launch)
+            case .failed(let failure): self.failed(failure, on: host)
+            }
         }
+    }
+
+    /// Says why the pane has no session on `host`, with what might help.
+    private func failed(_ failure: ConnectionFailure, on host: HostRef) {
+        self.failure = failure
+        let name = connections?.name(of: host) ?? shellName
+        setBanner(.failed(failure, host: name, address: connections?.address(of: host)))
     }
 
     private func setBanner(_ banner: PaneBanner?) {
@@ -260,10 +270,9 @@ final class PaneController {
             // another pane is waiting on, or already using, carries on for it.
             connecting?.cancel()
             connecting = nil
-            guard let host = launch.host, let connections else { return }
-            connections.release(id)
-            failure = .cancelled
-            setBanner(.failed(.cancelled, host: connections.name(of: host), address: connections.address(of: host)))
+            guard let host = launch.host else { return }
+            connections?.release(id)
+            failed(.cancelled, on: host)
         case .reconnect, .restart:
             restart()
         case .plainSSH:

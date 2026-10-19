@@ -46,10 +46,12 @@ final class FakeConnections: HostConnecting {
 
     var isWaiting: Bool { !waiting.isEmpty }
 
-    func plainLaunch(_ host: HostRef) async -> ShellLaunch? {
+    /// Plain ssh, unless a test says WRLD can't name the host.
+    var plainResult = ConnectResult.ready(
         ShellLaunch(
-            executable: "/usr/bin/ssh", arguments: ["/usr/bin/ssh", "-o", "ControlPath=none"], environment: [:])
-    }
+            executable: "/usr/bin/ssh", arguments: ["/usr/bin/ssh", "-o", "ControlPath=none"], environment: [:]))
+
+    func plainLaunch(_ host: HostRef) async -> ConnectResult { plainResult }
 
     /// What `openSFTP` hands back: nil unless a test sets it.
     var sftp: (any RemoteFiles)?
@@ -193,6 +195,27 @@ extension WindowTests {
         pane.press(.reconnect)
         await eventually { pane.session != nil }
         #expect(pane.banner == nil)
+    }
+
+    // A host WRLD can't name to ssh any more: plain ssh would fail the same way, so it isn't
+    // offered, and asking for it anyway says why rather than leaving the pane blank.
+    @Test func aHostWRLDCantNameSaysWhyEvenForPlainSSH() async throws {
+        let (_, connections, controller) = hostWindow()
+        defer { controller.window?.close() }
+        let failure = ConnectionFailure.unconnectable(reason: "Its jump host is missing.")
+        connections.results = [.failed(failure)]
+        connections.plainResult = .failed(failure)
+
+        controller.open(nas, beside: false)
+        let pane = try #require(controller.activePane)
+        await eventually { pane.banner?.buttons == [.reconnect] }
+        #expect(pane.banner?.message == "Death Race can't connect to nas-999. Its jump host is missing.")
+        #expect(pane.banner?.buttons == [.reconnect])
+
+        pane.press(.plainSSH)
+        await eventually { pane.banner?.buttons == [.reconnect] }
+        #expect(pane.session == nil)
+        #expect(pane.banner?.message == "Death Race can't connect to nas-999. Its jump host is missing.")
     }
 
     @Test func aSplitFromAPaneOnAHostOpensTheSameHost() async throws {

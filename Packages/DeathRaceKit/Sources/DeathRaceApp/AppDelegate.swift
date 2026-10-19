@@ -478,7 +478,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         controller.settingsProblems = configStore.diagnostics.count
         controller.sessionsEndWithTheApp = legends?.sessionsEndWithTheApp ?? false
         windows.append(controller)
-        if let other {
+        if controller.restoredItsFrame {
+            // Put back where it was, it stays there: centring or cascading it kept only its
+            // size, and windows spread across displays came back stacked on one.
+        } else if let other {
             window.setFrameTopLeftPoint(window.cascadeTopLeft(from: NSPoint(x: other.frame.minX, y: other.frame.maxY)))
         } else if let point = cascadePoint {
             cascadePoint = window.cascadeTopLeft(from: point)

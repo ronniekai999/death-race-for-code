@@ -110,6 +110,9 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     private var previewThemeID: String?
     /// A Wishing Well sheet, while one is open.
     private var wishingWellSheet: ThemedSheet?
+    /// The window took back where it was from a kept session's placement, so whoever shows it
+    /// leaves it there rather than centring or cascading it.
+    var restoredItsFrame = false
 
     /// Shown while Secure Keyboard Entry is on and this is the key window.
     var showsSecureInput = false {

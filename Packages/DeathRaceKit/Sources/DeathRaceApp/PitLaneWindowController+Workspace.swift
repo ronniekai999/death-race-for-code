@@ -33,6 +33,7 @@ extension PitLaneWindowController {
         let proposed = NSRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height)
         guard let screen = NSScreen.screens.first(where: { $0.visibleFrame.intersects(proposed) }) ?? NSScreen.main
         else { return }
+        restoredItsFrame = true
         let bounds = screen.visibleFrame
         let width = min(proposed.width, bounds.width)
         let height = min(proposed.height, bounds.height)

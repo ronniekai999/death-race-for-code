@@ -44,6 +44,20 @@ func isRunning(_ pid: Int32) -> Bool {
     return true
 }
 
+/// Whether a process group still has a non-zombie member, even if its leader has exited.
+func isProcessGroupRunning(_ group: Int32) -> Bool {
+    // A failed probe cannot establish that the group has exited.
+    guard
+        let result = try? ChildProcess.run(
+            executable: "/bin/ps", arguments: ["/bin/ps", "-A", "-o", "pgid=,stat="],
+            environment: ["PATH": "/usr/bin:/bin"]), result.succeeded
+    else { return true }
+    return result.outputText.split(separator: "\n").contains { line in
+        let fields = line.split(whereSeparator: \.isWhitespace)
+        return fields.count == 2 && Int32(fields[0]) == group && !fields[1].hasPrefix("Z")
+    }
+}
+
 @Suite("ssh masters, without a server")
 struct MasterSupervisorTests {
     let folder: String
@@ -146,6 +160,8 @@ struct MasterSupervisorTests {
         #expect(await ending(of: master) == .failed(.cancelled))
         #expect(UnixSocket.monotonicMilliseconds() - started < patience(10_000))
         #expect(!isRunning(pid))
+        // The proxy can be interrupted before publishing its PID; check its group regardless.
+        #expect(await eventually { !isProcessGroupRunning(pid) })
         // The PID file is published by rename so a signal cannot leave a partial PID to read.
         // ssh may exit before it starts the proxy. If it published a PID, that process must end too.
         if FileManager.default.fileExists(atPath: pidFile) {

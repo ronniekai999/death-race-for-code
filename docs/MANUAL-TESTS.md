@@ -4,7 +4,7 @@ What CI cannot check, because it needs a real Mac, a real GPU, a keyboard, input
 your eyes. Run it with a debug build (`CONFIG=debug make run`) before closing a phase, and
 note the macOS build (`sw_vers`) with the results.
 
-The core tasks and the welcome come first; then Phase 9's checks, followed by Phase 8's,
+The core tasks, quick connect and the welcome come first; then Phase 9's checks, followed by Phase 8's,
 Phase 7's, Phase 6's, Phase 5's, Phase 4's, Phase 3's and Phase 2's, which still apply.
 
 ## Core tasks
@@ -17,6 +17,21 @@ record the count and the macOS build in its tables.
 - [ ] Task 3, a folder transfer: counted, or still not possible in Maze.
 - [ ] Task 4, a snippet on two hosts: counted.
 - [ ] Task 5, quitting and relaunching: counted, along with Termius's count on the same Mac.
+
+## Quick connect
+
+- [ ] **`ssh wrldjump@127.0.0.1 -p 2222`** in Hear Me Calling (⇧⌘P): the first row reads
+      "Connect to wrldjump@127.0.0.1:2222". ↵ saves the host in WRLD and opens it in a new tab;
+      ⌘↵ opens it beside the active pane.
+- [ ] **The password sheet** for it has Save in the Keychain ticked. After the login, the
+      password is in the Keychain, and the next connection asks Touch ID, not the password.
+- [ ] **The same host again**, typed the same way, or by a name you gave it in WRLD
+      (`ssh prod-api`), opens it without a second copy in WRLD.
+- [ ] **Next time**, ⇧⌘P opens with that host first, so ↵ reconnects.
+- [ ] **What it can't take** (`ssh -L 8080:localhost:80 db`, `ssh db uptime`, `-p 99999`):
+      the row says why, and ↵ leaves Hear Me Calling open with what was typed.
+- [ ] **New Host…** takes `wrldjump@127.0.0.1:2222` in Address and saves the user and port in
+      their own fields; a User or Port that says otherwise is refused with a sentence.
 
 ## Welcome
 
@@ -388,8 +403,8 @@ first macOS build to need compile fixes before any of this can be tried.
 - [ ] **A host from ~/.ssh/config** in Hear Me Calling (⇧⌘P, type its name): ↵ opens it in a
       new tab, ⌘↵ beside the active pane.
 - [ ] **A second pane** on the same host opens at once, with no login.
-- [ ] **Password prompts** come as sheets on the window; Save in the Keychain saves only after
-      the login succeeds.
+- [ ] **Password prompts** come as sheets on the window; Save in the Keychain is ticked, and saves
+      only after the login succeeds.
 - [ ] **A new host key** shows its fingerprint in a sheet; Trust connects.
 - [ ] **A changed host key** (edit its line in `~/.ssh/known_hosts`): the pane refuses, offers
       Forget the Old Key…, and the question shows both fingerprints. Forgetting reconnects,

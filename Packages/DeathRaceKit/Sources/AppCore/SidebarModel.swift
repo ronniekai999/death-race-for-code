@@ -186,7 +186,7 @@ public struct SidebarModel: Equatable, Sendable {
     }
 
     /// What the sidebar says when WRLD has no hosts.
-    public static let emptyHint = "Add a host to connect and browse its files."
+    public static let emptyHint = "Add a host to connect and browse its files, or press ⇧⌘P and type ssh user@host."
     /// And when that's because wrld.json couldn't be read.
     public static let unreadableHint = "WRLD couldn’t read wrld.json. Open WRLD (⌘O) to see why."
 }

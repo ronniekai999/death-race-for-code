@@ -89,7 +89,7 @@ final class HearMeCallingOverlay: NSView, NSTextFieldDelegate {
     static let visibleRows = 8
     static let listPadding: CGFloat = 6
     static let footerHeight: CGFloat = 34
-    static let placeholder = "Search actions, tabs, hosts, snippets, tunnels, themes and settings"
+    static let placeholder = "Search actions, hosts, snippets and settings, or type ssh user@host"
     static let font = NSFont.systemFont(ofSize: 18, weight: .regular)
     /// The mockup's dimming: rgba(8, 4, 20, 0.55).
     static let dim = NSColor(srgbRed: 8 / 255, green: 4 / 255, blue: 20 / 255, alpha: 0.55)
@@ -427,7 +427,8 @@ struct PaletteGlyph: View {
             case .window: return "macwindow"
             }
         case .pane: return "rectangle.split.2x1"
-        case .host: return "server.rack"
+        case .host, .quickConnect(.success): return "server.rack"
+        case .quickConnect(.failure): return "exclamationmark.triangle"
         // Wishing Well's », as on the boards.
         case .snippet: return "chevron.right.2"
         case .tunnel: return "arrow.left.arrow.right"

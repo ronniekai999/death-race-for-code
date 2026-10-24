@@ -53,7 +53,7 @@ Applications either way, so the session helper beside it stays where it was star
 | Make it yours | The first launch opens a welcome: a theme, your `~/.ssh/config` hosts and Lucid Dreams' shortcut. ⌘, opens Settings: eight themes, fonts, glow. Changes apply live. |
 | Tabs and splits | ⌘T, ⌘D (right), ⇧⌘D (down), ⇧⌘Return to zoom a pane, ⌘W to close it. |
 | The command palette | ⇧⌘P, **Hear Me Calling**: every action, host, snippet and tunnel by name. |
-| Your servers | ⌘O opens **WRLD**. Add a host, or add the hosts `~/.ssh/config` already names from the offer above the cards. Password and host-key questions appear as sheets. A second pane on the same host reuses the login. |
+| Your servers | ⇧⌘P and type `ssh user@host -p 2222`, as in a shell: it connects and saves the host in **WRLD**. ⌘O opens WRLD: add a host, or add the hosts `~/.ssh/config` already names from the offer above the cards. Password and host-key questions appear as sheets, and a password is saved once it works. A second pane on the same host reuses the login. |
 | Files | ⇧⌘P › **Open in Maze**, from any pane: a local shell asks which host, or adds one. Upload, download, drag between the two sides, or drop Finder files on it. No server to hand? Turn on System Settings › General › Sharing › Remote Login and add `localhost` as a host. |
 | Quick terminal | ⌥Space from any app: **Lucid Dreams** drops down from the notch and keeps its session while the app runs. |
 | Command history | Run a few commands. ⌘↑ and ⌘↓ jump between prompts, ⇧⌘A selects a command with its output, ⌘F searches history. A failed command gets a red rail. A command in another tab that fails, or runs 30 seconds or more, sends a notification when it ends. |

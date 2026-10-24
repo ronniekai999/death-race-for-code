@@ -157,7 +157,9 @@ struct FirstRunView: View {
         if let added = model.added {
             note(FirstRun.added(count: added) + " Open WRLD with ⌘O to see them.")
         } else if model.importable.isEmpty {
-            note("Nothing in ~/.ssh/config to bring in. Add a host any time with Shell › New Host….")
+            note(
+                "Nothing in ~/.ssh/config to bring in. To add a server, press ⇧⌘P and type ssh user@host, or use Shell › New Host…."
+            )
         } else {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 12) {

@@ -337,6 +337,9 @@
             func closeSFTP(_ host: HostRef) {}
             func release(_ pane: PaneID) {}
             func paletteHosts() -> [PaletteItem] { [] }
+            func quickConnect(_ draft: HostDraft) async -> Result<HostRef, WRLDService.AddFailure> {
+                .failure(.draft(.noAddress))
+            }
             var openConnections: [String] { [] }
             var openTunnelCount: Int { 1 }
             func paletteTunnels() -> [PaletteItem] { [] }

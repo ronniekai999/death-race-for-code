@@ -728,6 +728,17 @@ final class WRLDService: HostConnecting {
         return host.id
     }
 
+    func quickConnect(_ draft: HostDraft) async -> Result<HostRef, AddFailure> {
+        if let found = QuickConnect.existing(for: draft, in: vault, aliases: discovered.map(\.name)) {
+            return .success(found)
+        }
+        do throws(AddFailure) {
+            return .success(.vault(try await add(draft)))
+        } catch {
+            return .failure(error)
+        }
+    }
+
     /// Puts `key` on the host through its master, then has the host sign in with it.
     private func install(_ key: KeyID, on hostID: HostID, alias: String) async {
         guard let publicKey = vault.keys.first(where: { $0.id == key })?.publicKey else { return }

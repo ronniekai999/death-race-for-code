@@ -138,6 +138,8 @@ use ad-hoc signing. The debug build adds frame statistics and privacy-spike tool
 
 **3. Make it yours.**
 
+The first launch opens a welcome: pick a theme, add the hosts `~/.ssh/config` already names,
+and choose Lucid Dreams' shortcut. **Help › Welcome to Death Race for Code** brings it back.
 Open **Settings…** with ⌘, to choose a theme and font. Open **WRLD** with ⌘O to add a host,
 or start with the local shell. Use `make run` for a release-optimized development build;
 `make bundle` builds the app without opening it. You can copy the bundle into Applications.

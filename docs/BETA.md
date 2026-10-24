@@ -50,7 +50,7 @@ Applications either way, so the session helper beside it stays where it was star
 
 | Try | How |
 | --- | --- |
-| Make it yours | ⌘, opens Settings: eight themes, fonts, glow. Changes apply live. |
+| Make it yours | The first launch opens a welcome: a theme, your `~/.ssh/config` hosts and Lucid Dreams' shortcut. ⌘, opens Settings: eight themes, fonts, glow. Changes apply live. |
 | Tabs and splits | ⌘T, ⌘D (right), ⇧⌘D (down), ⇧⌘Return to zoom a pane, ⌘W to close it. |
 | The command palette | ⇧⌘P, **Hear Me Calling**: every action, host, snippet and tunnel by name. |
 | Your servers | ⌘O opens **WRLD**. Add a host, or add the hosts `~/.ssh/config` already names from the offer above the cards. Password and host-key questions appear as sheets. A second pane on the same host reuses the login. |

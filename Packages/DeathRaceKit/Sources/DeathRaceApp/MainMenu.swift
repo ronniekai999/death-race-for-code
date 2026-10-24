@@ -96,6 +96,7 @@ enum MainMenu {
 
     private static func help() -> NSMenu {
         let menu = NSMenu(title: "Help")
+        add([.welcome], to: menu)
         NSApp.helpMenu = menu
         return menu
     }
@@ -216,6 +217,7 @@ enum MainMenu {
         case .moveDividerUp: #selector(PitLaneWindowController.moveDividerUp(_:))
         case .moveDividerDown: #selector(PitLaneWindowController.moveDividerDown(_:))
         case .bringAllToFront: #selector(NSApplication.arrangeInFront(_:))
+        case .welcome: #selector(AppDelegate.showWelcome(_:))
         }
     }
 

@@ -9,7 +9,7 @@ import SwiftUI
 final class ThemedSheet {
     let panel: NSPanel
     private weak var parent: NSWindow?
-    private let chrome: Chrome
+    private var chrome: Chrome
 
     init(title: String, parent: NSWindow?, chrome: Chrome) {
         self.parent = parent
@@ -35,6 +35,14 @@ final class ThemedSheet {
             panel.center()
             panel.makeKeyAndOrderFront(nil)
         }
+    }
+
+    /// A theme chosen while the sheet is up, as the welcome's swatches choose one: the panel
+    /// follows. The view follows through its own model, since its palette was set at `show`.
+    func setChrome(_ chrome: Chrome) {
+        self.chrome = chrome
+        panel.appearance = chrome.appearance
+        panel.backgroundColor = chrome.colors.ground.nsColor
     }
 
     /// The sheet, and the window it is on, to the front: asked for again, it may have gone

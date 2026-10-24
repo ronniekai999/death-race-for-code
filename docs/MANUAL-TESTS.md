@@ -4,7 +4,7 @@ What CI cannot check, because it needs a real Mac, a real GPU, a keyboard, input
 your eyes. Run it with a debug build (`CONFIG=debug make run`) before closing a phase, and
 note the macOS build (`sw_vers`) with the results.
 
-The core tasks come first; then Phase 9's checks, followed by Phase 8's,
+The core tasks and the welcome come first; then Phase 9's checks, followed by Phase 8's,
 Phase 7's, Phase 6's, Phase 5's, Phase 4's, Phase 3's and Phase 2's, which still apply.
 
 ## Core tasks
@@ -17,6 +17,23 @@ record the count and the macOS build in its tables.
 - [ ] Task 3, a folder transfer: counted, or still not possible in Maze.
 - [ ] Task 4, a snippet on two hosts: counted.
 - [ ] Task 5, quitting and relaunching: counted, along with Termius's count on the same Mac.
+
+## Welcome
+
+- [ ] **A first launch** with no settings file and no host in WRLD opens the welcome on the
+      window: eight themes, the hosts `~/.ssh/config` names and four shortcuts.
+- [ ] **A theme** recolours the window behind and the welcome at once, and writes one `theme =`
+      line.
+- [ ] **Add to WRLD** adds every host the file names and says how many. The sidebar and WRLD
+      show them, and `~/.ssh/config` is unchanged.
+- [ ] **A shortcut** writes `lucid-dreams-hotkey`, and the chosen one opens Lucid Dreams from
+      another app. One macOS refuses says so in the warning colour; try ⌥Space on macOS 26.
+- [ ] **Done** closes it, and a relaunch doesn't show it again. **Help › Welcome to Death Race
+      for Code** opens it again, as do "welcome" and "setup" in Hear Me Calling.
+- [ ] **An existing install** with a settings file, or a host already in WRLD, doesn't see it on
+      its first launch with this build.
+- [ ] **VoiceOver** reads each swatch's theme name, reads the shortcut buttons as words, and
+      says which one is chosen.
 
 ## Phase 9 exit criteria
 

@@ -19,6 +19,8 @@ public enum ActionID: String, CaseIterable, Sendable {
     case minimize, zoomWindow, showPreviousTab, showNextTab, moveTabToNewWindow
     case previousPane, nextPane, focusPaneLeft, focusPaneRight, focusPaneUp, focusPaneDown
     case moveDividerLeft, moveDividerRight, moveDividerUp, moveDividerDown, bringAllToFront
+    // Help
+    case welcome
 }
 
 /// A key and its modifiers, written as macOS writes them: "⌃⌥⇧⌘", then the key.
@@ -333,6 +335,12 @@ public enum ActionCatalog {
             KeyShortcut(.down, [.command, .control]),
             keywords: ["resize pane"]),
         Action(.bringAllToFront, "Bring All to Front", "Bring all windows to front", .window),
+
+        // Help. In the app's group, which is where Settings › Keys would list it; it has no
+        // shortcut, so it isn't listed there at all.
+        Action(
+            .welcome, "Welcome to Death Race for Code", "Welcome to Death Race for Code", .app,
+            keywords: ["set up", "setup", "first run", "getting started", "import", "ssh config", "theme", "hotkey"]),
     ]
 
     /// Shortcuts the window handles by number rather than as menu items: ⌘1–⌘9 select

@@ -138,6 +138,8 @@ use ad-hoc signing. The debug build adds frame statistics and privacy-spike tool
 
 **3. Make it yours.**
 
+The first launch opens a welcome: pick a theme, add the hosts `~/.ssh/config` already names,
+and choose Lucid Dreams' shortcut. **Help › Welcome to Death Race for Code** brings it back.
 Open **Settings…** with ⌘, to choose a theme and font. Open **WRLD** with ⌘O to add a host,
 or start with the local shell. Use `make run` for a release-optimized development build;
 `make bundle` builds the app without opening it. You can copy the bundle into Applications.
@@ -357,12 +359,15 @@ responsibilities as the workspace grows.
 | [Conformance](docs/CONFORMANCE.md) | esctest, corpus fixtures, and deliberate differences |
 | [Performance](docs/PERF.md) | Measurement procedure and budgets |
 | [Design](docs/DESIGN.md) · [Naming](docs/NAMING.md) | The visual language and feature names |
+| [Core tasks](docs/CORE-TASKS.md) | Five tasks, their step counts against Termius, and the targets |
 
 ### Contributing & license
 
 Keep changes focused, run the applicable checks, and include evidence for behavior changes.
 UI and display changes need native verification; phase acceptance follows the documented
-checklist. The repository currently has no license file; no open-source license is implied.
+checklist. [Core tasks](docs/CORE-TASKS.md) come first: five tasks with step counts to beat
+Termius, and a change to one of them gives its count before and after. The repository
+currently has no license file; no open-source license is implied.
 
 ---
 

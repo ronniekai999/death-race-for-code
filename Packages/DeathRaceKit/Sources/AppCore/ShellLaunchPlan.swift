@@ -18,7 +18,9 @@ public enum ShellLaunchPlan {
         integration: URL? = ShellIntegration.directory()
     ) -> ShellLaunch {
         let home = environment["HOME"] ?? "/"
-        var launch = ShellLaunch.loginShell(inheriting: environment, appVersion: appVersion)
+        // One check throughout: the shell it starts from, as well as a configured command.
+        var launch = ShellLaunch.loginShell(
+            inheriting: environment, appVersion: appVersion, isExecutable: isExecutable)
         if let words = config.commandArguments,
             let program = resolve(words[0], path: environment["PATH"], home: home, isExecutable: isExecutable)
         {

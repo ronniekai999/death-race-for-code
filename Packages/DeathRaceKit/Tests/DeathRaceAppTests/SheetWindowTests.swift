@@ -56,6 +56,20 @@ extension WindowTests {
         try await expectFitsItsFields(sheet.panel)
     }
 
+    /// The welcome is the tallest sheet: eight swatches, the hosts on offer and four
+    /// shortcuts. All of it shows, nothing scrolls, and Done is on screen.
+    @Test func theWelcomeFitsItsFieldsInTheThemesColors() async throws {
+        let model = FirstRunModel(
+            palette: .init(sheetChrome), theme: Config().namedTheme.id, shortcut: "⌥Space",
+            shortcutWorks: false, importable: ["prod-api", "nas-999", "pi-hole", "jellyfin"])
+        let sheet = FirstRunSheet(model: model, parent: nil, chrome: sheetChrome)
+        sheet.show()
+        defer { sheet.close() }
+        let size = try await expectFitsItsFields(sheet.panel, tallerThan: 420)
+        // On a 13-inch screen, under the menu bar, with room to spare.
+        #expect(size.height < 760)
+    }
+
     private func mazeHosts(_ count: Int) -> [MazeHostView.Choice] {
         (1...count).map {
             MazeHostView.Choice(id: .vault(HostID(rawValue: "h\($0)")), name: "host-\($0)", address: "10.0.0.\($0)")

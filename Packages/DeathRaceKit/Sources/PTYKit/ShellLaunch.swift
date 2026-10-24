@@ -22,11 +22,13 @@ public struct ShellLaunch: Sendable, Equatable {
     }
 
     /// The user's login shell, started as a login shell ("-zsh"), in their home directory.
+    /// `isExecutable` decides which shells are there, as `userShell` reads it.
     public static func loginShell(
         inheriting base: [String: String] = ShellLaunch.processEnvironment(),
-        appVersion: String = "0.1.0"
+        appVersion: String = "0.1.0",
+        isExecutable: (String) -> Bool = { access($0, X_OK) == 0 }
     ) -> ShellLaunch {
-        let shell = userShell(environment: base)
+        let shell = userShell(environment: base, isExecutable: isExecutable)
         let name = shell.split(separator: "/").last.map(String.init) ?? "sh"
         return ShellLaunch(
             executable: shell,
@@ -58,14 +60,17 @@ public struct ShellLaunch: Sendable, Equatable {
     }
 
     /// $SHELL if it names an executable, else the password database, else /bin/zsh
-    /// (macOS) or /bin/sh.
-    public static func userShell(environment: [String: String]) -> String {
-        if let shell = environment["SHELL"], !shell.isEmpty, access(shell, X_OK) == 0 {
+    /// (macOS) or /bin/sh. `isExecutable` is the check, so a test that says a shell is there
+    /// gets it whether or not this machine has one.
+    public static func userShell(
+        environment: [String: String], isExecutable: (String) -> Bool = { access($0, X_OK) == 0 }
+    ) -> String {
+        if let shell = environment["SHELL"], !shell.isEmpty, isExecutable(shell) {
             return shell
         }
         if let entry = getpwuid(getuid()), let raw = entry.pointee.pw_shell {
             let shell = String(cString: raw)
-            if !shell.isEmpty, access(shell, X_OK) == 0 { return shell }
+            if !shell.isEmpty, isExecutable(shell) { return shell }
         }
         #if os(macOS)
             return "/bin/zsh"

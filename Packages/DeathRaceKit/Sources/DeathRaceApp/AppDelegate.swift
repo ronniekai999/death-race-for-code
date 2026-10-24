@@ -97,6 +97,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         watchSettingsFile()
         startLucidDreams()
         startRingRing()
+        // Last, so the shortcut it shows has been registered, or refused, already.
+        welcomeIfNew()
     }
 
     /// Ring Ring, and the records the badge compares against.
@@ -731,6 +733,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
         lucidDreams?.apply(config)
         hotKey?.apply(config.lucidDreamsHotkey)
         settingsWindow?.update(config: config, chrome: Chrome(config.namedTheme))
+        firstRunSheet?.update(config: config, chrome: Chrome(config.namedTheme), shortcutWorks: hotKeyTook)
         wrldWindow?.setChrome(Chrome(config.namedTheme))
         for controller in mazeWindows.values { controller.setChrome(Chrome(config.namedTheme)) }
         wrld?.checksHosts = config.checkHosts
@@ -743,6 +746,87 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
     /// Frames drawn so far by the panes that are open, for the Energy page.
     private var framesDrawn: Int {
         allPanes.reduce(0) { $0 + $1.surface.frameStats.framesDrawn }
+    }
+
+    // MARK: - Welcome
+
+    /// The welcome, while it is up.
+    private(set) var firstRunSheet: FirstRunSheet?
+
+    /// The welcome on a first launch: nothing set up yet, and never shown before.
+    private func welcomeIfNew() {
+        guard
+            FirstRun.shouldShow(
+                alreadyShown: defaults.bool(forKey: FirstRun.shownKey),
+                settingsFileExists: FileManager.default.fileExists(atPath: configStore.url.path),
+                hostCount: wrld?.vault.hosts.count ?? 0)
+        else { return }
+        showWelcome(nil)
+    }
+
+    /// Help › Welcome to Death Race for Code, and the first launch: a theme, the hosts
+    /// ~/.ssh/config names, and Lucid Dreams' shortcut, on the window in front.
+    @objc func showWelcome(_ sender: Any?) {
+        if let firstRunSheet { return firstRunSheet.bringForward() }
+        let config = configStore.config
+        let chrome = Chrome(config.namedTheme)
+        let model = FirstRunModel(
+            palette: LegendsPalette(chrome), theme: config.namedTheme.id, shortcut: config.lucidDreamsHotkey,
+            shortcutWorks: hotKeyTook, importable: wrld?.importable ?? [])
+        model.onTheme = { [weak self] id in
+            guard let self else { return nil }
+            return self.whyNotSaved { try self.chooseTheme(id) }
+        }
+        model.onShortcut = { [weak self] value in
+            guard let self else { return nil }
+            return self.whyNotSaved { try self.saveLucidDreamsShortcut(value) }
+        }
+        model.onImport = { [weak self] names in
+            guard let wrld = self?.wrld else { return (0, "WRLD isn’t ready yet. Try again in a moment.") }
+            // Counted from the vault, not from `names`: the import leaves out a name WRLD holds
+            // already, as it does once WRLD's own offer has added it while the welcome was open.
+            let before = wrld.vault.hosts.count
+            // Named, as New Host's is: a closure doesn't infer the thrown type.
+            do throws(VaultStore.Failure) {
+                try wrld.change { $0.importAliases(names) }
+                return (wrld.vault.hosts.count - before, nil)
+            } catch {
+                return (0, "WRLD couldn’t add them. " + wrld.sentence(for: error))
+            }
+        }
+        let sheet = FirstRunSheet(model: model, parent: frontWindow.window, chrome: chrome)
+        model.onDone = { [weak self, weak sheet] in
+            sheet?.close()
+            if let self, self.firstRunSheet === sheet { self.firstRunSheet = nil }
+        }
+        firstRunSheet = sheet
+        // Shown once, whatever is chosen: a welcome that came back at every launch until
+        // Done was pressed would be a nag, and Help opens it again.
+        defaults.set(true, forKey: FirstRun.shownKey)
+        sheet.show()
+    }
+
+    /// Writes Lucid Dreams' shortcut, a line Settings doesn't show, and applies it.
+    func saveLucidDreamsShortcut(_ value: String) throws {
+        defer { applyConfiguration() }
+        try configStore.update { ConfigEditor.set("lucid-dreams-hotkey", to: value, in: $0) }
+    }
+
+    /// Nil when `save` worked; otherwise why not, as Settings says it.
+    private func whyNotSaved(_ save: () throws -> Void) -> String? {
+        do {
+            try save()
+            return nil
+        } catch {
+            return "Death Race could not save the change to \(configStore.url.path): \(error.localizedDescription)"
+        }
+    }
+
+    /// Whether Lucid Dreams' shortcut is live: false when macOS refused it. True when it's
+    /// off, and with no hotkey controller at all (a window test), where nothing refused it.
+    private var hotKeyTook: Bool {
+        guard let hotKey, !FirstRun.isOff(configStore.config.lucidDreamsHotkey) else { return true }
+        return hotKey.active != nil
     }
 
     // MARK: - Hear Me Calling

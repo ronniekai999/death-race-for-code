@@ -23,6 +23,11 @@ private func threadSanitizerIsLoaded() -> Bool {
 let underThreadSanitizer: Bool = threadSanitizerIsLoaded()
 
 /// `milliseconds`, given room when the Thread Sanitizer is watching.
+///
+/// Ten times, not the four SessionIPC's copy gives its daemon's timings: under the sanitizer
+/// the whole suite starts at once, so these tests' clocks also count their turn on a few cores.
+/// A green CI run had the askpass and master tests at 31 seconds against 40, and a slower runner
+/// took them to 46 and failed. Every use here is a guard against a hang, so room costs nothing.
 func patience(_ milliseconds: Int) -> Int {
-    underThreadSanitizer ? milliseconds * 4 : milliseconds
+    underThreadSanitizer ? milliseconds * 10 : milliseconds
 }

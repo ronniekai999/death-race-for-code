@@ -126,10 +126,15 @@ actor StalledTransport: SFTPTransport {
         await client.shutDown()
     }
 
+    /// Checks that cancelled or expired file and directory opens close handles delivered in
+    /// late replies without blocking the reply reader.
     @Test(arguments: [StalledTransport.Operation.open, .opendir], [false, true])
     func abandonedOpensCloseTheirLateHandles(_ operation: StalledTransport.Operation, _ expires: Bool) async throws {
         let transport = StalledTransport(operation)
-        let client = SFTPClient(transport: transport, requestTimeout: expires ? .milliseconds(250) : .seconds(5))
+        // Expiring is what one case checks, so its 250 ms stays; the other's deadline only has to
+        // outlast the cancel, and gets the sanitizer's room.
+        let client = SFTPClient(
+            transport: transport, requestTimeout: expires ? .milliseconds(250) : .milliseconds(patience(5_000)))
         try await client.start()
         let opening = Task {
             if operation == .open {

@@ -127,9 +127,11 @@ struct MasterSupervisorTests {
     @Test(.enabled(if: RealSSH.shouldRun)) func endingBeforeStartingStillEndsIt() async throws {
         defer { try? FileManager.default.removeItem(atPath: folder) }
         let id = HostID(rawValue: "h1")
+        // Longer than any budget `patience` gives, so ending at once is still told apart from
+        // waiting the proxy out. Ending takes its process group, the sleep included.
         let config = try config(
             [WRLDHost(id: id, name: "stuck", source: .sshConfig(alias: "stuck"))],
-            user: "Host stuck\n    ProxyCommand /bin/sleep 60\n")
+            user: "Host stuck\n    ProxyCommand /bin/sleep 600\n")
         let master = try master(id, in: config)
         master.end(.failed(.cancelled))
         let started = UnixSocket.monotonicMilliseconds()

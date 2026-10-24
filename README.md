@@ -62,12 +62,15 @@ See [asset provenance](docs/assets/README.md).
 
 ### Your servers, in WRLD
 
+- **Quick connect.** Type `ssh user@host -p 2222` in Hear Me Calling (⇧⌘P), as you would in a
+  shell: it connects and saves the host in WRLD, or opens the one WRLD already has.
 - **Hosts that stay organized.** Cards, groups, favorites, keys, known hosts, and an inspector;
   import hosts from `~/.ssh/config` without rewriting it.
 - **OpenSSH connections.** One app-owned master per host lets additional panes share the
   login. Password, verification-code, and host-key questions appear as native sheets.
-- **Keychain and Touch ID.** Saved passwords live in the login Keychain. Secure Enclave keys
-  can be created and installed from the New Host flow.
+- **Keychain and Touch ID.** Saved passwords live in the login Keychain; the password sheet
+  saves a host's password once it works, and Touch ID asks before it's used. Secure Enclave
+  keys can be created and installed from the New Host flow.
 - **Come & Go.** Manage local, remote, and SOCKS tunnels on a live connection.
 - **Wishing Well.** Reusable snippets with `{{placeholders}}`, plus a startup snippet per host.
 - **Armed and Dangerous.** ⇧⌘I broadcasts input to the panes in a tab; the armed border makes
@@ -90,7 +93,7 @@ request deadlines. Dragging remote files out to Finder remains deferred.
 ### A workspace that remembers
 
 - **The Pit Lane.** Tabs, nested splits, pane zoom, a WRLD sidebar, and **Hear Me Calling**, the
-  command palette for actions, hosts, snippets, and tunnels.
+  command palette for actions, hosts, snippets, and tunnels, and for quick connect.
 - **Legends Never Die.** A local daemon keeps shells and scrollback alive across app quit or
   crash. Relaunch restores split directions and ratios, focus, zoom, selected tabs, and
   window frames. Closing a pane still ends its shell; SSH sessions end with the app.
@@ -140,8 +143,8 @@ use ad-hoc signing. The debug build adds frame statistics and privacy-spike tool
 
 The first launch opens a welcome: pick a theme, add the hosts `~/.ssh/config` already names,
 and choose Lucid Dreams' shortcut. **Help › Welcome to Death Race for Code** brings it back.
-Open **Settings…** with ⌘, to choose a theme and font. Open **WRLD** with ⌘O to add a host,
-or start with the local shell. Use `make run` for a release-optimized development build;
+Open **Settings…** with ⌘, to choose a theme and font. To add a server, press ⇧⌘P and type
+`ssh user@host`, or open **WRLD** with ⌘O; or start with the local shell. Use `make run` for a release-optimized development build;
 `make bundle` builds the app without opening it. You can copy the bundle into Applications.
 
 To select a specific development identity:

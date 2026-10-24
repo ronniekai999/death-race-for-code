@@ -35,6 +35,9 @@ protocol HostConnecting: AnyObject, Sendable {
     func release(_ pane: PaneID)
     /// Hear Me Calling's hosts.
     func paletteHosts() -> [PaletteItem]
+    /// Quick connect: the host `draft` names, the one WRLD or `~/.ssh/config` already has or
+    /// a new one saved in WRLD, ready to open; why it couldn't be saved otherwise.
+    func quickConnect(_ draft: HostDraft) async -> Result<HostRef, WRLDService.AddFailure>
     /// The hosts with a connection open, by name, for the quit question.
     var openConnections: [String] { get }
     /// Come & Go's tunnels that are open.

@@ -93,8 +93,10 @@ private final class PromptSheet {
         var views: [NSView] = [field]
         if question.canRemember {
             let remember = NSButton(checkboxWithTitle: "Save in the Keychain", target: nil, action: nil)
-            // Asked again after the saved one failed: saving the new one replaces it.
-            remember.state = question.savedSecretFailed ? .on : .off
+            // On: this is only asked for a host WRLD saves, which would otherwise ask for its
+            // password every time. It's kept once the login works, Touch ID guards it, and
+            // after a saved one failed, the new one replaces it.
+            remember.state = .on
             views.append(remember)
             self.remember = remember
         }

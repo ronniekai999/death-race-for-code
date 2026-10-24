@@ -1,4 +1,5 @@
 import Testing
+import Vault
 
 @testable import AppCore
 
@@ -61,6 +62,43 @@ struct PaletteStateTests {
         #expect(state.selected == nil)
         state.move(by: 1)
         #expect(state.selection == 0)
+    }
+
+    /// Typed as Termius's field takes it, it is the first row, above anything it happens to
+    /// match, and ↵ connects to it.
+    @Test func anSshCommandIsQuickConnectFirst() throws {
+        var state = PaletteState(items: items)
+        state.setQuery("ssh wrldjump@127.0.0.1 -p 2222")
+        let row = try #require(state.selected)
+        #expect(row.id == "quick-connect")
+        #expect(row.title == "Connect to wrldjump@127.0.0.1:2222")
+        #expect(row.kind == .host)
+        #expect(row.alternate == "Open Beside")
+        guard case .quickConnect(.success(let draft)) = row.target else {
+            Issue.record("\(row.target) isn't a quick connect")
+            return
+        }
+        #expect(try draft.host().connection == Connection(address: "127.0.0.1", user: "wrldjump", port: 2222))
+        #expect(state.results.filter { $0.id == "quick-connect" }.count == 1)
+
+        // Narrowed to another kind, it isn't offered.
+        state.cycleKind()
+        #expect(state.kind == .action)
+        #expect(!state.results.contains { $0.id == "quick-connect" })
+    }
+
+    /// What quick connect can't take is the row's title, and the row has nothing for ⌘↵.
+    @Test func aQuickConnectItCantTakeSaysWhy() throws {
+        var state = PaletteState(items: items)
+        state.setQuery("ssh -L 8080:localhost:80 db")
+        let row = try #require(state.selected)
+        #expect(row.id == "quick-connect")
+        #expect(row.title == QuickConnect.Problem.option("-L").sentence)
+        #expect(row.alternate == nil)
+        #expect(row.target == .quickConnect(.failure(.option("-L"))))
+        // A search that isn't an ssh command has no such row.
+        state.setQuery("split right")
+        #expect(!state.results.contains { $0.id == "quick-connect" })
     }
 
     @Test func recentPicksComeFirstOnceEach() {

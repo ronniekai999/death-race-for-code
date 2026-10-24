@@ -621,6 +621,7 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
     }
 
     private func choose(_ item: PaletteItem) {
+        if case .quickConnect(let parsed) = item.target { return quickConnect(parsed, beside: false) }
         host?.picked(item.id)
         switch item.target {
         case .action(let id):
@@ -650,6 +651,9 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
         case .host(let ref):
             closeHearMeCalling()
             open(ref, beside: false)
+        case .quickConnect:
+            // Chosen above, with no pick of its own: the host it opens is the pick.
+            return
         case .snippet(let id):
             closeHearMeCalling()
             useSnippet(id, run: false)
@@ -668,12 +672,36 @@ final class PitLaneWindowController: NSWindowController, NSWindowDelegate, Windo
             host?.picked(item.id)
             closeHearMeCalling()
             open(ref, beside: true)
+        case .quickConnect(let parsed):
+            quickConnect(parsed, beside: true)
         case .snippet(let id):
             host?.picked(item.id)
             closeHearMeCalling()
             useSnippet(id, run: true)
         default:
             return
+        }
+    }
+
+    /// Quick connect's row: the host it names, found in WRLD or saved there, opens as a host
+    /// chosen from the list would, and is the pick Hear Me Calling offers first next time.
+    /// A row that says what's wrong stays up to be fixed.
+    private func quickConnect(_ parsed: Result<HostDraft, QuickConnect.Problem>, beside: Bool) {
+        guard case .success(let draft) = parsed, let connections = host?.connections else { return NSSound.beep() }
+        closeHearMeCalling()
+        Task { [weak self] in
+            switch await connections.quickConnect(draft) {
+            case .success(let ref):
+                guard let self else { return }
+                host?.picked(PaletteItem(.host(ref), kind: .host, title: "").id)
+                open(ref, beside: beside)
+            case .failure(let failure):
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "Death Race couldn’t connect"
+                alert.informativeText = failure.sentence
+                _ = await self?.present(alert)
+            }
         }
     }
 

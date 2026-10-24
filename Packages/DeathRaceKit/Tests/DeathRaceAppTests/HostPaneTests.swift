@@ -71,6 +71,16 @@ final class FakeConnections: HostConnecting {
 
     func paletteHosts() -> [PaletteItem] { PaletteSearch.hosts(vault: Vault(), aliases: ["nas-999"]) }
 
+    /// What quick connect was asked for, and what it answers: a host WRLD calls "quick",
+    /// unless a test says otherwise.
+    private(set) var quickConnected: [HostDraft] = []
+    var quickConnectResult: Result<HostRef, WRLDService.AddFailure> = .success(.vault(HostID(rawValue: "quick")))
+
+    func quickConnect(_ draft: HostDraft) async -> Result<HostRef, WRLDService.AddFailure> {
+        quickConnected.append(draft)
+        return quickConnectResult
+    }
+
     var openConnections: [String] { [] }
 
     private(set) var toggled: [TunnelID] = []
@@ -285,5 +295,58 @@ extension WindowTests {
         #expect(controller.model.tabs.count == 1)
         #expect(controller.model.activeTab?.panes.count == 2)
         #expect(controller.activePane?.launch == .connection(nas))
+    }
+
+    /// Termius's field, in Hear Me Calling: ↵ on an ssh command has WRLD find or save the host,
+    /// opens it in a new tab, and makes it the pick Hear Me Calling offers first next time.
+    @Test func anSshCommandInHearMeCallingConnectsAndIsOfferedNextTime() async throws {
+        let (host, connections, controller) = hostWindow()
+        defer { controller.window?.close() }
+        connections.results = [.ready(FakeConnections.session)]
+        let quick = HostRef.vault(HostID(rawValue: "quick"))
+
+        controller.showHearMeCalling(nil)
+        let overlay = try #require(controller.hearMeCalling)
+        type("ssh wrldjump@127.0.0.1 -p 2222", into: overlay)
+        #expect(overlay.model.state.selected?.title == "Connect to wrldjump@127.0.0.1:2222")
+        press(#selector(NSResponder.insertNewline(_:)), in: overlay)
+        #expect(controller.hearMeCalling == nil)
+        await eventually { controller.model.tabs.count == 2 }
+        #expect(controller.model.tabs.count == 2)
+        #expect(controller.activePane?.launch == .connection(quick))
+        let asked = try connections.quickConnected.map { try $0.host().connection }
+        #expect(asked == [Connection(address: "127.0.0.1", user: "wrldjump", port: 2222)])
+        #expect(host.recentPicks == ["host.quick"])
+    }
+
+    @Test func commandReturnOnQuickConnectOpensItBeside() async throws {
+        let (_, connections, controller) = hostWindow()
+        defer { controller.window?.close() }
+        connections.results = [.ready(FakeConnections.session)]
+
+        controller.showHearMeCalling(nil)
+        let overlay = try #require(controller.hearMeCalling)
+        type("ubuntu@db", into: overlay)
+        overlay.model.chooseAlternate()
+        await eventually { controller.model.activeTab?.panes.count == 2 }
+        #expect(controller.model.tabs.count == 1)
+        #expect(controller.activePane?.launch == .connection(.vault(HostID(rawValue: "quick"))))
+    }
+
+    /// A row that says what's wrong stays up, with what was typed, to be fixed.
+    @Test func aQuickConnectItCantTakeStaysUpToBeFixed() throws {
+        let (_, connections, controller) = hostWindow()
+        defer { controller.window?.close() }
+
+        controller.showHearMeCalling(nil)
+        let overlay = try #require(controller.hearMeCalling)
+        type("ssh db uptime", into: overlay)
+        #expect(overlay.model.state.selected?.title == QuickConnect.Problem.command.sentence)
+        press(#selector(NSResponder.insertNewline(_:)), in: overlay)
+        overlay.model.chooseAlternate()
+        #expect(controller.hearMeCalling === overlay)
+        #expect(overlay.field.stringValue == "ssh db uptime")
+        #expect(connections.quickConnected.isEmpty)
+        #expect(controller.model.tabs.count == 1)
     }
 }

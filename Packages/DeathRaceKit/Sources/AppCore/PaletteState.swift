@@ -62,8 +62,13 @@ public struct PaletteState: Sendable, Equatable {
         if results.indices.contains(index) { selection = index }
     }
 
+    /// Quick connect's row comes first when the query is an ssh command: it's what was typed,
+    /// where a match is only a guess.
     private mutating func refresh() {
         results = PaletteSearch.search(query, in: items, kind: kind, recent: recent)
+        if kind == nil || kind == .host, let quickConnect = PaletteSearch.quickConnect(query) {
+            results.insert(PaletteSearch.Result(item: quickConnect, ranges: []), at: 0)
+        }
         selection = 0
     }
 

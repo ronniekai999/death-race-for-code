@@ -80,7 +80,7 @@ struct SidebarModelTests {
         let sidebar = model(vault: Vault())
         #expect(sidebar.sections.map(\.title) == ["WRLD"])
         #expect(sidebar.sections[0].rows.isEmpty)
-        #expect(sidebar.hint == "Add a host to connect and browse its files.")
+        #expect(sidebar.hint == "Add a host to connect and browse its files, or press ⇧⌘P and type ssh user@host.")
         // Empty because wrld.json couldn't be read: it says so rather than offering to start over.
         let unreadable = SidebarModel(.init(vault: Vault(), vaultUnreadable: true))
         #expect(unreadable.hint == SidebarModel.unreadableHint)

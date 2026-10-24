@@ -22,6 +22,9 @@ public struct PaletteItem: Sendable, Equatable, Identifiable {
         case pane(TabID, PaneID)
         /// ↵ opens it in a new tab, ⌘↵ beside the current pane.
         case host(HostRef)
+        /// An ssh command typed into the field: ↵ connects, saving the host in WRLD, as `host`
+        /// opens. What's wrong with it, when something is, and then ↵ does nothing.
+        case quickConnect(Result<HostDraft, QuickConnect.Problem>)
         /// ↵ types it in, ⌘↵ runs it: after its fields, when it has any.
         case snippet(SnippetID)
         /// ↵ turns it on or off.
@@ -48,6 +51,7 @@ public struct PaletteItem: Sendable, Equatable, Identifiable {
         case .pane(let tab, let pane): "pane.\(tab.rawValue).\(pane.rawValue)"
         case .host(.vault(let host)): "host.\(host.rawValue)"
         case .host(.sshConfig(let alias)): "host.alias.\(alias)"
+        case .quickConnect: "quick-connect"
         case .snippet(let snippet): "snippet.\(snippet.rawValue)"
         case .tunnel(let tunnel): "tunnel.\(tunnel.rawValue)"
         case .theme(let theme): "theme.\(theme)"
@@ -141,6 +145,21 @@ public enum PaletteSearch {
             PaletteItem(
                 .action(action.id), kind: .action, title: action.paletteTitle, detail: action.group.rawValue,
                 shortcut: action.shortcut?.description, keywords: action.keywords)
+        }
+    }
+
+    /// Quick connect's row for `query`: nil unless it's an ssh command or `user@host`. What's
+    /// wrong with one is its title, which a row keeps whole, where it cuts a detail short.
+    public static func quickConnect(_ query: String) -> PaletteItem? {
+        guard let parsed = QuickConnect.draft(query) else { return nil }
+        switch parsed {
+        case .success(let draft):
+            let place = (try? draft.host().connection).map(QuickConnect.place) ?? draft.address
+            return PaletteItem(
+                .quickConnect(parsed), kind: .host, title: "Connect to \(place)",
+                detail: "Quick connect · saved in WRLD", alternate: "Open Beside")
+        case .failure(let problem):
+            return PaletteItem(.quickConnect(parsed), kind: .host, title: problem.sentence, detail: "Quick connect")
         }
     }
 

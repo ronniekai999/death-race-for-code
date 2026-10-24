@@ -5,7 +5,7 @@ a step count to beat. Until a task meets its target, work on it comes first.
 
 | # | Task | Termius 10.2.1 | Death Race today | Target |
 | --- | --- | --- | --- | --- |
-| 1 | [New server](#1-new-server) | 7 | 9, or 10 to save the password | 6 |
+| 1 | [New server](#1-new-server) | 7 | 10 | 6 |
 | 2 | [Reconnect](#2-reconnect) | 2 | 2 | 1 |
 | 3 | [Folder transfer](#3-folder-transfer) | 4 | Not possible in Maze | 3 |
 | 4 | [A snippet on two hosts](#4-a-snippet-on-two-hosts) | 7 | 10; 4 with the sidebar and ⌘-click | 5 |
@@ -43,7 +43,7 @@ build here when you do.
 **Finish:** a shell on the server, and the server saved with its password, so task 2 needs
 neither.
 
-| | Termius: 7 | Death Race: 9, or 10 with the password saved |
+| | Termius: 7 | Death Race: 10 |
 | --- | --- | --- |
 | 1 | Click the `ssh user@hostname -p port` field above the hosts | ⌘O opens WRLD |
 | 2 | Type `ssh wrldjump@127.0.0.1 -p 2222` | New host |
@@ -53,8 +53,11 @@ neither.
 | 6 | Type the password | Add host: it opens in a new tab |
 | 7 | Return: a shell, with the host and password saved | Trust and Connect, in a sheet |
 | 8 | | The password, in a sheet |
-| 9 | | Return: a shell |
-| 10 | | To save the password, tick Save in the Keychain before step 9 |
+| 9 | | Tick Save in the Keychain, which is off by default |
+| 10 | | Return: a shell, with the host and password saved |
+
+Leaving Save in the Keychain off makes it 9 to a shell, but the finish isn't reached: task 2
+then asks for the password again.
 
 Typing `ssh -p 2222 wrldjump@127.0.0.1` into a local pane takes 6 steps, but nothing is saved,
 so WRLD, Maze and task 2 know nothing about the server.

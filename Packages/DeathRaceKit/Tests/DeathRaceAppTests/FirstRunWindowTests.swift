@@ -100,9 +100,10 @@ extension WindowTests {
     @Test func addingHostsSaysHowManyAndOffersNoMore() {
         let model = model(offering: ["prod-api", "nas-999"])
         var asked: [[String]] = []
+        #expect(model.added == nil)
         model.onImport = { names in
             asked.append(names)
-            return nil
+            return (names.count, nil)
         }
         model.importHosts()
         #expect(asked == [["prod-api", "nas-999"]])
@@ -114,12 +115,23 @@ extension WindowTests {
         #expect(asked.count == 1)
     }
 
+    /// Added from WRLD's own offer while the welcome was open: the import leaves them out, and
+    /// the welcome says none were added rather than counting the names it asked for.
+    @Test func hostsWRLDAlreadyHoldsAreNotCountedAsAdded() {
+        let model = model(offering: ["prod-api", "nas-999"])
+        model.onImport = { _ in (0, nil) }
+        model.importHosts()
+        #expect(model.added == 0)
+        #expect(model.importable.isEmpty)
+        #expect(model.problem == nil)
+    }
+
     @Test func aFailedAddSaysWhyAndKeepsTheOffer() {
         let model = model(offering: ["prod-api"])
-        model.onImport = { _ in "WRLD couldn’t save wrld.json." }
+        model.onImport = { _ in (0, "WRLD couldn’t save wrld.json.") }
         model.importHosts()
         #expect(model.problem == "WRLD couldn’t save wrld.json.")
-        #expect(model.added == 0)
+        #expect(model.added == nil)
         #expect(model.importable == ["prod-api"])
     }
 }

@@ -59,8 +59,8 @@ final class FirstRunModel {
     var shortcutWorks: Bool
     /// The names in ~/.ssh/config WRLD doesn't hold yet.
     var importable: [String]
-    /// How many hosts were added from here.
-    var added = 0
+    /// How many hosts the last Add to WRLD added; nil until it has been pressed.
+    var added: Int?
     /// Why the last choice couldn't be saved.
     var problem: String?
 
@@ -68,8 +68,9 @@ final class FirstRunModel {
     @ObservationIgnored var onTheme: ((String) -> String?)?
     /// Saves Lucid Dreams' shortcut; why it couldn't, when it couldn't.
     @ObservationIgnored var onShortcut: ((String) -> String?)?
-    /// Adds hosts to WRLD by their ~/.ssh/config names; why it couldn't, when it couldn't.
-    @ObservationIgnored var onImport: (([String]) -> String?)?
+    /// Adds hosts to WRLD by their ~/.ssh/config names: how many it added, which leaves out any
+    /// WRLD already holds, or why it couldn't.
+    @ObservationIgnored var onImport: (([String]) -> (added: Int, problem: String?))?
     @ObservationIgnored var onDone: (() -> Void)?
 
     init(palette: LegendsPalette, theme: String, shortcut: String, shortcutWorks: Bool, importable: [String]) {
@@ -90,12 +91,12 @@ final class FirstRunModel {
 
     func importHosts() {
         let names = importable
-        guard !names.isEmpty else { return }
-        if let failure = onImport?(names) {
+        guard !names.isEmpty, let outcome = onImport?(names) else { return }
+        if let failure = outcome.problem {
             problem = failure
             return
         }
-        added += names.count
+        added = outcome.added
         importable = []
         problem = nil
     }
@@ -153,8 +154,8 @@ struct FirstRunView: View {
 
     /// The offer to add what ~/.ssh/config names, what was added, or where to add one.
     @ViewBuilder private var servers: some View {
-        if model.added > 0 {
-            note(FirstRun.added(count: model.added) + " Open WRLD with ⌘O to see them.")
+        if let added = model.added {
+            note(FirstRun.added(count: added) + " Open WRLD with ⌘O to see them.")
         } else if model.importable.isEmpty {
             note("Nothing in ~/.ssh/config to bring in. Add a host any time with Shell › New Host….")
         } else {

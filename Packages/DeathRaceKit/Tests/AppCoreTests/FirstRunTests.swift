@@ -49,6 +49,7 @@ import Testing
         #expect(FirstRun.names(["prod-api", "nas-999", "pi-hole"]) == "prod-api, nas-999 and pi-hole")
         #expect(FirstRun.names(["a", "b", "c", "d"]) == "a, b, c and 1 more host")
         #expect(FirstRun.names(["a", "b", "c", "d", "e"]) == "a, b, c and 2 more hosts")
+        #expect(FirstRun.added(count: 0) == "They’re in WRLD already.")
         #expect(FirstRun.added(count: 1) == "Added 1 host to WRLD.")
         #expect(FirstRun.added(count: 12) == "Added 12 hosts to WRLD.")
     }

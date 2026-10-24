@@ -782,13 +782,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WindowHost {
             return self.whyNotSaved { try self.saveLucidDreamsShortcut(value) }
         }
         model.onImport = { [weak self] names in
-            guard let wrld = self?.wrld else { return "WRLD isn’t ready yet. Try again in a moment." }
+            guard let wrld = self?.wrld else { return (0, "WRLD isn’t ready yet. Try again in a moment.") }
+            // Counted from the vault, not from `names`: the import leaves out a name WRLD holds
+            // already, as it does once WRLD's own offer has added it while the welcome was open.
+            let before = wrld.vault.hosts.count
             // Named, as New Host's is: a closure doesn't infer the thrown type.
             do throws(VaultStore.Failure) {
                 try wrld.change { $0.importAliases(names) }
-                return nil
+                return (wrld.vault.hosts.count - before, nil)
             } catch {
-                return "WRLD couldn’t add them. " + wrld.sentence(for: error)
+                return (0, "WRLD couldn’t add them. " + wrld.sentence(for: error))
             }
         }
         let sheet = FirstRunSheet(model: model, parent: frontWindow.window, chrome: chrome)

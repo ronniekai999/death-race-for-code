@@ -77,8 +77,9 @@ public enum FirstRun {
         return parts.isEmpty ? last : parts.joined(separator: ", ") + " and " + last
     }
 
-    /// After the button: "Added 3 hosts to WRLD."
+    /// After the button: "Added 3 hosts to WRLD.", or, when WRLD held them all by then (added
+    /// from its own offer while the welcome was open), that they're there already.
     public static func added(count: Int) -> String {
-        "Added \(WRLDBoard.counted(count, "host")) to WRLD."
+        count == 0 ? "They’re in WRLD already." : "Added \(WRLDBoard.counted(count, "host")) to WRLD."
     }
 }

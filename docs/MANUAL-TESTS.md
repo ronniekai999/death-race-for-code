@@ -27,7 +27,8 @@ record the count and the macOS build in its tables.
 - [ ] **Add to WRLD** adds every host the file names and says how many. The sidebar and WRLD
       show them, and `~/.ssh/config` is unchanged.
 - [ ] **A shortcut** writes `lucid-dreams-hotkey`, and the chosen one opens Lucid Dreams from
-      another app. One macOS refuses says so in the warning colour; try ⌥Space on macOS 26.
+      another app. If macOS refuses a shortcut, the welcome says so in the warning colour; try
+      ⌥Space on macOS 26.
 - [ ] **Done** closes it, and a relaunch doesn't show it again. **Help › Welcome to Death Race
       for Code** opens it again, as do "welcome" and "setup" in Hear Me Calling.
 - [ ] **An existing install** with a settings file, or a host already in WRLD, doesn't see it on

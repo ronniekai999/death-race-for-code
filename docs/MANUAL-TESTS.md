@@ -4,8 +4,19 @@ What CI cannot check, because it needs a real Mac, a real GPU, a keyboard, input
 your eyes. Run it with a debug build (`CONFIG=debug make run`) before closing a phase, and
 note the macOS build (`sw_vers`) with the results.
 
-Phase 9's checks come first; Phase 8's, Phase 7's, Phase 6's, Phase 5's, Phase 4's, Phase 3's
-and Phase 2's follow, and still apply.
+The core tasks come first; then Phase 9's checks, followed by Phase 8's,
+Phase 7's, Phase 6's, Phase 5's, Phase 4's, Phase 3's and Phase 2's, which still apply.
+
+## Core tasks
+
+Count each task in [CORE-TASKS.md](CORE-TASKS.md) on a Mac, the way that page counts, and
+record the count and the macOS build in its tables.
+
+- [ ] Task 1, a new server: counted, with the path taken.
+- [ ] Task 2, reconnecting: counted.
+- [ ] Task 3, a folder transfer: counted, or still not possible in Maze.
+- [ ] Task 4, a snippet on two hosts: counted.
+- [ ] Task 5, quitting and relaunching: counted, along with Termius's count on the same Mac.
 
 ## Phase 9 exit criteria
 

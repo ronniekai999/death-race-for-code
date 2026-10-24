@@ -44,6 +44,20 @@ func isRunning(_ pid: Int32) -> Bool {
     return true
 }
 
+/// Whether a process group still has a non-zombie member, even if its leader has exited.
+func isProcessGroupRunning(_ group: Int32) -> Bool {
+    // A failed probe cannot establish that the group has exited.
+    guard
+        let result = try? ChildProcess.run(
+            executable: "/bin/ps", arguments: ["/bin/ps", "-A", "-o", "pgid=,stat="],
+            environment: ["PATH": "/usr/bin:/bin"]), result.succeeded
+    else { return true }
+    return result.outputText.split(separator: "\n").contains { line in
+        let fields = line.split(whereSeparator: \.isWhitespace)
+        return fields.count == 2 && Int32(fields[0]) == group && !fields[1].hasPrefix("Z")
+    }
+}
+
 @Suite("ssh masters, without a server")
 struct MasterSupervisorTests {
     let folder: String
@@ -128,19 +142,33 @@ struct MasterSupervisorTests {
     /// within the `patience` budget instead of waiting for the proxy.
     @Test(.enabled(if: RealSSH.shouldRun)) func endingBeforeStartingStillEndsIt() async throws {
         defer { try? FileManager.default.removeItem(atPath: folder) }
+        let pidFile = folder + "/proxy.pid"
         let id = HostID(rawValue: "h1")
         // Longer than any budget `patience` gives, so ending at once is still told apart from
         // waiting the proxy out. Ending takes its process group, the sleep included, by the same
         // `end` that `endingTakesItsProxyCommandWithIt` checks.
         let config = try config(
             [WRLDHost(id: id, name: "stuck", source: .sshConfig(alias: "stuck"))],
-            user: "Host stuck\n    ProxyCommand /bin/sleep 600\n")
+            user: """
+                Host stuck
+                    ProxyCommand /bin/sh -c 'echo $$ > \(pidFile).tmp; mv \(pidFile).tmp \(pidFile); exec /bin/sleep 600'
+                """)
         let master = try master(id, in: config)
         master.end(.failed(.cancelled))
         let started = UnixSocket.monotonicMilliseconds()
-        try master.start()
+        let pid = try master.start()
         #expect(await ending(of: master) == .failed(.cancelled))
         #expect(UnixSocket.monotonicMilliseconds() - started < patience(10_000))
+        #expect(!isRunning(pid))
+        // The proxy can be interrupted before publishing its PID; check its group regardless.
+        #expect(await eventually { !isProcessGroupRunning(pid) })
+        // The PID file is published by rename so a signal cannot leave a partial PID to read.
+        // ssh may exit before it starts the proxy. If it published a PID, that process must end too.
+        if FileManager.default.fileExists(atPath: pidFile) {
+            let proxy = try #require(
+                Int32(String(contentsOfFile: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+            #expect(await eventually { !isRunning(proxy) })
+        }
     }
 
     @Test(.enabled(if: RealSSH.shouldRun)) func aMasterAlreadyListeningIsntReplaced() throws {

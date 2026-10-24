@@ -130,7 +130,8 @@ struct MasterSupervisorTests {
         defer { try? FileManager.default.removeItem(atPath: folder) }
         let id = HostID(rawValue: "h1")
         // Longer than any budget `patience` gives, so ending at once is still told apart from
-        // waiting the proxy out. Ending takes its process group, the sleep included.
+        // waiting the proxy out. Ending takes its process group, the sleep included, by the same
+        // `end` that `endingTakesItsProxyCommandWithIt` checks.
         let config = try config(
             [WRLDHost(id: id, name: "stuck", source: .sshConfig(alias: "stuck"))],
             user: "Host stuck\n    ProxyCommand /bin/sleep 600\n")

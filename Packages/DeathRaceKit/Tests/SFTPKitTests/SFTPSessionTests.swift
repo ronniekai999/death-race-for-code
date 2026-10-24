@@ -10,8 +10,10 @@ import Testing
 #endif
 
 /// The transport against a real child that misbehaves, which is the only way to reach the
-/// paths a server or a dying ssh drives. No sshd needed: a shell stands in for it.
-@Suite("The SFTP transport", .timeLimit(.minutes(1)))
+/// paths a server or a dying ssh drives. No sshd needed: a shell stands in for it. Two
+/// minutes, above the 100 seconds `Finished.within(10)` waits under the Thread Sanitizer, so
+/// a stuck send is reported by the guard rather than cut off by the limit.
+@Suite("The SFTP transport", .timeLimit(.minutes(2)))
 struct SFTPSessionTests {
     /// A child that closes its stdin at once and then lingers, so every write gets `EPIPE`
     /// while the process is still there.

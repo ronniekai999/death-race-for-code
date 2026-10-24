@@ -116,6 +116,8 @@ public struct HostDraft: Equatable, Sendable {
             address = host
             if portText.isEmpty { portText = given } else if portText != given { throw .portInAddress }
         }
+        // One colon left is a port that isn't a number, `db:` or `db:ssh`; IPv6 has more.
+        if address.filter({ $0 == ":" }).count == 1 { throw .port }
         guard !address.isEmpty else { throw .noAddress }
         // An IPv6 address as a URL writes it: HostName takes it bare.
         if address.hasPrefix("["), address.hasSuffix("]") { address = String(address.dropFirst().dropLast()) }

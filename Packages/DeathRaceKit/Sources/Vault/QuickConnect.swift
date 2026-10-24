@@ -65,7 +65,11 @@ public enum QuickConnect {
             guard ["-p", "-l", "-i"].contains(option) else { return .failure(.option(option)) }
             var value = String(word.dropFirst(2))
             if value.isEmpty {
-                guard index < arguments.endIndex else { return .failure(.missingValue(option)) }
+                // The next word, unless it's another option: `-l -p2222` is missing its user. A
+                // key file's path may start with `-`.
+                guard index < arguments.endIndex, option == "-i" || !arguments[index].hasPrefix("-") else {
+                    return .failure(.missingValue(option))
+                }
                 value = arguments[index]
                 index += 1
             }

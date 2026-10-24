@@ -25,6 +25,7 @@ struct QuickConnectTests {
                 Connection(address: "10.0.0.9", user: "ec2-user", identity: .keyFile("/keys/ec2.pem"))
             ),
             ("ssh root@fe80::1", Connection(address: "fe80::1", user: "root")),
+            ("ssh -i -odd.pem db", Connection(address: "db", identity: .keyFile("-odd.pem"))),
             // Without the word ssh: one word, with a user or ssh:// in it.
             ("ubuntu@db", Connection(address: "db", user: "ubuntu")),
             ("ssh://db:2222", Connection(address: "db", port: 2222)),
@@ -52,6 +53,10 @@ struct QuickConnectTests {
             ("ssh -v db", .option("-v")),
             ("ssh db -p", .missingValue("-p")),
             ("ssh -l", .missingValue("-l")),
+            // Another option where the value should be isn't taken for it.
+            ("ssh -l -p2222 db", .missingValue("-l")),
+            ("ssh -p -l bob db", .missingValue("-p")),
+            ("ssh db:", .draft(.port)),
             ("ssh db uptime", .command),
             ("ssh -p 2222", .draft(.noAddress)),
             ("ssh db -p 99999", .draft(.port)),

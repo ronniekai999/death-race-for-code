@@ -9,6 +9,8 @@ actor Finished {
     func mark() { value = true }
     var isSet: Bool { value }
 
+    /// Reports whether `work` completes successfully within `seconds`, scaled by `patience`.
+    /// Requests cancellation when the polling budget expires without waiting for the task to stop.
     static func within(_ seconds: Double, _ work: @escaping @Sendable () async throws -> Void) async -> Bool {
         let flag = Finished()
         let task = Task {

@@ -124,6 +124,8 @@ struct MasterSupervisorTests {
         #expect(await ending(of: master) == .failed(.cancelled))
     }
 
+    /// Checks that ending a master before starting preserves its cancellation and finishes
+    /// within the `patience` budget instead of waiting for the proxy.
     @Test(.enabled(if: RealSSH.shouldRun)) func endingBeforeStartingStillEndsIt() async throws {
         defer { try? FileManager.default.removeItem(atPath: folder) }
         let id = HostID(rawValue: "h1")

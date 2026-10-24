@@ -27,6 +27,8 @@ private actor ReorderingTransport: SFTPTransport {
 }
 
 @Suite struct StreamingTransferTests {
+    /// Checks that pipelined upload writes tolerate replies arriving in reverse order and
+    /// preserve the file's contents on download.
     @Test func pipelinedWritesCompleteWhenRepliesArriveInReverseOrder() async throws {
         let transport = ReorderingTransport()
         let client = SFTPClient(

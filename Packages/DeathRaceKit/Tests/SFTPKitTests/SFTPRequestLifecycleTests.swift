@@ -126,6 +126,8 @@ actor StalledTransport: SFTPTransport {
         await client.shutDown()
     }
 
+    /// Checks that cancelled or expired file and directory opens close handles delivered in
+    /// late replies without blocking the reply reader.
     @Test(arguments: [StalledTransport.Operation.open, .opendir], [false, true])
     func abandonedOpensCloseTheirLateHandles(_ operation: StalledTransport.Operation, _ expires: Bool) async throws {
         let transport = StalledTransport(operation)
